@@ -86,25 +86,24 @@
 | SC     | 1B    | 和校验                     |
 | AC     | 1B    | 累加校验                   |
 
-### 2.2 校验算法
+### 2.2 校验算法 (Fletcher-8)
 
-**SC (和校验):**
-
-```
-SC = (帧头 + D_ADDR + ID + LEN + DATA[0] + ... + DATA[N]) & 0xFF
-```
-
-逐字节累加整帧 (含帧头 `0xAA`), 取低8位。
-
-**AC (累加校验):**
+校验覆盖整帧所有字节, 包括帧头 `0xAA`。逐字节遍历, 使用双累加器:
 
 ```
-AC = (SC) & 0xFF
+sumcheck = 0
+addcheck = 0
+for b in frame_bytes:
+    sumcheck = (sumcheck + b) & 0xFF
+    addcheck = (addcheck + sumcheck) & 0xFF
+SC = sumcheck
+AC = addcheck
 ```
 
-对 SC 的值再次取累加和, 取低8位。
+- **SC (和校验):** 所有字节的累加和, 取低8位。
+- **AC (累加校验):** 每一步的运行累加和再累加, 取低8位。
 
-> 校验范围覆盖整帧所有字节, 包括帧头 `0xAA`。
+> AC 不是简单的 `SC & 0xFF`, 而是逐步累加 `sumcheck` 的中间值。
 
 ### 2.3 命令列表
 
@@ -113,13 +112,12 @@ AC = (SC) & 0xFF
 #### 2.3.1 模式切换 cmd_mode(mode)
 
 
-| 字段 | 值       |
-| ------ | ---------- |
-| CID  | `0x01`   |
-| CMD  | `0x01`   |
-| LEN  | `0x01`   |
-| DATA | `[MODE]` |
-| 补齐 | 7B`0x00` |
+| 字段 | 值                                    |
+| ------ | --------------------------------------- |
+| CID  | `0x01`                                |
+| CMD  | `0x01`                                |
+| LEN  | `0x0B` (11字节)                        |
+| DATA | `01 01 01 [MODE] 00 00 00 00 00 00 00` |
 
 **MODE 取值:**
 
@@ -134,45 +132,42 @@ AC = (SC) & 0xFF
 帧示例 (模式=3, 程控):
 
 ```
-AA FF E0 01 03 00 00 00 00 00 00 00 00 [SC] [AC]
+AA FF E0 0B 01 01 01 03 00 00 00 00 00 00 [SC] [AC]
 ```
 
 #### 2.3.2 解锁电机 cmd_unlock()
 
 
-| 字段 | 值       |
-| ------ | ---------- |
-| CID  | `0x10`   |
-| CMD  | `0x00`   |
-| LEN  | `0x01`   |
-| DATA | `0x01`   |
-| 补齐 | 8B`0x00` |
+| 字段 | 值                                  |
+| ------ | ------------------------------------- |
+| CID  | `0x10`                              |
+| CMD  | `0x00`                              |
+| LEN  | `0x0B` (11字节)                      |
+| DATA | `10 00 01 00 00 00 00 00 00 00 00`  |
 
-帧: `AA FF E0 01 10 00 01 00 00 00 00 00 00 00 00 00 00 [SC] [AC]`
+帧: `AA FF E0 0B 10 00 01 00 00 00 00 00 00 00 [SC] [AC]`
 
 #### 2.3.3 加锁电机 cmd_lock()
 
 
-| 字段 | 值       |
-| ------ | ---------- |
-| CID  | `0x10`   |
-| CMD  | `0x00`   |
-| LEN  | `0x01`   |
-| DATA | `0x02`   |
-| 补齐 | 8B`0x00` |
+| 字段 | 值                                  |
+| ------ | ------------------------------------- |
+| CID  | `0x10`                              |
+| CMD  | `0x00`                              |
+| LEN  | `0x0B` (11字节)                      |
+| DATA | `10 00 02 00 00 00 00 00 00 00 00`  |
 
-帧: `AA FF E0 01 10 00 02 00 00 00 00 00 00 00 00 00 00 [SC] [AC]`
+帧: `AA FF E0 0B 10 00 02 00 00 00 00 00 00 00 [SC] [AC]`
 
 #### 2.3.4 起飞 cmd_takeoff(h)
 
 
-| 字段 | 值                   |
-| ------ | ---------------------- |
-| CID  | `0x10`               |
-| CMD  | `0x00`               |
-| LEN  | `0x03`               |
-| DATA | `0x05 [H_LO] [H_HI]` |
-| 补齐 | 6B`0x00`             |
+| 字段 | 值                                               |
+| ------ | -------------------------------------------------- |
+| CID  | `0x10`                                           |
+| CMD  | `0x00`                                           |
+| LEN  | `0x0B` (11字节)                                   |
+| DATA | `10 00 05 [H_LO] [H_HI] 00 00 00 00 00 00`                |
 
 - `h`: 目标高度, 单位 cm, u16 小端序 (LE)
 - `h=0` 或省略时默认 150cm
@@ -181,32 +176,30 @@ AA FF E0 01 03 00 00 00 00 00 00 00 00 [SC] [AC]
 
 ```
 h = 200 → H_LO=0xC8, H_HI=0x00
-AA FF E0 03 10 00 05 C8 00 00 00 00 00 00 00 00 [SC] [AC]
+AA FF E0 0B 10 00 05 C8 00 00 00 00 00 00 00 [SC] [AC]
 ```
 
 #### 2.3.5 降落 cmd_land()
 
 
-| 字段 | 值       |
-| ------ | ---------- |
-| CID  | `0x10`   |
-| CMD  | `0x00`   |
-| LEN  | `0x01`   |
-| DATA | `0x06`   |
-| 补齐 | 8B`0x00` |
+| 字段 | 值                                  |
+| ------ | ------------------------------------- |
+| CID  | `0x10`                              |
+| CMD  | `0x00`                              |
+| LEN  | `0x0B` (11字节)                      |
+| DATA | `10 00 06 00 00 00 00 00 00 00 00`  |
 
-帧: `AA FF E0 01 10 00 06 00 00 00 00 00 00 00 00 00 00 [SC] [AC]`
+帧: `AA FF E0 0B 10 00 06 00 00 00 00 00 00 00 [SC] [AC]`
 
 #### 2.3.6 水平移动 cmd_move(d, s, a)
 
 
-| 字段 | 值                                               |
-| ------ | -------------------------------------------------- |
-| CID  | `0x10`                                           |
-| CMD  | `0x02`                                           |
-| LEN  | `0x07`                                           |
-| DATA | `0x03 [D_LO] [D_HI] [S_LO] [S_HI] [A_LO] [A_HI]` |
-| 补齐 | 2B`0x00`                                         |
+| 字段 | 值                                                                          |
+| ------ | ----------------------------------------------------------------------------- |
+| CID  | `0x10`                                                                      |
+| CMD  | `0x02`                                                                      |
+| LEN  | `0x0B` (11字节)                                                              |
+| DATA | `10 02 03 [D_LO] [D_HI] [S_LO] [S_HI] [A_LO] [A_HI] 00 00`               |
 
 
 | 参数     | 范围      | 单位 | 编码   |
@@ -221,19 +214,18 @@ AA FF E0 03 10 00 05 C8 00 00 00 00 00 00 00 00 [SC] [AC]
 d=500  → 0xF4 0x01
 s=100  → 0x64 0x00
 a=45   → 0x2D 0x00
-AA FF E0 07 10 02 03 F4 01 64 00 2D 00 00 00 [SC] [AC]
+AA FF E0 0B 10 02 03 F4 01 64 00 2D 00 00 00 [SC] [AC]
 ```
 
 #### 2.3.7 上升 cmd_ascend(h, s)
 
 
-| 字段 | 值                                 |
-| ------ | ------------------------------------ |
-| CID  | `0x10`                             |
-| CMD  | `0x02`                             |
-| LEN  | `0x05`                             |
-| DATA | `0x01 [H_LO] [H_HI] [S_LO] [S_HI]` |
-| 补齐 | 4B`0x00`                           |
+| 字段 | 值                                                              |
+| ------ | ----------------------------------------------------------------- |
+| CID  | `0x10`                                                          |
+| CMD  | `0x02`                                                          |
+| LEN  | `0x0B` (11字节)                                                  |
+| DATA | `10 02 01 [H_LO] [H_HI] [S_LO] [S_HI] 00 00 00 00`         |
 
 
 | 参数       | 范围      | 单位 | 编码   |
@@ -244,13 +236,12 @@ AA FF E0 07 10 02 03 F4 01 64 00 2D 00 00 00 [SC] [AC]
 #### 2.3.8 下降 cmd_descend(h, s)
 
 
-| 字段 | 值                                 |
-| ------ | ------------------------------------ |
-| CID  | `0x10`                             |
-| CMD  | `0x02`                             |
-| LEN  | `0x05`                             |
-| DATA | `0x02 [H_LO] [H_HI] [S_LO] [S_HI]` |
-| 补齐 | 4B`0x00`                           |
+| 字段 | 值                                                              |
+| ------ | ----------------------------------------------------------------- |
+| CID  | `0x10`                                                          |
+| CMD  | `0x02`                                                          |
+| LEN  | `0x0B` (11字节)                                                  |
+| DATA | `10 02 02 [H_LO] [H_HI] [S_LO] [S_HI] 00 00 00 00`         |
 
 参数同上升。
 
@@ -337,7 +328,7 @@ SUM = (0xAA + CMD_LEN + 0x01 + IMU_API_FRAME[0] + ... + IMU_API_FRAME[N-1]) & 0x
 | 4    | POS_Y   | s32  | 4B   | Y轴位移, 单位 cm, LE |
 | 8    | QUALITY | u8   | 1B   | 光流质量 (0~255)     |
 
-总载荷长度: 11B
+总帧长度: 11B
 
 ```
 CC 01 [X0] [X1] [X2] [X3] [Y0] [Y1] [Y2] [Y3] [QUALITY]
@@ -353,7 +344,7 @@ CC 01 [X0] [X1] [X2] [X3] [Y0] [Y1] [Y2] [Y3] [QUALITY]
 | 1    | LOCKED | u8   | 1B   | 电机锁定状态 (0=锁定, 1=解锁) |
 | 2    | ALT    | s32  | 4B   | 当前高度, 单位 cm, LE         |
 
-总载荷长度: 8B
+总帧长度: 8B
 
 MODE取值: 0=自稳, 1=定高, 2=定点, 3=程控
 
@@ -364,7 +355,7 @@ MODE取值: 0=自稳, 1=定高, 2=定点, 3=程控
 | ------ | --------- | ------ | ------ | ----------------------- |
 | 0    | VOLTAGE | u16  | 2B   | 电池电压, 单位 mV, LE |
 
-总载荷长度: 4B
+总帧长度: 4B
 
 示例 (电压 12.4V):
 
@@ -411,19 +402,19 @@ CC 03 64 30
 | ------ | --------- | ----------------------------------------- |
 | 命令 | PIN     | 目标引脚编号                            |
 | 命令 | CMD     | `0x01`                                  |
-| 命令 | LEN     | `0x06`                                  |
-| 命令 | PAYLOAD | `[VALUE: 0x00或0x01]` + 5B `0x00` 补齐  |
+| 命令 | LEN     | `0x01`                                  |
+| 命令 | PAYLOAD | `[VALUE: 0x00或0x01]`                   |
 | 响应 | STATUS  | `0x00`=OK, `0x01`=ERROR, `0x02`=TIMEOUT |
 
 帧示例 (PIN=17, 输出高):
 
 ```
-AA 11 01 06 01 00 00 00 00 00 [XOR]
-    ↕  ↕  ↕        ↕
-   PIN CMD LEN   PAYLOAD
+AA 11 01 01 01 [XOR]
+    ↕  ↕  ↕  ↕
+   PIN CMD LEN VALUE
 ```
 
-XOR = `0x11 ⊕ 0x01 ⊕ 0x06 ⊕ 0x01` = `0x17`
+XOR = `0x11 ⊕ 0x01 ⊕ 0x01 ⊕ 0x01` = `0x10`
 
 响应: `BB 11 01 00 [XOR]`
 
@@ -434,17 +425,17 @@ XOR = `0x11 ⊕ 0x01 ⊕ 0x06 ⊕ 0x01` = `0x17`
 | ------ | --------- | ------------------------------------------------- |
 | 命令 | PIN     | 目标引脚编号                                    |
 | 命令 | CMD     | `0x02`                                          |
-| 命令 | LEN     | `0x06`                                          |
-| 命令 | PAYLOAD | `[MODE: 0x00=输入, 0x01=输出]` + 5B `0x00` 补齐 |
+| 命令 | LEN     | `0x01`                                          |
+| 命令 | PAYLOAD | `[MODE: 0x00=输入, 0x01=输出]`                 |
 | 响应 | STATUS  | `0x00`=OK, `0x01`=ERROR, `0x02`=TIMEOUT         |
 
 帧示例 (PIN=17, 设为输出):
 
 ```
-AA 11 02 06 01 00 00 00 00 00 [XOR]
+AA 11 02 01 01 [XOR]
 ```
 
-XOR = `0x11 ⊕ 0x02 ⊕ 0x06 ⊕ 0x01` = `0x14`
+XOR = `0x11 ⊕ 0x02 ⊕ 0x01 ⊕ 0x01` = `0x13`
 
 #### CMD 0x03: PULSE — 硬件定时脉冲
 
@@ -453,8 +444,8 @@ XOR = `0x11 ⊕ 0x02 ⊕ 0x06 ⊕ 0x01` = `0x14`
 | ------ | --------- | ---------------------------------------------------- |
 | 命令 | PIN     | 目标引脚编号                                       |
 | 命令 | CMD     | `0x03`                                             |
-| 命令 | LEN     | `0x08`                                             |
-| 命令 | PAYLOAD | `[COUNT] [PERIOD_LO] [PERIOD_HI]` + 5B `0x00` 补齐 |
+| 命令 | LEN     | `0x03`                                             |
+| 命令 | PAYLOAD | `[COUNT] [PERIOD_LO] [PERIOD_HI]`                  |
 | 响应 | **无**  | 点火即忘 (fire-and-forget)                         |
 
 
@@ -466,12 +457,12 @@ XOR = `0x11 ⊕ 0x02 ⊕ 0x06 ⊕ 0x01` = `0x14`
 帧示例 (PIN=17, 10次脉冲, 周期50ms):
 
 ```
-AA 11 03 08 0A 32 00 00 00 00 00 00 [XOR]
+AA 11 03 03 0A 32 00 [XOR]
     ↕  ↕  ↕  ↕  ← u16 LE ─→
    PIN CMD LEN CNT  PERIOD
 ```
 
-XOR = `0x11 ⊕ 0x03 ⊕ 0x08 ⊕ 0x0A ⊕ 0x32` = `0x00`
+XOR = `0x11 ⊕ 0x03 ⊕ 0x03 ⊕ 0x0A ⊕ 0x32` = `0x29`
 
 ### 4.3 STATUS 码
 
@@ -493,21 +484,21 @@ class GpioBackend(ABC):
     """GPIO后端抽象接口, 所有硬件后端必须实现以下方法。"""
 
     @abstractmethod
-    def setup(self, pin: int, mode: str) -> None:
+    def setup(self, pin: int, mode: GpioMode) -> None:
         """配置引脚模式。
       
         Args:
             pin: 引脚编号 (BCM/物理编号取决于后端)
-            mode: 'in' 或 'out'
+            mode: GpioMode.IN (输入) 或 GpioMode.OUT (输出)
         """
 
     @abstractmethod
-    def output(self, pin: int, value: int) -> None:
+    def output(self, pin: int, value: GpioValue) -> None:
         """设置引脚输出值。
       
         Args:
             pin: 引脚编号
-            value: 0 (低电平) 或 1 (高电平)
+            value: GpioValue.LOW (低电平) 或 GpioValue.HIGH (高电平)
         """
 
     @abstractmethod
@@ -615,10 +606,11 @@ backend.output(17, 1)   # 仅打印日志
 | `send_cmd_descend(h, s)` | `h: int` (cm), `s: int` (cm/s)                | `bool`                 | 下降                  |
 | `send_heartbeat()`       | —                                            | `bool`                 | 发送心跳 (500ms间隔)  |
 | `send_of_zero_reset()`   | —                                            | `bool`                 | 重置光流零点          |
-| `read_optical_flow()`    | —                                            | `tuple[int, int, int]` | 返回 (x, y, quality)  |
+| `read_optical_flow()`    | —                                            | `tuple[float, float]`  | 返回增量 (dx, dy) cm  |
+| `read_optical_flow_position()` | —                                        | `tuple[float, float, int]` | 返回 (x, y, quality) |
 | `read_altitude()`        | —                                            | `int`                  | 返回当前高度 (cm)     |
-| `read_voltage()`         | —                                            | `int`                  | 返回电池电压 (mV)     |
-| `is_communication_ok()`  | —                                            | `bool`                 | 通信状态检查          |
+| `read_voltage()`         | —                                            | `float`                | 返回电池电压 (V)      |
+| `is_communication_ok(timeout_ms)` | `timeout_ms: float` (默认500)          | `bool`                 | 通信状态检查          |
 
 ### 6.2 H7GpioSerial (h7_gpio_protocol.py)
 
@@ -629,7 +621,7 @@ backend.output(17, 1)   # 仅打印日志
 | --------------------------------- | ------------------------------------------ | -------- | ---------------------------- |
 | `connect()`                     | —                                       | `bool` | 打开串口连接               |
 | `disconnect()`                  | —                                       | `None` | 关闭串口连接               |
-| `send_frame(pin, cmd, payload)` | `pin: int`, `cmd: int`, `payload: bytes` | `bool` | 发送命令帧                 |
+| `send_frame(frame)`             | `frame: bytes` (预构建帧)               | `bool` | 发送命令帧                 |
 | `read_response(timeout_s)`      | `timeout_s: float`                       | `dict` | 读取响应帧, 含 status 字段 |
 
 ### 6.3 LaserController (laser_led.py)
@@ -639,7 +631,7 @@ backend.output(17, 1)   # 仅打印日志
 
 | 方法                      | 参数                                      | 返回   | 说明                              |
 | --------------------------- | ------------------------------------------- | -------- | ----------------------------------- |
-| `__init__(pin, backend)`  | `pin: int`, `backend: GpioBackend` (可选) | —     | 构造器, 默认使用 DummyGpioBackend |
+| `__init__(pin, backend)`  | `pin: int`, `backend: GpioBackend` (可选) | —     | 构造器, 默认 auto_detect_backend() (自动检测 RPi → FT232H → Dummy) |
 | `on()`                    | —                                        | `None` | 开启激光/LED                      |
 | `off()`                   | —                                        | `None` | 关闭激光/LED                      |
 | `blink(count, period_ms)` | `count: int`, `period_ms: int`            | `None` | 闪烁, 自动检测硬件脉冲            |
@@ -655,6 +647,19 @@ if backend 支持 pulse():
 else:
     软件循环 on()/off() + sleep()               # 软件模拟
 ```
+
+### 6.3 LEDController (laser_led.py)
+
+LED指示灯控制器, 用于显示条码数字 (通过闪烁次数表示数字)。
+
+
+| 方法                     | 参数                              | 返回   | 说明                    |
+| -------------------------- | ----------------------------------- | -------- | ------------------------- |
+| `__init__(pin, backend)` | `pin: int`, `backend: GpioBackend` (可选) | —     | 构造器, 默认 auto_detect_backend() |
+| `show_number(number)`     | `number: int`                     | `None` | 闪烁LED显示数字         |
+| `on()`                    | —                                | `None` | 点亮LED                 |
+| `off()`                   | —                                | `None` | 熄灭LED                 |
+| `cleanup()`               | —                                | `None` | 清理 GPIO 资源          |
 
 ### 6.4 配置入口 (config.py)
 
