@@ -108,8 +108,12 @@ LASER_PIN = 17    # 激光笔GPIO (BCM编号)
 LED_PIN = 27      # LED指示灯GPIO (BCM编号)
 
 # 串口
-SERIAL_PORT = '/dev/serial0'
+SERIAL_PORT = '/dev/ttyUSB0'  # x86 USB-TTL默认; 树莓派用 /dev/serial0
 SERIAL_BAUDRATE = 115200
+
+# STM32H7 GPIO 开发板串口 (大疆电机开发板C)
+H7_SERIAL_PORT = '/dev/ttyUSB1'
+H7_SERIAL_BAUDRATE = 115200
 
 # ── 返航参数 ──────────────────────────────────────────────
 

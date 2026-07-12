@@ -1,17 +1,17 @@
 """
 mcu_serial.py — MCU串口通信模块
-Section 3: 树莓派与MCU串口通信协议
+Section 3: 主控与MCU串口通信协议
 
 通信结构:
-  树莓派 GPIO14 (TXD) ←→ MCU UART (RX)
-  树莓派 GPIO15 (RXD) ←→ MCU UART (TX)
+  主控 USB-TTL (TX) ←→ MCU UART (RX)
+  主控 USB-TTL (RX) ←→ MCU UART (TX)
   波特率: 115200bps, 3.3V电平
 
 帧类型:
-  A. 指令转发帧 (树莓派→MCU→IMU):  0xAA + CMD_LEN + TYPE(0x01) + PAYLOAD + SUM16
-  B. 查询帧 (树莓派→MCU):           0xBB + CMD
-  C. 光流位置回传 (MCU→树莓派):      0xCC + 0x01 + POS_X(4B) + POS_Y(4B) + QUALITY(1B)
-  D. 飞行状态回传 (MCU→树莓派):      0xCC + 0x02 + MODE(1B) + LOCKED(1B) + ALT(4B)
+  A. 指令转发帧 (主控→MCU→IMU):  0xAA + CMD_LEN + TYPE(0x01) + PAYLOAD + SUM16
+  B. 查询帧 (主控→MCU):           0xBB + CMD
+  C. 光流位置回传 (MCU→主控):      0xCC + 0x01 + POS_X(4B) + POS_Y(4B) + QUALITY(1B)
+  D. 飞行状态回传 (MCU→主控):      0xCC + 0x02 + MODE(1B) + LOCKED(1B) + ALT(4B)
 """
 
 import struct
@@ -119,7 +119,7 @@ class MCUSerial:
     RX_BUF_SIZE = 512
 
     def __init__(self, dry_run: bool = False,
-                 port: str = '/dev/serial0',
+                 port: str = '/dev/ttyUSB0',
                  baudrate: int = 115200):
         self.dry_run = dry_run
         self.port = port

@@ -11,15 +11,18 @@ import time
 import logging
 from typing import Optional
 
-logger = logging.getLogger('drone.gpio')
-
-# 条件导入: 树莓派上才有RPi.GPIO
 try:
-    import RPi.GPIO as GPIO
-    _GPIO_AVAILABLE = True
+    from gpio_backend import (
+        GpioBackend, GpioMode, GpioValue,
+        auto_detect_backend, DummyGpioBackend,
+    )
 except ImportError:
-    _GPIO_AVAILABLE = False
-    logger.warning("RPi.GPIO not available, using dummy GPIO")
+    from .gpio_backend import (
+        GpioBackend, GpioMode, GpioValue,
+        auto_detect_backend, DummyGpioBackend,
+    )
+
+logger = logging.getLogger('drone.gpio')
 
 
 class LaserController:
@@ -32,43 +35,45 @@ class LaserController:
     - 占空比: 50%
     """
 
-    def __init__(self, pin: int = 17):
+    def __init__(self, pin: int = 17, backend: GpioBackend | None = None):
         self.pin = pin
-        self._initialized = False
         self._enabled = True
-
-        if _GPIO_AVAILABLE:
-            try:
-                GPIO.setmode(GPIO.BCM)
-                GPIO.setup(self.pin, GPIO.OUT)
-                GPIO.output(self.pin, GPIO.LOW)
-                self._initialized = True
-                logger.info(f"Laser initialized on GPIO{pin}")
-            except Exception as e:
-                logger.error(f"Failed to init laser GPIO: {e}")
-        else:
-            logger.info(f"Laser (dummy) on GPIO{pin}")
+        self._backend = backend if backend is not None else auto_detect_backend()
+        self._backend.setup(self.pin, GpioMode.OUT)
+        self._backend.output(self.pin, GpioValue.LOW)
+        logger.info(f"Laser initialized on GPIO{pin}")
 
     def on(self):
         """开启激光"""
         logger.debug("Laser ON")
-        if self._initialized and self._enabled:
-            GPIO.output(self.pin, GPIO.HIGH)
+        if self._enabled:
+            self._backend.output(self.pin, GpioValue.HIGH)
 
     def off(self):
         """关闭激光"""
         logger.debug("Laser OFF")
-        if self._initialized and self._enabled:
-            GPIO.output(self.pin, GPIO.LOW)
+        if self._enabled:
+            self._backend.output(self.pin, GpioValue.LOW)
 
     def blink(self, count: int = 2, period_ms: int = 1500):
         """
         闪烁激光笔模拟撒药
 
+        如果后端支持硬件脉冲 (如 H7GpioBackend.pulse()),
+        则发送单条协议帧由 STM32H7 精确控制时序 (非阻塞)。
+        否则回退到软件 time.sleep() 闪烁。
+
         Args:
             count: 闪烁次数 (1-3)
             period_ms: 闪烁周期(ms) (1000-2000)
         """
+        # 硬件脉冲路径 (非阻塞, MCU 控制时序)
+        if hasattr(self._backend, 'pulse') and callable(self._backend.pulse):
+            logger.info(f"Laser hardware pulse: count={count}, period={period_ms}ms")
+            self._backend.pulse(self.pin, count, period_ms)
+            return
+
+        # 软件闪烁路径 (阻塞, 兼容 RPi/FT232H/Dummy 后端)
         half_period_s = period_ms / 1000.0 / 2.0  # 50%占空比
         on_time = half_period_s
         off_time = half_period_s
@@ -90,9 +95,8 @@ class LaserController:
 
     def cleanup(self):
         """清理GPIO资源"""
-        if self._initialized:
-            self.off()
-            # 注意: 不调用 GPIO.cleanup() 因为可能有其他GPIO在使用
+        self.off()
+        self._backend.cleanup(self.pin)
         logger.info("Laser cleanup complete")
 
 
@@ -104,21 +108,12 @@ class LEDController:
     通过闪烁次数表示数字
     """
 
-    def __init__(self, pin: int = 27):
+    def __init__(self, pin: int = 27, backend: GpioBackend | None = None):
         self.pin = pin
-        self._initialized = False
-
-        if _GPIO_AVAILABLE:
-            try:
-                GPIO.setmode(GPIO.BCM)
-                GPIO.setup(self.pin, GPIO.OUT)
-                GPIO.output(self.pin, GPIO.LOW)
-                self._initialized = True
-                logger.info(f"LED initialized on GPIO{pin}")
-            except Exception as e:
-                logger.error(f"Failed to init LED GPIO: {e}")
-        else:
-            logger.info(f"LED (dummy) on GPIO{pin}")
+        self._backend = backend if backend is not None else auto_detect_backend()
+        self._backend.setup(self.pin, GpioMode.OUT)
+        self._backend.output(self.pin, GpioValue.LOW)
+        logger.info(f"LED initialized on GPIO{pin}")
 
     def show_number(self, number: int):
         """
@@ -133,27 +128,23 @@ class LEDController:
         logger.info(f"LED showing number: {number}")
 
         for _ in range(number):
-            if self._initialized:
-                GPIO.output(self.pin, GPIO.HIGH)
+            self._backend.output(self.pin, GpioValue.HIGH)
             time.sleep(0.3)
-            if self._initialized:
-                GPIO.output(self.pin, GPIO.LOW)
+            self._backend.output(self.pin, GpioValue.LOW)
             time.sleep(0.3)
 
         time.sleep(2)  # 间隔
 
     def on(self):
-        if self._initialized:
-            GPIO.output(self.pin, GPIO.HIGH)
+        self._backend.output(self.pin, GpioValue.HIGH)
 
     def off(self):
-        if self._initialized:
-            GPIO.output(self.pin, GPIO.LOW)
+        self._backend.output(self.pin, GpioValue.LOW)
 
     def cleanup(self):
         """清理GPIO资源"""
-        if self._initialized:
-            self.off()
+        self.off()
+        self._backend.cleanup(self.pin)
         logger.info("LED cleanup complete")
 
 
@@ -161,7 +152,7 @@ class DummyLaser(LaserController):
     """模拟激光 (测试/演示用)"""
 
     def __init__(self):
-        super().__init__(pin=17)
+        super().__init__(pin=17, backend=DummyGpioBackend())
         self._blink_count = 0
         self._log = []
 

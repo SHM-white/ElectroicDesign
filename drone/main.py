@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 main.py — 无人机自主任务控制器入口
-G_植保飞行器项目 | 树莓派4B + 凌霄飞控 + 海康工业相机
+G_植保飞行器项目 | x86迷你主机 + 凌霄飞控 + USB-TTL串口 + 海康工业相机
+(兼容树莓派4B + 硬件UART)
 
 用法:
     python3 drone/main.py [选项]
@@ -12,6 +13,7 @@ G_植保飞行器项目 | 树莓派4B + 凌霄飞控 + 海康工业相机
     --dry-run                             模拟模式, 不实际飞行
     --verbose                             输出日志到控制台
     --no-save-logs                        不保存日志文件
+    --serial-port PORT                    串口设备路径 (默认: /dev/ttyUSB0)
     -h, --help                            显示帮助信息
 """
 
@@ -64,6 +66,16 @@ def _parse_args() -> argparse.Namespace:
         action='store_true',
         help='不保存日志文件',
     )
+    parser.add_argument(
+        '--serial-port',
+        default=None,
+        help='串口设备路径 (默认使用 config.py 中的 SERIAL_PORT)',
+    )
+    parser.add_argument(
+        '--h7-serial',
+        default=None,
+        help='STM32H7 GPIO 开发板串口路径 (如 /dev/ttyUSB1)',
+    )
     return parser.parse_args()
 
 
@@ -97,9 +109,11 @@ def main() -> int:
     cfg = get_config()
 
     # ── 初始化硬件组件 ──────────────────────────────────
+    serial_port = args.serial_port or cfg['serial_port']
+    logger.info(f"  串口设备:  {serial_port}")
     mcu = MCUSerial(
         dry_run=config.DRY_RUN,
-        port=cfg['serial_port'],
+        port=serial_port,
         baudrate=cfg['serial_baudrate'],
     )
     if not mcu.connect():
@@ -124,8 +138,26 @@ def main() -> int:
     )
 
     laser = None
+    h7_serial = None
     if not config.DRY_RUN:
-        laser = LaserController(pin=cfg['laser_pin'])
+        if args.h7_serial:
+            # 使用 STM32H7 GPIO 开发板控制激光/LED
+            from h7_gpio_serial import H7GpioSerial
+            from gpio_backend import H7GpioBackend
+
+            h7_serial = H7GpioSerial(
+                dry_run=config.DRY_RUN,
+                port=args.h7_serial,
+                baudrate=config.H7_SERIAL_BAUDRATE,
+            )
+            if h7_serial.connect():
+                logger.info(f"H7 GPIO 开发板已连接: {args.h7_serial}")
+                h7_backend = H7GpioBackend(h7_serial)
+                laser = LaserController(pin=cfg['laser_pin'], backend=h7_backend)
+            else:
+                logger.error(f"H7 GPIO 开发板连接失败: {args.h7_serial}")
+        else:
+            laser = LaserController(pin=cfg['laser_pin'])
 
     # ── 创建状态机 ──────────────────────────────────────
     sm = DroneStateMachine(
@@ -160,6 +192,8 @@ def main() -> int:
         logger.info("正在清理资源...")
         if laser is not None:
             laser.cleanup()
+        if h7_serial is not None:
+            h7_serial.disconnect()
         camera.release()
         mcu.disconnect()
 

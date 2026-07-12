@@ -30,7 +30,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 # ── 配置变量 ──────────────────────────────────────────
 PROJECT_DIR="/home/pi/drone"
-PROJECT_REPO="https://github.com/your-org/drone.git"  # 修改为实际仓库地址
+PROJECT_REPO="https://github.com/SHM-white/ElectroicDesign.git"  # 修改为实际仓库地址
 PYTHON="python3"
 
 # ── 检查root权限 ──────────────────────────────────────

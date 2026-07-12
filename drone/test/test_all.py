@@ -14,6 +14,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from test_lx_protocol import *
 from test_path_plan import *
 from test_localization import *
+from test_mcu_serial import *
+from test_state_machine import *
+from test_laser_led import *
+from test_h7_gpio_protocol import *
 
 
 if __name__ == '__main__':
