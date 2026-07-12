@@ -2,3 +2,5 @@
 *.rar
 *.pack
 *.zip
+.omo/
+__pycache__/
