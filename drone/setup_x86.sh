@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # setup_x86.sh — x86 迷你工控机 一键环境配置脚本
-# G_植保飞行器 项目 | x86 迷你PC + 凌霄飞控 + 海康工业相机
+# G_植保飞行器 项目 | x86 迷你PC + 凌霄飞控 + 工业相机/OpenMV
 #
 # 适用: 干净的 Ubuntu 22.04 / 24.04 LTS (amd64)
 #
@@ -169,9 +169,9 @@ fi
 info "[5/8] USB-TTL 串口配置完成"
 
 # ==============================================================================
-# [6/8] 相机配置
+# [6/8] 视觉设备配置
 # ==============================================================================
-info "[6/8] 相机配置..."
+info "[6/8] 视觉设备配置..."
 
 echo ""
 if command -v v4l2-ctl &> /dev/null; then
@@ -188,8 +188,13 @@ info "  OpenCV VideoCapture(0) 可直接打开, 无需额外 SDK。"
 info "  如使用 GigE 网口相机, 需安装 MVS SDK (从海康官网下载 amd64 版本):"
 info "    https://www.hikrobotics.com/cn/machinevision/service/download"
 info ""
+info "OpenMV说明:"
+info "  OpenMV通过UART/USB虚拟串口只回传识别结果, pyserial已安装。"
+info "  启动示例: python3 -m drone.main --vision-backend openmv --openmv-port /dev/ttyUSB1"
+info "  OpenMV、飞控和H7 GPIO板必须使用不同串口。"
+info ""
 
-info "[6/8] 相机配置完成"
+info "[6/8] 视觉设备配置完成"
 
 # ==============================================================================
 # [7/8] 部署项目代码
@@ -204,6 +209,7 @@ fi
 mkdir -p "$PROJECT_DIR"
 mkdir -p "$PROJECT_DIR/logs"
 mkdir -p "$PROJECT_DIR/test"
+mkdir -p "$PROJECT_DIR/openmv"
 
 # 复制当前项目文件 (从脚本所在目录)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -211,6 +217,7 @@ if [ -f "$SCRIPT_DIR/lx_protocol.py" ]; then
     info "从本地 $SCRIPT_DIR 复制项目文件..."
     cp "$SCRIPT_DIR"/*.py "$PROJECT_DIR/" 2>/dev/null || true
     cp "$SCRIPT_DIR/test"/*.py "$PROJECT_DIR/test/" 2>/dev/null || true
+    cp -r "$SCRIPT_DIR/openmv"/. "$PROJECT_DIR/openmv/" 2>/dev/null || true
 else
     warn "未在脚本目录找到项目文件, 请手动将 drone/*.py 复制到 $PROJECT_DIR/"
 fi
@@ -352,15 +359,14 @@ else
 fi
 
 echo ""
-info "--- 检查相机 ---"
+info "--- 检查视觉设备 ---"
 VIDEO_DEVICES=$(v4l2-ctl --list-devices 2>/dev/null | grep -c '/dev/video' || true)
 if [ "$VIDEO_DEVICES" -gt 0 ] 2>/dev/null; then
     v4l2-ctl --list-devices 2>/dev/null
     info "检测到 $VIDEO_DEVICES 个视频设备"
     PASSED=$((PASSED + 1))
 else
-    warn "未检测到 /dev/video* 设备, 请连接相机"
-    FAILED=$((FAILED + 1))
+    warn "未检测到 /dev/video* 工业相机；使用OpenMV时可忽略"
 fi
 
 echo ""
@@ -397,8 +403,11 @@ info "    2. 检查 config.py 中的串口配置:"
 info "       grep SERIAL_PORT $PROJECT_DIR/config.py"
 info "       应显示: SERIAL_PORT = '/dev/ttyUSB0'"
 info ""
-info "    3. 连接相机并验证 OpenCV:"
+info "    3. 工业相机模式验证 OpenCV:"
 info "       python3 -c 'import cv2; cap=cv2.VideoCapture(0); print(cap.isOpened())'"
+info ""
+info "       OpenMV模式启动:"
+info "       python3 -m drone.main --vision-backend openmv --openmv-port /dev/ttyUSB1"
 info ""
 info "    4. 手动测试飞行 (⚠ 务必在安全环境下):"
 info "       cd $PROJECT_DIR"

@@ -16,6 +16,11 @@ import numpy as np
 import logging
 from typing import Optional, List, Tuple
 
+try:
+    from .vision_result import VisionResult
+except ImportError:
+    from vision_result import VisionResult
+
 logger = logging.getLogger('drone.vision')
 
 
@@ -68,6 +73,27 @@ class Camera:
     def convert_to_hsv(self, frame: np.ndarray) -> np.ndarray:
         """BGR转HSV"""
         return cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    def read_result(self) -> Optional[VisionResult]:
+        """抓取一帧并在上位机完成工业相机识别。"""
+        ret, frame = self.read()
+        if not ret or frame is None:
+            return None
+
+        green_ratio = 0.0
+        if self.detector is not None:
+            hsv = self.convert_to_hsv(frame)
+            green_ratio = self.detector.calc_green_ratio(hsv)
+
+        digit = None
+        if self.digit_reader is not None:
+            digit = self.digit_reader.extract_digits(frame)
+
+        return VisionResult(
+            frame=frame,
+            green_ratio=green_ratio,
+            digit=digit,
+        )
 
     def release(self):
         """释放相机"""

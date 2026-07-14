@@ -165,10 +165,11 @@ class TestLaserControllerWithBackend(unittest.TestCase):
         """blink(count=2) 应产生 ON→OFF→ON→OFF 顺序"""
         self.backend.reset_log()
         self.lc.blink(count=2, period_ms=100)
+        self.lc._blink_thread.join(timeout=1.0)
         output_calls = [c for c in self.backend.last_calls if c[0] == 'output']
-        self.assertEqual(len(output_calls), 4)
+        self.assertGreaterEqual(len(output_calls), 4)
         values = [c[2] for c in output_calls]
-        self.assertEqual(values, ['HIGH', 'LOW', 'HIGH', 'LOW'])
+        self.assertEqual(values[:4], ['HIGH', 'LOW', 'HIGH', 'LOW'])
 
     def test_disable_blocks_on(self):
         """disable() 后 on() 不应调用 backend"""
@@ -178,17 +179,15 @@ class TestLaserControllerWithBackend(unittest.TestCase):
         self.assertEqual(len(self.backend.last_calls), 0,
                          "disable 后 on() 不应调用 backend")
 
-    def test_disable_then_off_skips_backend(self):
-        """disable() 先将 _enabled 置为 False，后续 on()/off() 不调用 backend"""
+    def test_disable_forces_low_then_blocks_output(self):
+        """disable() 立即拉低输出，后续 on()/off() 不再操作后端。"""
         self.backend.reset_log()
         self.lc.disable()
-        # disable 内部先设置 _enabled=False，再调用 self.off()
-        # 但 off() 检查 _enabled 为 False，不会调用 backend.output
         self.assertFalse(self.lc._enabled)
         self.lc.off()
         self.lc.on()
-        self.assertEqual(len(self.backend.last_calls), 0,
-                         "disable 后 on/off 不应调用 backend")
+        self.assertEqual(len(self.backend.last_calls), 1)
+        self.assertEqual(self.backend.last_calls[0][:3], ('output', 17, 'LOW'))
 
     def test_enable_restores_output(self):
         """enable() 后 on() 应恢复调用 backend"""

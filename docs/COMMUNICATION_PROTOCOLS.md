@@ -1,8 +1,8 @@
 # G_植保飞行器 通信协议与接口参考手册
 
-> 版本: 1.0
-> 日期: 2026-07-12
-> 适用固件: 凌霄飞控 STM32F4 / GPIO扩展板 STM32H7
+> 版本: 1.1
+> 日期: 2026-07-14
+> 适用固件: 凌霄飞控 STM32F4 / GPIO扩展板 STM32H7 / OpenMV
 
 ---
 
@@ -14,7 +14,8 @@
 4. [STM32H7 GPIO 协议 (h7_gpio_protocol.py)](#4-stm32h7-gpio-协议-h7_gpio_protocolpy)
 5. [GPIO 后端抽象接口 (gpio_backend.py)](#5-gpio-后端抽象接口-gpio_backendpy)
 6. [软件接口速查](#6-软件接口速查)
-7. [附录: MCU固件接口要求](#7-附录-mcu固件接口要求)
+7. [OpenMV识别结果协议](#7-openmv识别结果协议)
+8. [附录: MCU固件接口要求](#8-附录-mcu固件接口要求)
 
 ---
 
@@ -35,7 +36,8 @@
 │  USB2 ──USB-TTL──→ STM32H7 GPIO开发板                    │
 │                       └─ /dev/ttyUSB1 @ 115200           │
 │                                                         │
-│  USB3 ──────────→ 海康工业相机 (UVC协议)                  │
+│  USB3 ──────────→ 海康工业相机 (UVC协议，上位机识别)      │
+│       或 USB-TTL←── OpenMV UART (板端识别，只回传结果)    │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -47,6 +49,9 @@
 | USB1 | STM32F4 MCU  | `/dev/ttyUSB0` | 115200 | 飞控指令/状态      |
 | USB2 | STM32H7 GPIO | `/dev/ttyUSB1` | 115200 | GPIO控制(激光/LED) |
 | USB3 | 海康工业相机 | UVC直连        | N/A    | 图像采集           |
+| USB3(可选) | OpenMV | `/dev/ttyUSB1` | 115200 | 识别结果回传       |
+
+工业相机与 OpenMV 是两种可切换视觉方案。若同时使用 H7 GPIO 板和 OpenMV，必须为它们分配不同串口，例如 H7 使用 `/dev/ttyUSB1`、OpenMV 使用 `/dev/ttyUSB2`。
 
 ### 1.3 MCU内部串口
 
@@ -668,6 +673,9 @@ LED指示灯控制器, 用于显示条码数字 (通过闪烁次数表示数字)
 | ------------------ | ------------------ | --------------------- |
 | `SERIAL_PORT`    | `'/dev/ttyUSB0'` | MCU (STM32F4) 串口  |
 | `H7_SERIAL_PORT` | `'/dev/ttyUSB1'` | GPIO (STM32H7) 串口 |
+| `VISION_BACKEND` | `'industrial'` | 视觉后端选择       |
+| `OPENMV_SERIAL_PORT` | `'/dev/ttyUSB1'` | OpenMV结果串口  |
+| `OPENMV_SERIAL_BAUDRATE` | `115200` | OpenMV波特率     |
 | `LASER_PIN`      | `17`             | 激光引脚编号        |
 | `LED_PIN`        | `27`             | LED引脚编号         |
 
@@ -683,17 +691,48 @@ python main.py [OPTIONS]
 | `--profile`          | `debug` / `tuning` / `competition` | —           | 运行配置档               |
 | `--serial-port PORT` | 串口路径                           | config.py 值 | MCU串口覆盖              |
 | `--h7-serial PORT`   | 串口路径                           | config.py 值 | H7串口覆盖               |
+| `--vision-backend`   | `industrial` / `openmv`           | config.py 值 | 选择视觉后端             |
+| `--openmv-port PORT` | 串口路径                           | config.py 值 | OpenMV串口覆盖           |
+| `--openmv-baudrate N` | 波特率                            | config.py 值 | OpenMV波特率覆盖         |
+| `--no-camera`        | —                                  | `False`      | 禁用所有视觉后端         |
 | `--dry-run`          | —                                 | `False`      | 模拟模式, 不发送实际指令 |
 | `--verbose`          | —                                 | `False`      | 详细日志输出             |
 | `--no-save-logs`     | —                                 | `False`      | 不保存日志文件           |
 
 ---
 
-## 7. 附录: MCU固件接口要求
+## 7. OpenMV识别结果协议
 
-### 7.1 STM32F4 (凌霄飞控) 固件要求
+OpenMV 完成图像采集、绿色区域检测和区块数字识别。上位机不接收图像，只接收以下 ASCII 结果帧：
 
-#### 7.1.1 串口接收配置
+```text
+$OMV1,<SEQUENCE>,<GREEN_PER_MILLE>,<DIGIT>*<XOR>\r\n
+```
+
+| 字段 | 范围 | 说明 |
+| ---- | ---- | ---- |
+| `SEQUENCE` | `0..65535` | 帧序号，溢出后回到 0 |
+| `GREEN_PER_MILLE` | `0..1000` | 绿色像素占比千分数 |
+| `DIGIT` | `-1` 或 `1..28` | 区块编号，`-1` 表示未识别 |
+| `XOR` | `00..FF` | `$` 和 `*` 之间 ASCII 字节的异或校验 |
+
+示例：
+
+```text
+$OMV1,42,731,21*79\r\n
+```
+
+上位机以非阻塞方式解析数据，拒绝校验错误、字段缺失和数值越界的帧。最新有效结果可缓存 `OPENMV_STALE_TIMEOUT_S`，默认 0.5 秒；超时后视为无有效视觉结果。
+
+OpenMV 端参考程序和模板标定说明位于 `drone/openmv/`。
+
+---
+
+## 8. 附录: MCU固件接口要求
+
+### 8.1 STM32F4 (凌霄飞控) 固件要求
+
+#### 8.1.1 串口接收配置
 
 
 | 属性     | 值       |
@@ -705,14 +744,14 @@ python main.py [OPTIONS]
 | 校验     | 无       |
 | 中断     | 接收中断 |
 
-#### 7.1.2 帧解析
+#### 8.1.2 帧解析
 
 固件需解析两种帧类型:
 
 - **`0xAA` 帧**: IMU指令转发帧, 提取内嵌的凌霄IMU API帧并转发至 UART1 (IMU)
 - **`0xBB` 帧**: 查询帧, 根据 CMD 字段执行对应操作并回复
 
-#### 7.1.3 光流回传
+#### 8.1.3 光流回传
 
 
 | 属性     | 值                                                           |
@@ -721,7 +760,7 @@ python main.py [OPTIONS]
 | 帧格式   | `0xCC 0x01 [POS_X 4B s32 LE] [POS_Y 4B s32 LE] [QUALITY 1B]` |
 | 数据源   | UART4 光流模块数据经解算后填入                               |
 
-#### 7.1.4 心跳检测
+#### 8.1.4 心跳检测
 
 
 | 属性     | 值                              |
@@ -737,9 +776,9 @@ python main.py [OPTIONS]
 3. 加锁电机
 4. 上报心跳丢失错误
 
-### 7.2 STM32H7 (GPIO扩展板) 固件要求
+### 8.2 STM32H7 (GPIO扩展板) 固件要求
 
-#### 7.2.1 串口接收配置
+#### 8.2.1 串口接收配置
 
 
 | 属性   | 值           |
@@ -751,7 +790,7 @@ python main.py [OPTIONS]
 | 校验   | 无           |
 | 中断   | 接收中断     |
 
-#### 7.2.2 帧解析
+#### 8.2.2 帧解析
 
 接收 `0xAA` 帧, 验证 XOR 校验后执行对应命令:
 
@@ -762,19 +801,19 @@ python main.py [OPTIONS]
 | CONFIGURE (0x02)  | 设置引脚方向 (输入/输出) | 回复`0xBB` 帧, STATUS=OK/ERROR |
 | PULSE (0x03)      | 启动硬件定时器脉冲输出   | **无回复** (点火即忘)          |
 
-#### 7.2.3 SET_OUTPUT 实现要求
+#### 8.2.3 SET_OUTPUT 实现要求
 
 - 解析 PAYLOAD 中的 VALUE 字段 (0x00 或 0x01)
 - 直接操作对应 GPIO 引脚输出电平
 - 引脚未配置为输出模式时, 回复 STATUS=0x01 (ERROR)
 
-#### 7.2.4 CONFIGURE 实现要求
+#### 8.2.4 CONFIGURE 实现要求
 
 - 解析 PAYLOAD 中的 MODE 字段 (0x00=输入, 0x01=输出)
 - 调用 HAL GPIO 初始化函数设置引脚方向
 - 引脚编号超出范围时, 回复 STATUS=0x01 (ERROR)
 
-#### 7.2.5 PULSE 实现要求
+#### 8.2.5 PULSE 实现要求
 
 - 使用硬件定时器 (TIM) 产生脉冲
 - COUNT: 脉冲次数
@@ -790,7 +829,7 @@ PIN:  ──┘  └──┘  └──┘  └──
         COUNT=3, T=PERIOD
 ```
 
-#### 7.2.6 响应帧格式
+#### 8.2.6 响应帧格式
 
 所有命令 (除 PULSE) 必须回复 `0xBB` 帧:
 

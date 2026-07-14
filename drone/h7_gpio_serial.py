@@ -19,8 +19,12 @@ import logging
 import time
 from typing import Optional
 
-from mcu_serial import DummySerial, RealSerial
-from h7_gpio_protocol import parse_h7_response, print_frame
+try:
+    from .mcu_serial import DummySerial, RealSerial
+    from .h7_gpio_protocol import parse_h7_response, print_frame
+except ImportError:
+    from mcu_serial import DummySerial, RealSerial
+    from h7_gpio_protocol import parse_h7_response, print_frame
 
 logger = logging.getLogger('drone.h7_gpio')
 

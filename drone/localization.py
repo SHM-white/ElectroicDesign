@@ -12,7 +12,10 @@ import logging
 from typing import Optional, Tuple, List
 from collections import deque
 
-from path_plan import PATH, BLOCK_POSITIONS, get_block_position, get_home_position
+try:
+    from .path_plan import PATH, BLOCK_POSITIONS, get_block_position, get_home_position
+except ImportError:
+    from path_plan import PATH, BLOCK_POSITIONS, get_block_position, get_home_position
 
 logger = logging.getLogger('drone.loc')
 
@@ -168,6 +171,9 @@ class Localizer:
             self.since_last_ocr = 0
             self.pos_x = 0.0
             self.pos_y = 0.0
+            block_pos = get_block_position(block_number)
+            if block_pos is not None:
+                self._global_pos_x, self._global_pos_y = block_pos
             self.ocr_calibrations += 1
             logger.info(f"OCR calibration: block={block_number}, "
                         f"path_index={self.path_index}")

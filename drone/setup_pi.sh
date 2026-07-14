@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # setup_pi.sh — Raspberry Pi 一键环境配置脚本
-# G_植保飞行器 项目 | 树莓派4B + 凌霄飞控 + 海康工业相机
+# G_植保飞行器 项目 | 树莓派4B + 凌霄飞控 + 工业相机/OpenMV
 #
 # 适用: 干净的 Raspberry Pi OS Lite (64-bit, Bookworm)
 #
@@ -146,6 +146,8 @@ warn "OpenCV VideoCapture 可直接使用, 无需 SDK."
 warn "跳过 SDK 安装。"
 
 info "[4/8] 相机配置完成 (使用 UVC 模式)"
+info "OpenMV模式无需OpenCV识别，只需pyserial接收结果:"
+info "  python3 -m drone.main --vision-backend openmv --openmv-port /dev/ttyUSB0"
 
 # ==============================================================================
 # 第5步: 部署项目代码
@@ -160,6 +162,7 @@ fi
 mkdir -p "$PROJECT_DIR"
 mkdir -p "$PROJECT_DIR/logs"
 mkdir -p "$PROJECT_DIR/test"
+mkdir -p "$PROJECT_DIR/openmv"
 
 # 复制当前项目文件 (从脚本所在目录)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -167,6 +170,7 @@ if [ -f "$SCRIPT_DIR/lx_protocol.py" ]; then
     info "从本地 $SCRIPT_DIR 复制项目文件..."
     cp "$SCRIPT_DIR"/*.py "$PROJECT_DIR/" 2>/dev/null || true
     cp "$SCRIPT_DIR/test"/*.py "$PROJECT_DIR/test/" 2>/dev/null || true
+    cp -r "$SCRIPT_DIR/openmv"/. "$PROJECT_DIR/openmv/" 2>/dev/null || true
 elif [ -n "$PROJECT_REPO" ] && [ "$PROJECT_REPO" != "https://github.com/your-org/drone.git" ]; then
     info "从 Git 仓库克隆..."
     sudo -u "$REAL_USER" git clone "$PROJECT_REPO" "$PROJECT_DIR" || warn "Git clone 失败, 请手动部署"
@@ -269,7 +273,7 @@ else
 fi
 
 echo ""
-info "--- 检查相机 ---"
+info "--- 检查视觉设备 ---"
 if command -v v4l2-ctl &> /dev/null; then
     v4l2-ctl --list-devices 2>/dev/null || warn "未检测到视频设备"
     PASSED=$((PASSED + 1))
@@ -318,7 +322,7 @@ warn "    sudo reboot"
 echo ""
 info "  重启后验证:"
 info "    1. ls -la /dev/serial0     # 应指向 ttyAMA0"
-info "    2. lsusb                   # 确认相机"
+info "    2. lsusb                   # 确认工业相机或OpenMV串口"
 info "    3. python3 -c 'import cv2; print(cv2.__version__)'  # OpenCV"
 info "    4. cd $PROJECT_DIR/test && python3 -m unittest discover -v"
 echo ""

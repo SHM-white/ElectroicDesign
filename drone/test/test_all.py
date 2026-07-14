@@ -18,6 +18,7 @@ from test_mcu_serial import *
 from test_state_machine import *
 from test_laser_led import *
 from test_h7_gpio_protocol import *
+from test_openmv_vision import *
 
 
 if __name__ == '__main__':
@@ -39,9 +40,11 @@ if __name__ == '__main__':
     print(f"Failures: {len(result.failures)}")
     print(f"Errors: {len(result.errors)}")
     if result.wasSuccessful():
-        print("✅ ALL TESTS PASSED")
+        print("ALL TESTS PASSED")
     else:
-        print("❌ SOME TESTS FAILED")
+        print("SOME TESTS FAILED")
         for test, traceback in result.failures + result.errors:
             print(f"\n  FAIL: {test}")
             print(f"  {traceback.split(chr(10))[-2]}")
+
+    sys.exit(0 if result.wasSuccessful() else 1)

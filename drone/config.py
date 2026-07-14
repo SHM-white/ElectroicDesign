@@ -76,10 +76,17 @@ BLOCK_SIZE_CM = 50          # 每块50cm×50cm
 
 # ── 视觉参数 ──────────────────────────────────────────────
 
+VISION_BACKEND = 'industrial'  # industrial=工业相机; openmv=板端识别
+
 CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
 CAMERA_FPS = 30
 CAMERA_DEVICE_ID = 0
+
+# OpenMV 识别结果串口。若同时使用 H7 GPIO 板，请为两个设备分配不同端口。
+OPENMV_SERIAL_PORT = '/dev/ttyUSB1'
+OPENMV_SERIAL_BAUDRATE = 115200
+OPENMV_STALE_TIMEOUT_S = 0.5
 
 # 绿色HSV阈值 (现场微调参考值)
 GREEN_HSV_LOWER = [35, 40, 40]
@@ -99,13 +106,15 @@ MIN_CONTOUR_AREA = 500
 # ── 路径参数 ──────────────────────────────────────────────
 
 # 作业区原点到起降点偏移
-ORIGIN_OFFSET_X_CM = 100
-ORIGIN_OFFSET_Y_CM = 100
+ORIGIN_OFFSET_X_CM = 0
+ORIGIN_OFFSET_Y_CM = 50
 
 # ── 硬件引脚 ──────────────────────────────────────────────
 
 LASER_PIN = 17    # 激光笔GPIO (BCM编号)
 LED_PIN = 27      # LED指示灯GPIO (BCM编号)
+H7_LASER_PIN = 0  # H7自定义协议引脚编号 (0-15)
+FT232H_LASER_PIN = 0  # FT232H ADBUS引脚编号 (0-7)
 
 # 串口
 SERIAL_PORT = '/dev/ttyUSB0'  # x86 USB-TTL默认; 树莓派用 /dev/serial0
@@ -156,10 +165,14 @@ def get_config() -> Dict[str, Any]:
         'green_low': GREEN_LOW,
         'ocr_interval_blocks': OCR_INTERVAL_BLOCKS,
         'block_size_cm': BLOCK_SIZE_CM,
+        'vision_backend': VISION_BACKEND,
         'camera_width': CAMERA_WIDTH,
         'camera_height': CAMERA_HEIGHT,
         'camera_fps': CAMERA_FPS,
         'camera_device_id': CAMERA_DEVICE_ID,
+        'openmv_serial_port': OPENMV_SERIAL_PORT,
+        'openmv_serial_baudrate': OPENMV_SERIAL_BAUDRATE,
+        'openmv_stale_timeout_s': OPENMV_STALE_TIMEOUT_S,
         'green_hsv_lower': GREEN_HSV_LOWER,
         'green_hsv_upper': GREEN_HSV_UPPER,
         'gray_hsv_lower': GRAY_HSV_LOWER,
@@ -171,6 +184,8 @@ def get_config() -> Dict[str, Any]:
         'origin_offset_y_cm': ORIGIN_OFFSET_Y_CM,
         'laser_pin': LASER_PIN,
         'led_pin': LED_PIN,
+        'h7_laser_pin': H7_LASER_PIN,
+        'ft232h_laser_pin': FT232H_LASER_PIN,
         'serial_port': SERIAL_PORT,
         'serial_baudrate': SERIAL_BAUDRATE,
         'return_home_speed_cmps': RETURN_HOME_SPEED_CMPS,
@@ -179,6 +194,7 @@ def get_config() -> Dict[str, Any]:
         'max_boundary_misses': MAX_BOUNDARY_MISSES,
         'low_voltage_threshold': LOW_VOLTAGE_THRESHOLD,
         'flow_lost_timeout_s': FLOW_LOST_TIMEOUT_S,
+        'auto_start': False,
         'dry_run': DRY_RUN,
         'save_logs': SAVE_LOGS,
         'log_dir': LOG_DIR,

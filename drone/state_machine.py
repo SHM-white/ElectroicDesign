@@ -16,7 +16,10 @@ import logging
 from enum import Enum, auto
 from typing import Any, Optional
 
-from path_plan import PATH, get_block_position, get_home_position, init_grid
+try:
+    from .path_plan import get_block_position, get_home_position
+except ImportError:
+    from path_plan import get_block_position, get_home_position
 
 logger = logging.getLogger('drone.sm')
 
@@ -52,7 +55,7 @@ class DroneStateMachine:
         """
         Args:
             mcu: MCUSerial实例
-            camera: Camera实例
+            camera: Camera或OpenMVVision实例
             localizer: Localizer实例
             laser: LaserController实例 (可为None用于测试)
             config: 配置字典 (from config.get_config())
@@ -64,14 +67,15 @@ class DroneStateMachine:
         self.laser = laser
         self.cfg = config
 
-        # 28个区块的访问记录 (下标1~28, 22为空不用)
-        self.visited = [True] + [False] * 28  # visited[0]=True占位
+        # 28个区块的访问记录 (下标1~28)
+        self.visited = [False] * 29
 
         # 计时器
         self._state_start_time = time.time()
         self._mission_start_time = 0.0
         self._retry_count = 0
         self._max_retries = 3
+        self._state_command_sent = False
 
         # 异常检测
         self._emergency_reason = ""
@@ -112,11 +116,11 @@ class DroneStateMachine:
 
     @property
     def visited_count(self) -> int:
-        return sum(1 for v in self.visited if v)
+        return sum(1 for v in self.visited[1:] if v)
 
     @property
     def total_blocks(self) -> int:
-        return len(self.localizer.path)  # 27, not 28 (plan document error)
+        return len(self.localizer.path)
 
     # ── 主循环 ────────────────────────────────────────────
 
@@ -138,12 +142,12 @@ class DroneStateMachine:
         if of_dx != 0.0 or of_dy != 0.0:
             self.localizer.update_optical_flow(of_dx, of_dy)
 
-        # 颜色跳变检测 (所有飞行状态都检查)
-        if self.state not in (FlightState.IDLE, FlightState.ARM_UNLOCK,
-                              FlightState.SET_PROGRAM_MODE, FlightState.TAKEOFF,
-                              FlightState.EMERGENCY, FlightState.DONE):
-            if self.localizer.check_boundary_crossed(green_ratio):
-                self.localizer.advance_block()
+        # 颜色跳变只作为区域边界观测，不直接推进离散路径索引。
+        if green_ratio is not None and self.state not in (
+                FlightState.IDLE, FlightState.ARM_UNLOCK,
+                FlightState.SET_PROGRAM_MODE, FlightState.TAKEOFF,
+                FlightState.EMERGENCY, FlightState.DONE):
+            self.localizer.check_boundary_crossed(green_ratio)
 
         # OCR校准
         if self.localizer.should_do_ocr() and ocr_result is not None:
@@ -181,22 +185,27 @@ class DroneStateMachine:
     def _state_idle(self, frame, green_ratio, ocr_result):
         """等待启动信号"""
         # 检查启动信号: CH6开关 >1700us
-        if self.mcu.read_aux2() > 1700:
+        if self.cfg.get('auto_start', False) or self.cfg.get('dry_run', False) or \
+                self.mcu.read_aux2() > 1700:
             logger.info("Start signal received!")
             self._transition(FlightState.ARM_UNLOCK)
 
     def _state_arm_unlock(self, frame, green_ratio, ocr_result):
         """解锁电机"""
-        logger.info("Sending unlock command...")
-        self.mcu.send_cmd_unlock()
+        if not self._state_command_sent:
+            logger.info("Sending unlock command...")
+            self.mcu.send_cmd_unlock()
+            self._state_command_sent = True
         # 等待解锁完成
         if self.state_start_time > self.cfg['unlock_wait_s']:
             self._transition(FlightState.SET_PROGRAM_MODE)
 
     def _state_set_program_mode(self, frame, green_ratio, ocr_result):
         """切换到程控模式"""
-        logger.info("Setting program control mode...")
-        self.mcu.send_cmd_mode(3)  # 程控模式
+        if not self._state_command_sent:
+            logger.info("Setting program control mode...")
+            self.mcu.send_cmd_mode(3)  # 程控模式
+            self._state_command_sent = True
         if self.state_start_time > self.cfg['mode_switch_wait_s']:
             # 重置光流零点
             self.mcu.send_of_zero_reset()
@@ -210,9 +219,10 @@ class DroneStateMachine:
         tolerance = self.cfg['takeoff_height_tolerance']
 
         # 仅第一次进入时发送指令
-        if self._retry_count == 0 and self.state_start_time < 0.5:
+        if not self._state_command_sent:
             logger.info(f"Taking off to {takeoff_height}cm...")
             self.mcu.send_cmd_takeoff(takeoff_height)
+            self._state_command_sent = True
 
         # 检查高度
         alt = self.mcu.read_altitude()
@@ -227,6 +237,7 @@ class DroneStateMachine:
             else:
                 logger.warning(f"Takeoff timeout, retry {self._retry_count}/{self._max_retries}")
                 self.mcu.send_cmd_takeoff(takeoff_height)
+                self._state_start_time = time.time()
 
     def _state_find_start(self, frame, green_ratio, ocr_result):
         """寻找起始区块 (A标记/区块21)"""
@@ -240,18 +251,18 @@ class DroneStateMachine:
 
         if distance < 10:
             # 已到达, 微调确认
-            if ocr_result == 21:
+            if ocr_result == 21 or self.cfg.get('dry_run', False):
                 self.localizer.apply_ocr(21)
                 self._transition(FlightState.SPRAY)
         else:
             # 发送移动指令
-            if self.state_start_time < 0.5:
+            if not self._state_command_sent:
                 self.mcu.send_cmd_move(distance, self.cfg['move_speed'], direction)
+                self._state_command_sent = True
 
-            # 超时仍切换 (依赖颜色跳变 + OCR 确认)
-            if self.state_start_time > 15:
-                logger.warning("Find start timeout, proceeding anyway")
-                self._transition(FlightState.SPRAY)
+        if self.state_start_time > 15:
+            logger.warning("Find start timeout, proceeding with estimated position")
+            self._transition(FlightState.SPRAY)
 
     def _state_spray(self, frame, green_ratio, ocr_result):
         """撒药 (激光闪烁)"""
@@ -302,8 +313,9 @@ class DroneStateMachine:
             self._transition(FlightState.SPRAY)
         else:
             # 发送移动指令
-            if self.state_start_time < 0.5 or self._retry_count > 0:
+            if not self._state_command_sent:
                 self.mcu.send_cmd_move(distance, self.cfg['move_speed'], direction)
+                self._state_command_sent = True
 
             # 超时处理
             if self.state_start_time > self.cfg['block_timeout']:
@@ -314,6 +326,9 @@ class DroneStateMachine:
                     self.visited[next_block] = True  # 放弃此块
                     self.localizer.advance_block()
                     self._transition(FlightState.SPRAY)
+                else:
+                    self.mcu.send_cmd_move(distance, self.cfg['move_speed'], direction)
+                    self._state_start_time = time.time()
 
     def _state_return_home(self, frame, green_ratio, ocr_result):
         """返回起降点"""
@@ -324,10 +339,11 @@ class DroneStateMachine:
             logger.info("Arrived at home position")
             self._transition(FlightState.LAND)
         else:
-            if self.state_start_time < 0.5:
+            if not self._state_command_sent:
                 self.mcu.send_cmd_move(
                     distance, self.cfg['return_home_speed_cmps'], direction
                 )
+                self._state_command_sent = True
 
             # 超时: 仍然降落
             if self.state_start_time > distance / self.cfg['move_speed'] + 10:
@@ -336,13 +352,13 @@ class DroneStateMachine:
 
     def _state_land(self, frame, green_ratio, ocr_result):
         """着陆"""
-        if self.state_start_time < 0.5:
+        if not self._state_command_sent:
             logger.info("Landing...")
             self.mcu.send_cmd_land()
+            self._state_command_sent = True
 
         alt = self.mcu.read_altitude()
-        if alt < self.cfg['land_alt_threshold_cm'] and alt > 0:
-            time.sleep(1)  # 确认稳定
+        if self._has_flight_status() and alt <= self.cfg['land_alt_threshold_cm']:
             logger.info(f"Land complete: altitude={alt}cm")
             self._transition(FlightState.LOCK)
         elif self.state_start_time > self.cfg['land_timeout_s']:
@@ -350,9 +366,10 @@ class DroneStateMachine:
 
     def _state_lock(self, frame, green_ratio, ocr_result):
         """加锁"""
-        if self.state_start_time < 0.5:
+        if not self._state_command_sent:
             logger.info("Locking motors...")
             self.mcu.send_cmd_lock()
+            self._state_command_sent = True
         if self.state_start_time > 1:
             logger.info("=== MISSION COMPLETE ===")
             self._transition(FlightState.DONE)
@@ -363,12 +380,17 @@ class DroneStateMachine:
 
         执行紧急降落流程
         """
-        if self.state_start_time < 0.5:
+        if not self._state_command_sent:
             logger.critical(f"EMERGENCY: {self._emergency_reason}")
             self.mcu.send_cmd_land()
+            self._state_command_sent = True
 
-        if self.state_start_time > 5:
+        alt = self.mcu.read_altitude()
+        if self._has_flight_status() and alt <= self.cfg['land_alt_threshold_cm']:
             self.mcu.send_cmd_lock()
+            self._transition(FlightState.DONE)
+        elif self.state_start_time > self.cfg['land_timeout_s']:
+            logger.critical("Emergency landing could not be confirmed; leaving motors unlocked")
             self._transition(FlightState.DONE)
 
     def _state_done(self, frame, green_ratio, ocr_result):
@@ -386,6 +408,7 @@ class DroneStateMachine:
         self.state = new_state
         self._state_start_time = time.time()
         self._retry_count = 0
+        self._state_command_sent = False
         self._total_states += 1
         self._state_history.append((old_state, new_state, time.time()))
 
@@ -406,16 +429,30 @@ class DroneStateMachine:
         direction = int(math.degrees(math.atan2(dy, dx)) % 360)
         return distance, direction
 
+    def _has_flight_status(self) -> bool:
+        checker = getattr(self.mcu, 'has_flight_status', None)
+        return bool(checker()) if callable(checker) else True
+
     # ── 视觉数据获取 ──────────────────────────────────────
 
     def _get_vision_data(self):
         """获取视觉处理数据"""
         if self.camera is None:
-            return None, 0.0, None
+            return None, None, None
 
+        # 新视觉后端统一返回处理结果。OpenMV 在板端识别，因此 frame=None；
+        # 工业相机仍由 Camera.read_result() 在上位机执行 OpenCV/Tesseract。
+        read_result = getattr(self.camera, 'read_result', None)
+        if callable(read_result):
+            result = read_result()
+            if result is None:
+                return None, None, None
+            return result.frame, result.green_ratio, result.digit
+
+        # 兼容旧 Camera/测试桩的抓帧接口。
         ret, frame = self.camera.read()
         if not ret:
-            return None, 0.0, None
+            return None, None, None
 
         # 计算绿色占比
         green_ratio = 0.0

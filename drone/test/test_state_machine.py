@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from state_machine import DroneStateMachine, FlightState
+from vision_result import VisionResult
 from localization import Localizer
 from config import get_config
 
@@ -21,7 +22,7 @@ class MockMCU:
     def __init__(self):
         self._altitude = 0
         self._mode = 0
-        self._locked = 1
+        self._locked = 0
         self._of_dx = 0.0
         self._of_dy = 0.0
         self._sent_commands = []
@@ -55,6 +56,9 @@ class MockMCU:
 
     def get_communication_age_ms(self):
         return self._comm_age_ms
+
+    def has_flight_status(self):
+        return True
 
     def send_cmd_unlock(self):
         self._sent_commands.append('unlock')
@@ -110,6 +114,12 @@ class MockCamera:
         return False, None
 
 
+class MockResultCamera:
+    """模拟已经在相机端完成识别的视觉后端。"""
+    def read_result(self):
+        return VisionResult(green_ratio=0.75, digit=21)
+
+
 class MockLaser:
     """模拟激光"""
     def __init__(self):
@@ -136,12 +146,27 @@ class TestStateMachineInit(unittest.TestCase):
         sm = DroneStateMachine(MockMCU(), MockCamera(),
                                 Localizer(), MockLaser(), get_config())
         self.assertEqual(len(sm.visited), 29)  # 29 entries (index 0-28)
-        self.assertTrue(sm.visited[0])  # index 0 is placeholder
+        self.assertFalse(sm.visited[0])  # index 0 is unused
 
     def test_not_completed_initially(self):
         sm = DroneStateMachine(MockMCU(), MockCamera(),
                                 Localizer(), MockLaser(), get_config())
         self.assertFalse(sm.is_completed)
+
+    def test_processed_vision_backend_result(self):
+        sm = DroneStateMachine(MockMCU(), MockResultCamera(),
+                               Localizer(), MockLaser(), get_config())
+        frame, green_ratio, digit = sm._get_vision_data()
+        self.assertIsNone(frame)
+        self.assertEqual(green_ratio, 0.75)
+        self.assertEqual(digit, 21)
+
+    def test_missing_vision_is_not_reported_as_zero_green(self):
+        sm = DroneStateMachine(MockMCU(), MockCamera(),
+                               Localizer(), MockLaser(), get_config())
+        _, green_ratio, digit = sm._get_vision_data()
+        self.assertIsNone(green_ratio)
+        self.assertIsNone(digit)
 
 
 class TestStateTransitions(unittest.TestCase):
@@ -266,7 +291,7 @@ class TestNavigateLogic(unittest.TestCase):
     def test_all_blocks_visited_triggers_return_home(self):
         """测试全部区块完成后触发返航"""
         self.sm.state = FlightState.NAVIGATE
-        # 标记全部已访问 (共27个区块)
+        # 标记全部已访问
         for i in range(1, 29):
             self.sm.visited[i] = True
 
@@ -280,20 +305,20 @@ class TestProgressTracking(unittest.TestCase):
     def test_visited_count(self):
         sm = DroneStateMachine(MockMCU(), MockCamera(),
                                 Localizer(), MockLaser(), get_config())
-        self.assertEqual(sm.visited_count, 1)  # visited[0]=True
+        self.assertEqual(sm.visited_count, 0)
 
         sm.visited[1] = True
-        self.assertEqual(sm.visited_count, 2)
+        self.assertEqual(sm.visited_count, 1)
 
         sm.visited[21] = True
-        self.assertEqual(sm.visited_count, 3)
+        self.assertEqual(sm.visited_count, 2)
 
     def test_progress_dict(self):
         sm = DroneStateMachine(MockMCU(), MockCamera(),
                                 Localizer(), MockLaser(), get_config())
         progress = sm.get_progress()
         self.assertEqual(progress['state'], 'IDLE')
-        self.assertEqual(progress['total'], 27)  # 27 unique blocks in layout
+        self.assertEqual(progress['total'], 28)
         self.assertFalse(progress['emergency'])
 
 

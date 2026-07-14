@@ -8,6 +8,7 @@ Section 11: 激光笔与LED控制
 """
 
 import time
+import threading
 import logging
 from typing import Optional
 
@@ -39,6 +40,8 @@ class LaserController:
         self.pin = pin
         self._enabled = True
         self._backend = backend if backend is not None else auto_detect_backend()
+        self._blink_thread: Optional[threading.Thread] = None
+        self._blink_stop = threading.Event()
         self._backend.setup(self.pin, GpioMode.OUT)
         self._backend.output(self.pin, GpioValue.LOW)
         logger.info(f"Laser initialized on GPIO{pin}")
@@ -73,28 +76,48 @@ class LaserController:
             self._backend.pulse(self.pin, count, period_ms)
             return
 
-        # 软件闪烁路径 (阻塞, 兼容 RPi/FT232H/Dummy 后端)
+        # 软件闪烁路径 (后台线程, 兼容 RPi/FT232H/Dummy 后端)
         half_period_s = period_ms / 1000.0 / 2.0  # 50%占空比
-        on_time = half_period_s
-        off_time = half_period_s
+        if self._blink_thread is not None and self._blink_thread.is_alive():
+            logger.warning("Laser blink request ignored because a blink is already active")
+            return
 
-        logger.info(f"Laser blinking: count={count}, period={period_ms}ms")
+        self._blink_stop.clear()
 
-        for i in range(count):
-            self.on()
-            time.sleep(on_time)
+        def run_blink() -> None:
+            logger.info(f"Laser blinking: count={count}, period={period_ms}ms")
+            for _ in range(count):
+                if self._blink_stop.is_set():
+                    break
+                self.on()
+                if self._blink_stop.wait(half_period_s):
+                    break
+                self.off()
+                if self._blink_stop.wait(half_period_s):
+                    break
             self.off()
-            time.sleep(off_time)
+
+        self._blink_thread = threading.Thread(
+            target=run_blink,
+            name='laser-blink',
+            daemon=True,
+        )
+        self._blink_thread.start()
 
     def enable(self):
+        self._blink_stop.clear()
         self._enabled = True
 
     def disable(self):
+        self._blink_stop.set()
+        self._backend.output(self.pin, GpioValue.LOW)
         self._enabled = False
-        self.off()
 
     def cleanup(self):
         """清理GPIO资源"""
+        self._blink_stop.set()
+        if self._blink_thread is not None and self._blink_thread.is_alive():
+            self._blink_thread.join(timeout=1.0)
         self.off()
         self._backend.cleanup(self.pin)
         logger.info("Laser cleanup complete")

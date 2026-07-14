@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from path_plan import (
     init_grid, BLOCK_GRID, BLOCK_POSITIONS, PATH,
     TOTAL_BLOCKS, GRID_COLS, GRID_ROWS, BLOCK_SIZE,
+    ORIGIN_OFFSET_X, ORIGIN_OFFSET_Y,
     generate_move_commands, get_return_to_home_command,
     validate_path, get_block_position,
     print_path_map, summary,
@@ -27,9 +28,9 @@ class TestGridLayout(unittest.TestCase):
         init_grid()
 
     def test_total_blocks(self):
-        """验证区块总数 (布局共27个唯一区块ID, 计划声称28疑似笔误)"""
-        self.assertEqual(TOTAL_BLOCKS, 27,
-                         f"Expected 27 blocks from layout, got {TOTAL_BLOCKS}")
+        """验证赛题布局包含1-28共28个区块。"""
+        self.assertEqual(TOTAL_BLOCKS, 28,
+                         f"Expected 28 blocks from layout, got {TOTAL_BLOCKS}")
 
     def test_all_blocks_in_range(self):
         """验证所有区块ID在1-28范围内"""
@@ -46,23 +47,23 @@ class TestGridLayout(unittest.TestCase):
     def test_block_positions_reasonable(self):
         """验证区块位置在合理范围内"""
         for bid, (x, y) in BLOCK_POSITIONS.items():
-            self.assertGreater(x, 0, f"Block {bid}: x={x} should be > 0")
-            # y 应该在 [offset_y, offset_y + 7*50]
+            self.assertGreaterEqual(x, 0, f"Block {bid}: x={x} should be >= 0")
             self.assertGreater(y, 0, f"Block {bid}: y={y} should be > 0")
-            self.assertLess(y, ORIGIN_OFFSET_Y + GRID_ROWS * BLOCK_SIZE + 50)
+            self.assertLessEqual(y, ORIGIN_OFFSET_Y + (GRID_COLS - 1) * BLOCK_SIZE)
 
     def test_specific_block_positions(self):
         """验证关键区块的位置"""
         # 区块21 (A标记位置): Row1, Col0
         pos21 = BLOCK_POSITIONS.get(21)
         self.assertIsNotNone(pos21, "Block 21 not found!")
-        # Row1, Col0 → x = offset_x + 0*50 + 25
-        expected_x = ORIGIN_OFFSET_X + 0 * BLOCK_SIZE + BLOCK_SIZE // 2
+        expected_x = ORIGIN_OFFSET_X + (GRID_ROWS - 1 - 1) * BLOCK_SIZE
         self.assertAlmostEqual(pos21[0], expected_x, delta=1)
+        self.assertAlmostEqual(pos21[1], ORIGIN_OFFSET_Y, delta=1)
 
-        # 区块1: Row6, Col4
+        # 区块1: Row5, Col6
         pos1 = BLOCK_POSITIONS.get(1)
         self.assertIsNotNone(pos1, "Block 1 not found!")
+        self.assertEqual(pos1, (0, 350))
 
     def test_known_empty_positions(self):
         """验证已知空缺位置确实为空"""
@@ -77,10 +78,6 @@ class TestGridLayout(unittest.TestCase):
                     for bid, (c, r) in BLOCK_GRID.items():
                         self.assertNotEqual((c, r), (col, row),
                                             f"Block {bid} at ({col},{row}) should be empty")
-
-
-ORIGIN_OFFSET_X = 100
-ORIGIN_OFFSET_Y = 100
 
 
 class TestPathValidation(unittest.TestCase):
@@ -108,6 +105,20 @@ class TestPathValidation(unittest.TestCase):
         self.assertEqual(PATH[0], 21,
                          "Path must start from block 21 (A marker)")
 
+    def test_path_uses_column_snake_pattern(self):
+        """验证从18开始按列下、上、下、上的蛇形顺序遍历。"""
+        self.assertEqual(PATH[:4], [21, 20, 19, 18])
+        self.assertEqual(PATH[4:8], [14, 10, 8, 4])
+        self.assertEqual(PATH[8:14], [3, 7, 9, 13, 17, 16])
+        self.assertEqual(PATH[14:22], [12, 6, 2, 1, 5, 11, 15, 22])
+
+    def test_path_ends_next_to_a(self):
+        """验证终点28与A点21上下相邻。"""
+        self.assertEqual(PATH[-1], 28)
+        end_col, end_row = BLOCK_GRID[PATH[-1]]
+        a_col, a_row = BLOCK_GRID[21]
+        self.assertEqual(abs(end_col - a_col) + abs(end_row - a_row), 1)
+
     def test_path_adjacency(self):
         """验证路径中相邻区块在网格中距离合理 (蛇形路径允许跳过空缺格子)"""
         for i in range(len(PATH) - 1):
@@ -126,8 +137,8 @@ class TestPathValidation(unittest.TestCase):
                          f"Path validation issues: {issues}")
 
     def test_block_count(self):
-        """验证布局区块数 (共27个区块)"""
-        self.assertEqual(len(set(PATH)), 27)
+        """验证布局区块数。"""
+        self.assertEqual(len(set(PATH)), 28)
 
 
 class TestMoveCommands(unittest.TestCase):

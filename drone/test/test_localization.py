@@ -176,6 +176,7 @@ class TestOCRCalibration(unittest.TestCase):
         self.loc.apply_ocr(21)
         self.assertEqual(self.loc.pos_x, 0.0)
         self.assertEqual(self.loc.pos_y, 0.0)
+        self.assertEqual(self.loc.get_global_position(), (200, 50))
 
     def test_ocr_counter(self):
         """测试OCR校准计数器"""

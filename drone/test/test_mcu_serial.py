@@ -160,10 +160,15 @@ class TestMcuCommands(unittest.TestCase):
 
     def test_takeoff_land(self):
         self.assertTrue(self.mcu.send_cmd_takeoff(150))
+        self.assertEqual(self.mcu.read_altitude(), 150)
         self.assertTrue(self.mcu.send_cmd_land())
+        self.assertEqual(self.mcu.read_altitude(), 0)
 
     def test_move(self):
         self.assertTrue(self.mcu.send_cmd_move(100, 30, 90))
+        dx, dy = self.mcu.read_optical_flow()
+        self.assertAlmostEqual(dx, 0.0, delta=0.01)
+        self.assertAlmostEqual(dy, 100.0, delta=0.01)
 
     def test_ascend_descend(self):
         self.assertTrue(self.mcu.send_cmd_ascend(100, 25))

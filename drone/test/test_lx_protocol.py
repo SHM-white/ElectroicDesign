@@ -234,7 +234,7 @@ class TestMcuFrameParsing(unittest.TestCase):
 
     def test_parse_flight_status(self):
         """测试飞行状态帧解析"""
-        # MODE=3(程控), LOCKED=0(已解锁), ALT=150cm
+        # MODE=3(程控), LOCKED=0(锁定), ALT=150cm
         alt_packed = struct.pack('<i', 150)
         buf = bytes([0xCC, 0x02, 0x03, 0x00]) + alt_packed
 

@@ -15,20 +15,29 @@ Section 3: 主控与MCU串口通信协议
 """
 
 import struct
+import math
 import time
 import threading
 import logging
 from typing import Optional, Tuple, List, Callable
 from collections import deque
 
-from lx_protocol import (
-    build_pi_frame, build_pi_query_frame, build_heartbeat_query,
-    parse_of_position, parse_flight_status, parse_battery_voltage,
-    cmd_unlock, cmd_lock, cmd_mode,
-    cmd_takeoff, cmd_land, cmd_move,
-    cmd_ascend, cmd_descend,
-)
-from utils import Timer, MovingAverage
+try:
+    from .lx_protocol import (
+        build_pi_frame, build_pi_query_frame, build_heartbeat_query,
+        parse_of_position, parse_flight_status, parse_battery_voltage,
+        cmd_unlock, cmd_lock, cmd_mode,
+        cmd_takeoff, cmd_land, cmd_move,
+        cmd_ascend, cmd_descend,
+    )
+except ImportError:
+    from lx_protocol import (
+        build_pi_frame, build_pi_query_frame, build_heartbeat_query,
+        parse_of_position, parse_flight_status, parse_battery_voltage,
+        cmd_unlock, cmd_lock, cmd_mode,
+        cmd_takeoff, cmd_land, cmd_move,
+        cmd_ascend, cmd_descend,
+    )
 
 logger = logging.getLogger('drone.mcu')
 
@@ -142,10 +151,12 @@ class MCUSerial:
         self._last_of_y = 0.0      # 上一次光流Y
         self._altitude = 0         # 高度 (cm)
         self._mode = 0             # 飞行模式
-        self._locked = 1           # 锁定状态
+        self._locked = 0           # V7协议: 0=锁定, 1=解锁
         self._voltage_mv = 0       # 电池电压 (mV)
         self._of_updated = False   # 光流数据是否更新
         self._last_of_update = 0.0  # 上次光流更新时间
+        self._flight_status_received = dry_run
+        self._last_flight_status_update = time.time() if dry_run else 0.0
 
         # 通信超时
         self._last_rx_time = time.time()
@@ -220,33 +231,89 @@ class MCUSerial:
     # ── 高级指令 ──────────────────────────────────────────
 
     def send_cmd_unlock(self) -> bool:
-        return self.send_imu_frame(cmd_unlock())
+        ok = self.send_imu_frame(cmd_unlock())
+        if ok and self.dry_run:
+            with self._lock:
+                self._locked = 1
+                self._touch_simulated_status()
+        return ok
 
     def send_cmd_lock(self) -> bool:
-        return self.send_imu_frame(cmd_lock())
+        ok = self.send_imu_frame(cmd_lock())
+        if ok and self.dry_run:
+            with self._lock:
+                self._locked = 0
+                self._touch_simulated_status()
+        return ok
 
     def send_cmd_mode(self, mode: int) -> bool:
         """切换飞行模式 (0=自稳, 1=自稳+定高, 2=定点, 3=程控)"""
-        return self.send_imu_frame(cmd_mode(mode))
+        ok = self.send_imu_frame(cmd_mode(mode))
+        if ok and self.dry_run:
+            with self._lock:
+                self._mode = mode
+                self._touch_simulated_status()
+        return ok
 
     def send_cmd_takeoff(self, height_cm: int = 150) -> bool:
-        return self.send_imu_frame(cmd_takeoff(height_cm))
+        ok = self.send_imu_frame(cmd_takeoff(height_cm))
+        if ok and self.dry_run:
+            with self._lock:
+                self._altitude = height_cm or 150
+                self._touch_simulated_status()
+        return ok
 
     def send_cmd_land(self) -> bool:
-        return self.send_imu_frame(cmd_land())
+        ok = self.send_imu_frame(cmd_land())
+        if ok and self.dry_run:
+            with self._lock:
+                self._altitude = 0
+                self._touch_simulated_status()
+        return ok
 
     def send_cmd_move(self, distance_cm: int, speed_cmps: int, direction_deg: int) -> bool:
-        return self.send_imu_frame(cmd_move(distance_cm, speed_cmps, direction_deg))
+        ok = self.send_imu_frame(cmd_move(distance_cm, speed_cmps, direction_deg))
+        if ok and self.dry_run:
+            angle = math.radians(direction_deg)
+            dx = distance_cm * math.cos(angle)
+            dy = distance_cm * math.sin(angle)
+            with self._lock:
+                self._of_dx += dx
+                self._of_dy += dy
+                self._of_pos_x += dx
+                self._of_pos_y += dy
+                self._of_quality = 255
+                self._of_updated = True
+                self._last_of_update = time.time()
+                self._last_rx_time = time.time()
+        return ok
 
     def send_cmd_ascend(self, height_cm: int, speed_cmps: int) -> bool:
-        return self.send_imu_frame(cmd_ascend(height_cm, speed_cmps))
+        ok = self.send_imu_frame(cmd_ascend(height_cm, speed_cmps))
+        if ok and self.dry_run:
+            with self._lock:
+                self._altitude += height_cm
+                self._touch_simulated_status()
+        return ok
 
     def send_cmd_descend(self, height_cm: int, speed_cmps: int) -> bool:
-        return self.send_imu_frame(cmd_descend(height_cm, speed_cmps))
+        ok = self.send_imu_frame(cmd_descend(height_cm, speed_cmps))
+        if ok and self.dry_run:
+            with self._lock:
+                self._altitude = max(0, self._altitude - height_cm)
+                self._touch_simulated_status()
+        return ok
 
     def send_of_zero_reset(self) -> bool:
         """请求MCU重置光流积分零点"""
-        return self.send_query(0x03)
+        ok = self.send_query(0x03)
+        if ok and self.dry_run:
+            with self._lock:
+                self._of_pos_x = 0.0
+                self._of_pos_y = 0.0
+                self._of_dx = 0.0
+                self._of_dy = 0.0
+        return ok
 
     def send_heartbeat(self) -> bool:
         """发送心跳查询 (CMD=0x04)"""
@@ -316,6 +383,8 @@ class MCUSerial:
                             self._mode = parsed['mode']
                             self._locked = parsed['locked']
                             self._altitude = parsed['alt']
+                            self._flight_status_received = True
+                            self._last_flight_status_update = time.time()
                     self._rx_buf = self._rx_buf[8:]
                 elif cmd == 0x03 and len(self._rx_buf) >= 4:
                     # 电池电压帧
@@ -378,6 +447,8 @@ class MCUSerial:
         NOTE: 此方法需要MCU额外发送CH6数据或通过飞行状态帧扩展
         当前为占位实现
         """
+        if self.dry_run:
+            return 1800
         # TODO: 通过扩展飞行状态帧或增加独立查询帧实现
         return 1000  # 默认值(未触发)
 
@@ -396,8 +467,22 @@ class MCUSerial:
     def is_connected(self) -> bool:
         return self._ser is not None
 
+    def _touch_simulated_status(self) -> None:
+        self._flight_status_received = True
+        self._last_flight_status_update = time.time()
+        self._last_rx_time = time.time()
+
+    def has_flight_status(self, max_age_s: float = 2.0) -> bool:
+        """是否收到过近期有效的飞行状态数据。"""
+        with self._lock:
+            return self._flight_status_received and (
+                self.dry_run or time.time() - self._last_flight_status_update <= max_age_s
+            )
+
     def is_communication_ok(self, timeout_ms: float = 500.0) -> bool:
         """检查通信是否正常"""
+        if self.dry_run:
+            return True
         return (time.time() - self._last_rx_time) * 1000 < timeout_ms
 
     def get_communication_age_ms(self) -> float:

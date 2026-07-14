@@ -195,7 +195,10 @@ class H7GpioBackend(GpioBackend):
             serial: H7GpioSerial 实例 (已连接)
         """
         # 延迟导入避免循环依赖
-        from h7_gpio_protocol import cmd_set_output, cmd_configure, cmd_pulse
+        try:
+            from .h7_gpio_protocol import cmd_set_output, cmd_configure, cmd_pulse
+        except ImportError:
+            from h7_gpio_protocol import cmd_set_output, cmd_configure, cmd_pulse
 
         self._serial = serial
         self._cmd_set_output = cmd_set_output
