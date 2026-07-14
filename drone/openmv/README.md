@@ -2,12 +2,22 @@
 
 OpenMV 完成绿色占比和区块编号识别，上位机只接收识别结果，不传图像。
 
-## 部署
+## 先采集数字模板
 
-1. 使用 OpenMV IDE 连接设备，把 [main.py](main.py) 复制到 OpenMV 根目录。
-2. 在 OpenMV 文件系统创建 `/templates`，放入 `1.pgm` 到 `28.pgm`。模板应在实际飞行高度、镜头焦距和现场光照下截取，只保留区块数字及少量边缘背景。
-3. 在 OpenMV IDE 的阈值工具中标定 `GREEN_LAB_THRESHOLD`，再调整 `TEMPLATE_THRESHOLD`。模板误识别时提高阈值，漏识别时降低阈值。
-4. 默认使用 `UART(3)`、115200 baud。按具体 OpenMV 型号确认 UART TX 引脚，将 OpenMV TX 接到上位机 USB-TTL RX，并连接 GND。结果为单向传输，不需要连接上位机 TX。
+1. 在 OpenMV IDE 中打开 [template_capture.py](template_capture.py)。
+2. 把 `BLOCK_ID` 改为需要采集的编号，例如 `21`。
+3. 将 OpenMV 固定在实际飞行高度和镜头姿态，使完整数字位于黄色矩形内。
+4. 运行脚本，倒计时结束后会保存 `/templates/21.pgm`。
+5. 对 `1..28` 重复操作。数字大小变化明显时，应重新调整 `TEMPLATE_ROI`，不要在不同高度混用模板。
+
+模板采集脚本会执行灰度化和直方图均衡，运行脚本使用同一套相机分辨率、增益和白平衡设置。
+
+## 部署运行脚本
+
+1. 使用 OpenMV IDE 把 [main.py](main.py) 和 `/templates` 目录保存到 OpenMV 文件系统。
+2. 在 OpenMV IDE 的阈值工具中标定 `GREEN_LAB_THRESHOLD`，再调整 `TEMPLATE_THRESHOLD`。模板误识别时提高阈值，漏识别时降低阈值。
+3. 默认使用 `UART(3)`、115200 baud。按具体 OpenMV 型号确认 UART TX 引脚，将 OpenMV TX 接到上位机 USB-TTL RX，并连接 GND。结果为单向传输，不需要连接上位机 TX。
+4. 脱离 IDE 上电运行时，运行脚本必须以 `main.py` 的名字保存在 OpenMV 根目录。
 
 OpenMV 与 USB-TTL 使用 3.3V 逻辑电平。不要把 5V TTL 信号直接接入 OpenMV IO。
 
