@@ -211,7 +211,8 @@ class Camera:
         """按当前任务阶段执行A标记检测或数字OCR。"""
         if self._start_marker_enabled:
             marker = self.digit_reader.find_a_marker(frame)
-            return None, marker
+            if marker is not None:
+                return 21, marker
         digit = self.digit_reader.extract_digits(
             frame,
             detector=self.detector,

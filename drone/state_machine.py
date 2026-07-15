@@ -143,18 +143,20 @@ class DroneStateMachine:
         # 读取串口数据 (必须最先调用, 否则所有传感器读数为0)
         self.mcu.poll()
 
-        # 前往21号块只找A；作业途中OCR仅作为非阻塞定位辅助；
+        # 前往21号块同时找A和数字21；作业途中OCR仅作为非阻塞定位辅助；
         # 28号块完成后才启用起降十字识别。
         set_modes = getattr(self.camera, 'set_processing_modes', None)
         if callable(set_modes):
             expected_digit = None
-            if self.state == FlightState.NAVIGATE:
+            if self.state == FlightState.FIND_START:
+                expected_digit = 21
+            elif self.state == FlightState.NAVIGATE:
                 expected_digit = next(
                     (bid for bid in self.localizer.path if not self.visited[bid]),
                     None,
                 )
             set_modes(
-                ocr=self.state == FlightState.NAVIGATE,
+                ocr=self.state in (FlightState.FIND_START, FlightState.NAVIGATE),
                 start_marker=self.state == FlightState.FIND_START,
                 expected_digit=expected_digit,
                 state_label=self.state.name,
@@ -216,9 +218,10 @@ class DroneStateMachine:
 
     def _state_idle(self, frame, green_ratio, ocr_result):
         """等待启动信号"""
-        # 检查启动信号: CH6开关 >1700us
+        # 检查启动信号: AUX6开关 >1700us（AUX1~AUX5不可用）
+        has_rc_channels = getattr(self.mcu, 'has_rc_channels', lambda: True)
         if self.cfg.get('auto_start', False) or self.cfg.get('dry_run', False) or \
-                self.mcu.read_aux2() > 1700:
+            (has_rc_channels() and self.mcu.read_aux6() > 1700):
             logger.info("Start signal received!")
             self._transition(FlightState.ARM_UNLOCK)
 
@@ -272,7 +275,7 @@ class DroneStateMachine:
                 self._state_start_time = time.time()
 
     def _state_find_start(self, frame, green_ratio, ocr_result):
-        """按飞控位置前往21号块，并仅用A标记确认起点。"""
+        """按飞控位置前往21号块，用A标记或数字21确认起点。"""
         # 计算到区块21的移动指令
         target_pos = get_block_position(21)
         if target_pos is None:
@@ -283,13 +286,17 @@ class DroneStateMachine:
 
         position_ready = distance < 10 or self.cfg.get('manual_navigation', False)
         if position_ready:
-            start_seen = self._start_marker_center is not None
+            start_seen = (
+                self._start_marker_center is not None or ocr_result == 21
+            )
             if start_seen:
                 self._start_confirm_count += 1
                 logger.info(
-                    "Start A-marker observation %d/%d",
+                    "Start observation %d/%d (%s)",
                     self._start_confirm_count,
                     self.cfg.get('start_block_confirm_frames', 3),
+                    "A marker" if self._start_marker_center is not None
+                    else "digit 21",
                 )
             else:
                 self._start_confirm_count = 0
@@ -298,7 +305,7 @@ class DroneStateMachine:
                     self.cfg.get('start_block_confirm_frames', 3):
                 if self.cfg.get('dry_run', False) or self.localizer.apply_ocr(21):
                     self._start_block_confirmed = True
-                    logger.info("Start block 21 confirmed by A marker")
+                    logger.info("Start block 21 confirmed by vision")
                     self._transition(FlightState.SPRAY)
         else:
             # 发送移动指令

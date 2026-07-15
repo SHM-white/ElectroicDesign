@@ -12,10 +12,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from lx_protocol import (
     build_lx_frame, build_pi_frame, build_pi_query_frame,
-    verify_lx_frame, parse_of_position, parse_flight_status,
+    verify_lx_frame, parse_lx_frame, parse_of_position, parse_flight_status,
     cmd_unlock, cmd_lock, cmd_mode,
     cmd_takeoff, cmd_land, cmd_move,
-    cmd_ascend, cmd_descend,
+    cmd_ascend, cmd_descend, cmd_reset_optical_flow,
     frame_to_hex,
 )
 
@@ -170,6 +170,19 @@ class TestLXFrameBuilding(unittest.TestCase):
             actual_len = len(cmd) - 6  # 总长 - 固定头部 - 校验和
             self.assertEqual(declared_len, actual_len,
                              f"Length mismatch in {frame_to_hex(cmd)}")
+
+    def test_parse_native_v7_frame(self):
+        frame = build_lx_frame(0x61, 0x06, bytes([3, 1, 0x10, 0, 4]))
+        parsed = parse_lx_frame(frame)
+        self.assertEqual(parsed['address'], 0x61)
+        self.assertEqual(parsed['id'], 0x06)
+        self.assertEqual(parsed['data'], bytes([3, 1, 0x10, 0, 4]))
+
+    def test_reset_optical_flow_frame(self):
+        frame = cmd_reset_optical_flow()
+        self.assertEqual(frame[2], 0xE0)
+        self.assertEqual(frame[4:7], bytes([0x01, 0x10, 0x03]))
+        self.assertTrue(verify_lx_frame(frame))
 
 
 class TestPIFrameBuilding(unittest.TestCase):

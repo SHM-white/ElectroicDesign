@@ -45,7 +45,7 @@ class MockMCU:
     def read_locked(self):
         return self._locked
 
-    def read_aux2(self):
+    def read_aux6(self):
         return 1000  # 未触发
 
     def read_voltage(self):
@@ -104,8 +104,8 @@ class MockMCU:
         self._altitude = alt
 
     def trigger_start(self):
-        self._read_aux2_original = self.read_aux2
-        self.read_aux2 = lambda: 1800
+        self._read_aux6_original = self.read_aux6
+        self.read_aux6 = lambda: 1800
 
 
 class MockCamera:
@@ -192,7 +192,7 @@ class TestStateTransitions(unittest.TestCase):
         states_seen = set()
 
         # 模拟启动信号
-        self.mcu.read_aux2 = lambda: 1800
+        self.mcu.read_aux6 = lambda: 1800
 
         for _ in range(200):
             state = self.sm.run_iteration()
@@ -211,7 +211,7 @@ class TestStateTransitions(unittest.TestCase):
 
     def test_emergency_on_altitude(self):
         """测试高度异常触发紧急状态"""
-        self.mcu.read_aux2 = lambda: 1800
+        self.mcu.read_aux6 = lambda: 1800
 
         # 先从IDLE推进一点
         for _ in range(10):
@@ -337,7 +337,7 @@ class TestStartAndHomeVisionGates(unittest.TestCase):
             self.mcu, self.cam, self.loc, self.laser, self.cfg,
         )
 
-    def test_start_ignores_digit_21_without_a_marker(self):
+    def test_start_accepts_three_digit_21_observations(self):
         self.sm.state = FlightState.FIND_START
         target = __import__('path_plan').get_block_position(21)
         self.loc._global_pos_x, self.loc._global_pos_y = target
@@ -345,18 +345,18 @@ class TestStartAndHomeVisionGates(unittest.TestCase):
         for _ in range(3):
             self.sm._state_find_start(None, 0.5, 21)
 
-        self.assertEqual(self.sm.state, FlightState.FIND_START)
-        self.assertFalse(self.sm._start_block_confirmed)
+        self.assertEqual(self.sm.state, FlightState.SPRAY)
+        self.assertTrue(self.sm._start_block_confirmed)
 
-    def test_manual_start_ignores_digit_without_a_marker(self):
+    def test_manual_start_accepts_digit_without_a_marker(self):
         self.sm.state = FlightState.FIND_START
         self.sm.cfg['manual_navigation'] = True
 
         for _ in range(3):
             self.sm._state_find_start(None, 0.5, 21)
 
-        self.assertEqual(self.sm.state, FlightState.FIND_START)
-        self.assertFalse(self.sm._start_block_confirmed)
+        self.assertEqual(self.sm.state, FlightState.SPRAY)
+        self.assertTrue(self.sm._start_block_confirmed)
 
     def test_manual_start_accepts_a_marker(self):
         self.sm.state = FlightState.FIND_START

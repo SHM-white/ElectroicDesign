@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 正式启动：真实飞控、海康 MVS 相机和 H7 激光；等待 AUX2 启动任务。
+# 正式启动：真实飞控、海康 MVS 相机和 H7 激光；等待 AUX6 启动任务。
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +36,7 @@ ARGS=(
 
 info "正式模式：飞控、MVS相机、H7激光均为真实硬件"
 info "飞控=$MCU_PORT H7=$H7_PORT MVS索引=$CAMERA_ID"
-info "初始化完成后等待 AUX2 > 1700us 启动，不会自动开始任务"
+info "初始化完成后等待 AUX6 > 1700us 启动，不会自动开始任务"
 printf '\033[1;33m[WARN]\033[0m  请确认桨叶、人员、遥控器和紧急停机方案均已就绪。\n'
 read -r -p "输入 START 确认启动程序: " confirm
 [[ "$confirm" == "START" ]] || { info "已取消"; exit 0; }

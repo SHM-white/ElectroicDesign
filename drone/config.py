@@ -134,8 +134,8 @@ H7_LASER_PIN = 1  # H7自定义协议引脚编号 (0-15), 激光头接01脚
 FT232H_LASER_PIN = 0  # FT232H ADBUS引脚编号 (0-7)
 
 # 串口
-SERIAL_PORT = '/dev/ttyUSB0'  # x86 USB-TTL默认; 树莓派用 /dev/serial0
-SERIAL_BAUDRATE = 115200
+SERIAL_PORT = '/dev/ttyUSB0'  # USB-TTL直连凌霄IMU串口2
+SERIAL_BAUDRATE = 500000  # 凌霄IMU串口2实测原生V7波特率
 
 # STM32H7 GPIO 开发板串口 (大疆电机开发板C)
 H7_SERIAL_PORT = '/dev/ttyUSB1'

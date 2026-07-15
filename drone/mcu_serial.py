@@ -1,42 +1,25 @@
-"""
-mcu_serial.py — MCU串口通信模块
-Section 3: 主控与MCU串口通信协议
-
-通信结构:
-  主控 USB-TTL (TX) ←→ MCU UART (RX)
-  主控 USB-TTL (RX) ←→ MCU UART (TX)
-  波特率: 115200bps, 3.3V电平
-
-帧类型:
-  A. 指令转发帧 (主控→MCU→IMU):  0xAA + CMD_LEN + TYPE(0x01) + PAYLOAD + SUM16
-  B. 查询帧 (主控→MCU):           0xBB + CMD
-  C. 光流位置回传 (MCU→主控):      0xCC + 0x01 + POS_X(4B) + POS_Y(4B) + QUALITY(1B)
-  D. 飞行状态回传 (MCU→主控):      0xCC + 0x02 + MODE(1B) + LOCKED(1B) + ALT(4B)
-"""
+"""通过USB-TTL直连凌霄IMU串口2，收发匿名通信协议V7原生帧。"""
 
 import struct
 import math
 import time
 import threading
 import logging
-from typing import Optional, Tuple, List, Callable
-from collections import deque
+from typing import Tuple
 
 try:
     from .lx_protocol import (
-        build_pi_frame, build_pi_query_frame, build_heartbeat_query,
-        parse_of_position, parse_flight_status, parse_battery_voltage,
+        parse_lx_frame,
         cmd_unlock, cmd_lock, cmd_mode,
         cmd_takeoff, cmd_land, cmd_move,
-        cmd_ascend, cmd_descend,
+        cmd_ascend, cmd_descend, cmd_reset_optical_flow,
     )
 except ImportError:
     from lx_protocol import (
-        build_pi_frame, build_pi_query_frame, build_heartbeat_query,
-        parse_of_position, parse_flight_status, parse_battery_voltage,
+        parse_lx_frame,
         cmd_unlock, cmd_lock, cmd_mode,
         cmd_takeoff, cmd_land, cmd_move,
-        cmd_ascend, cmd_descend,
+        cmd_ascend, cmd_descend, cmd_reset_optical_flow,
     )
 
 logger = logging.getLogger('drone.mcu')
@@ -115,7 +98,7 @@ class RealSerial:
 
 class MCUSerial:
     """
-    MCU串口通信管理
+    凌霄IMU原生V7串口通信管理。
 
     职责:
     - 发送指令 (解锁/起飞/移动/降落等)
@@ -129,7 +112,7 @@ class MCUSerial:
 
     def __init__(self, dry_run: bool = False,
                  port: str = '/dev/ttyUSB0',
-                 baudrate: int = 115200):
+                 baudrate: int = 500000):
         self.dry_run = dry_run
         self.port = port
         self.baudrate = baudrate
@@ -157,6 +140,8 @@ class MCUSerial:
         self._last_of_update = 0.0  # 上次光流更新时间
         self._flight_status_received = dry_run
         self._last_flight_status_update = time.time() if dry_run else 0.0
+        self._aux6 = 1800 if dry_run else 0
+        self._rc_channels_received = dry_run
 
         # 通信超时
         self._last_rx_time = time.time()
@@ -165,6 +150,10 @@ class MCUSerial:
         self._tx_count = 0
         self._rx_count = 0
         self._comm_errors = 0
+        self._valid_frame_count = 0
+        self._checksum_errors = 0
+        self._ack_count = 0
+        self._last_ack = None
 
         logger.info(f"MCUSerial initialized (dry_run={dry_run}, port={port}, baud={baudrate})")
 
@@ -210,23 +199,14 @@ class MCUSerial:
             return False
 
     def send_imu_frame(self, frame: bytes) -> bool:
-        """
-        发送IMU指令 (包装为TYPE=0x01转发帧)
-
-        帧格式: AA [CMD_LEN] 01 [IMU_API_FRAME] [SUM_LO] [SUM_HI]
-        """
-        return self.send_raw(build_pi_frame(frame, frame_type=0x01))
+        """直接发送一帧匿名V7指令，不添加自定义桥接封装。"""
+        return self.send_raw(frame)
 
     def send_query(self, cmd: int) -> bool:
-        """
-        发送查询命令 (TYPE=0xBB)
-
-        cmd:
-            0x01 = 请求光流位置
-            0x02 = 请求飞行状态
-            0x03 = 重置光流零点
-        """
-        return self.send_raw(build_pi_query_frame(cmd))
+        """兼容旧调用；V7遥测由IMU主动输出，不需要BB查询。"""
+        if cmd == 0x03:
+            return self.send_of_zero_reset()
+        return self.is_connected()
 
     # ── 高级指令 ──────────────────────────────────────────
 
@@ -305,8 +285,8 @@ class MCUSerial:
         return ok
 
     def send_of_zero_reset(self) -> bool:
-        """请求MCU重置光流积分零点"""
-        ok = self.send_query(0x03)
+        """发送V7原生光流运动解算复位命令。"""
+        ok = self.send_imu_frame(cmd_reset_optical_flow())
         if ok and self.dry_run:
             with self._lock:
                 self._of_pos_x = 0.0
@@ -316,8 +296,8 @@ class MCUSerial:
         return ok
 
     def send_heartbeat(self) -> bool:
-        """发送心跳查询 (CMD=0x04)"""
-        return self.send_raw(build_heartbeat_query())
+        """原生V7没有项目自定义心跳；保持接口兼容但不发送数据。"""
+        return self.is_connected()
 
     # ── 数据接收与解析 ────────────────────────────────────
 
@@ -338,7 +318,6 @@ class MCUSerial:
                 data = self._ser.read(min(n, self.RX_BUF_SIZE))
                 self._rx_buf.extend(data)
                 self._rx_count += 1
-                self._last_rx_time = time.time()
                 self._parse_buffer()
                 return True
         except Exception as e:
@@ -349,60 +328,85 @@ class MCUSerial:
 
     def _parse_buffer(self):
         """
-        从接收缓冲区解析帧
-        支持的帧头:
-          0xCC = 数据回传帧 (光流位置 / 飞行状态)
+        从接收缓冲区提取 AA ADDR ID LEN DATA SC AC 原生V7帧。
         """
-        while len(self._rx_buf) >= 2:
-            if self._rx_buf[0] == 0xCC:
-                if len(self._rx_buf) < 3:
-                    break
-
-                cmd = self._rx_buf[1]
-                if cmd == 0x01 and len(self._rx_buf) >= 11:
-                    # 光流位置帧
-                    parsed = parse_of_position(bytes(self._rx_buf[:11]))
-                    if parsed is not None:
-                        with self._lock:
-                            prev_x = self._of_pos_x
-                            prev_y = self._of_pos_y
-                            self._of_pos_x = parsed['pos_x']
-                            self._of_pos_y = parsed['pos_y']
-                            self._of_quality = parsed['quality']
-                            # 计算增量
-                            self._of_dx = self._of_pos_x - prev_x
-                            self._of_dy = self._of_pos_y - prev_y
-                            self._of_updated = True
-                            self._last_of_update = time.time()
-                    self._rx_buf = self._rx_buf[11:]
-                elif cmd == 0x02 and len(self._rx_buf) >= 8:
-                    # 飞行状态帧
-                    parsed = parse_flight_status(bytes(self._rx_buf[:8]))
-                    if parsed is not None:
-                        with self._lock:
-                            self._mode = parsed['mode']
-                            self._locked = parsed['locked']
-                            self._altitude = parsed['alt']
-                            self._flight_status_received = True
-                            self._last_flight_status_update = time.time()
-                    self._rx_buf = self._rx_buf[8:]
-                elif cmd == 0x03 and len(self._rx_buf) >= 4:
-                    # 电池电压帧
-                    parsed = parse_battery_voltage(bytes(self._rx_buf[:4]))
-                    if parsed is not None:
-                        with self._lock:
-                            self._voltage_mv = parsed['voltage_mv']
-                    self._rx_buf = self._rx_buf[4:]
-                else:
-                    # 未知命令或数据不足
-                    self._rx_buf.pop(0)
-            else:
-                # 跳过非法字节
+        while len(self._rx_buf) >= 4:
+            try:
+                start = self._rx_buf.index(0xAA)
+            except ValueError:
+                self._rx_buf.clear()
+                break
+            if start:
+                del self._rx_buf[:start]
+            if len(self._rx_buf) < 4:
+                break
+            frame_length = self._rx_buf[3] + 6
+            if frame_length > 261:
                 self._rx_buf.pop(0)
+                continue
+            if len(self._rx_buf) < frame_length:
+                break
+            raw = bytes(self._rx_buf[:frame_length])
+            parsed = parse_lx_frame(raw)
+            if parsed is None:
+                self._checksum_errors += 1
+                self._rx_buf.pop(0)
+                continue
+            del self._rx_buf[:frame_length]
+            self._valid_frame_count += 1
+            self._last_rx_time = time.time()
+            self._handle_v7_frame(parsed)
 
         # 防止缓冲区无限增长
         if len(self._rx_buf) > self.RX_BUF_SIZE * 2:
             self._rx_buf = self._rx_buf[-self.RX_BUF_SIZE:]
+
+    def _handle_v7_frame(self, frame: dict) -> None:
+        """更新官方V7遥测缓存。"""
+        frame_id = frame['id']
+        data = frame['data']
+        now = time.time()
+        with self._lock:
+            if frame_id == 0x00 and len(data) >= 3:
+                self._last_ack = tuple(data[:3])
+                self._ack_count += 1
+            elif frame_id == 0x05 and len(data) >= 9:
+                self._altitude = struct.unpack_from('<i', data, 0)[0]
+                self._flight_status_received = True
+                self._last_flight_status_update = now
+            elif frame_id == 0x06 and len(data) >= 2:
+                self._mode = data[0]
+                self._locked = data[1]
+                self._flight_status_received = True
+                self._last_flight_status_update = now
+            elif frame_id == 0x08 and len(data) >= 8:
+                pos_x, pos_y = struct.unpack_from('<ii', data, 0)
+                self._update_position(pos_x, pos_y, 255, now)
+            elif frame_id == 0x0D and len(data) >= 2:
+                # 官方字段为VOLTAGE*100，转为mV。
+                self._voltage_mv = struct.unpack_from('<H', data, 0)[0] * 10
+            elif frame_id == 0x40 and len(data) >= 20:
+                # ROL/PIT/THR/YAW/AUX1..AUX6，均为S16小端；AUX6位于第10项。
+                self._aux6 = struct.unpack_from('<h', data, 18)[0]
+                self._rc_channels_received = True
+            elif frame_id == 0x51 and len(data) >= 2 and data[0] == 2 \
+                    and len(data) >= 15:
+                state = data[1]
+                integ_x, integ_y = struct.unpack_from('<hh', data, 10)
+                self._update_position(
+                    integ_x, integ_y, data[14] if state else 0, now,
+                )
+
+    def _update_position(self, pos_x: int, pos_y: int,
+                         quality: int, now: float) -> None:
+        prev_x, prev_y = self._of_pos_x, self._of_pos_y
+        self._of_pos_x = float(pos_x)
+        self._of_pos_y = float(pos_y)
+        self._of_quality = quality
+        self._of_dx += self._of_pos_x - prev_x
+        self._of_dy += self._of_pos_y - prev_y
+        self._of_updated = True
+        self._last_of_update = now
 
     # ── 数据读取接口 ──────────────────────────────────────
 
@@ -440,17 +444,15 @@ class MCUSerial:
         with self._lock:
             return self._locked
 
-    def read_aux2(self) -> int:
-        """
-        读取AUX2/CH6通道值 (用于启动信号)
+    def read_aux6(self) -> int:
+        """读取V7 0x40遥控帧中的AUX6。"""
+        with self._lock:
+            return self._aux6
 
-        NOTE: 此方法需要MCU额外发送CH6数据或通过飞行状态帧扩展
-        当前为占位实现
-        """
-        if self.dry_run:
-            return 1800
-        # TODO: 通过扩展飞行状态帧或增加独立查询帧实现
-        return 1000  # 默认值(未触发)
+    def has_rc_channels(self) -> bool:
+        """是否已收到至少一帧有效的V7 0x40遥控通道数据。"""
+        with self._lock:
+            return self._rc_channels_received
 
     def read_voltage(self) -> float:
         """
@@ -495,6 +497,10 @@ class MCUSerial:
             'tx_count': self._tx_count,
             'rx_count': self._rx_count,
             'comm_errors': self._comm_errors,
+            'valid_frames': self._valid_frame_count,
+            'checksum_errors': self._checksum_errors,
+            'ack_count': self._ack_count,
+            'last_ack': self._last_ack,
             'last_rx_age_ms': self.get_communication_age_ms(),
             'ser_buf_size': len(self._rx_buf),
         }

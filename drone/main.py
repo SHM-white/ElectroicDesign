@@ -347,8 +347,6 @@ def main() -> int:
     rate = RateLimiter(20)
     exit_code = 0
     last_heartbeat = 0.0
-    last_flow_query = 0.0
-    last_status_query = 0.0
 
     try:
         while not sm.is_completed:
@@ -359,12 +357,7 @@ def main() -> int:
             if now - last_heartbeat >= 0.5:
                 mcu.send_heartbeat()
                 last_heartbeat = now
-            if not mcu_simulated and now - last_flow_query >= 0.1:
-                mcu.send_query(0x01)
-                last_flow_query = now
-            if not mcu_simulated and now - last_status_query >= 0.2:
-                mcu.send_query(0x02)
-                last_status_query = now
+            # 原生V7遥测由凌霄IMU主动输出，无需旧桥接协议的BB查询。
     except KeyboardInterrupt:
         logger.info("Aborted by user (Ctrl+C)")
         mcu.send_cmd_land()

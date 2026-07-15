@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from mcu_serial import MCUSerial, DummySerial
 from lx_protocol import (
-    parse_of_position, parse_flight_status,
+    build_lx_frame,
     cmd_unlock, cmd_takeoff, cmd_move,
 )
 
@@ -38,6 +38,11 @@ class TestMcuSerialInit(unittest.TestCase):
         self.assertEqual(dx, 0.0)
         self.assertEqual(dy, 0.0)
 
+    def test_real_link_has_no_synthetic_aux6_default(self):
+        mcu = MCUSerial(dry_run=False)
+        self.assertEqual(mcu.read_aux6(), 0)
+        self.assertFalse(mcu.has_rc_channels())
+
 
 class TestMcuSerialTxRx(unittest.TestCase):
     """测试串口发送接收"""
@@ -53,19 +58,20 @@ class TestMcuSerialTxRx(unittest.TestCase):
         self.assertTrue(result)
 
     def test_send_query_commands(self):
-        """测试发送查询命令"""
-        for cmd in [0x01, 0x02, 0x03]:
-            result = self.mcu.send_query(cmd)
-            self.assertTrue(result)
+        """原生V7遥测无需查询；旧接口不应写入BB帧。"""
+        before = self.mcu._tx_count
+        self.assertTrue(self.mcu.send_query(0x01))
+        self.assertTrue(self.mcu.send_query(0x02))
+        self.assertEqual(self.mcu._tx_count, before)
 
     def test_of_position_injection(self):
         """测试光流数据注入与读取"""
-        # 模拟MCU回传光流位置帧
+        # 模拟V7 0x08位置偏移遥测帧
         pos_x = 1234
         pos_y = -567
-        quality = 200
-        buf = bytes([0xCC, 0x01]) + struct.pack('<i', pos_x) + \
-              struct.pack('<i', pos_y) + bytes([quality])
+        buf = build_lx_frame(
+            0xFF, 0x08, struct.pack('<ii', pos_x, pos_y),
+        )
 
         self.mcu._ser.inject_response(buf)
         self.mcu.poll()
@@ -74,13 +80,12 @@ class TestMcuSerialTxRx(unittest.TestCase):
         x, y, q = self.mcu.read_optical_flow_position()
         self.assertEqual(x, pos_x, f"pos_x: expected {pos_x}, got {x}")
         self.assertEqual(y, pos_y)
-        self.assertEqual(q, quality)
+        self.assertEqual(q, 255)
 
     def test_of_incremental(self):
         """测试光流增量计算"""
         # 第一次注入: pos=(100, 0)
-        buf1 = bytes([0xCC, 0x01]) + struct.pack('<i', 100) + \
-               struct.pack('<i', 0) + bytes([200])
+        buf1 = build_lx_frame(0xFF, 0x08, struct.pack('<ii', 100, 0))
         self.mcu._ser.inject_response(buf1)
         self.mcu.poll()
 
@@ -89,8 +94,7 @@ class TestMcuSerialTxRx(unittest.TestCase):
         self.assertEqual(dy, 0.0)
 
         # 第二次注入: pos=(120, -5)
-        buf2 = bytes([0xCC, 0x01]) + struct.pack('<i', 120) + \
-               struct.pack('<i', -5) + bytes([200])
+        buf2 = build_lx_frame(0xFF, 0x08, struct.pack('<ii', 120, -5))
         self.mcu._ser.inject_response(buf2)
         self.mcu.poll()
 
@@ -105,8 +109,11 @@ class TestMcuSerialTxRx(unittest.TestCase):
 
     def test_flight_status_injection(self):
         """测试飞行状态数据注入"""
-        buf = bytes([0xCC, 0x02, 0x03, 0x00]) + struct.pack('<i', 150)
-        self.mcu._ser.inject_response(buf)
+        status = build_lx_frame(0xFF, 0x06, bytes([3, 0, 0, 0, 0]))
+        altitude = build_lx_frame(
+            0xFF, 0x05, struct.pack('<iiB', 150, 0, 1),
+        )
+        self.mcu._ser.inject_response(status + altitude)
         self.mcu.poll()
 
         self.assertEqual(self.mcu.read_mode(), 3)
@@ -124,15 +131,38 @@ class TestMcuSerialTxRx(unittest.TestCase):
         """测试混合数据解析 (有效帧夹杂垃圾)"""
         # 注入垃圾 + 有效帧
         garbage = bytes([0xFF, 0x01, 0x02])
-        valid = bytes([0xCC, 0x01]) + struct.pack('<i', 500) + \
-                struct.pack('<i', 300) + bytes([150])
+        valid = build_lx_frame(0xFF, 0x08, struct.pack('<ii', 500, 300))
         self.mcu._ser.inject_response(garbage + valid + garbage)
         self.mcu.poll()
 
         x, y, q = self.mcu.read_optical_flow_position()
         self.assertEqual(x, 500)
         self.assertEqual(y, 300)
-        self.assertEqual(q, 150)
+        self.assertEqual(q, 255)
+
+    def test_native_v7_command_is_not_wrapped(self):
+        self.mcu.send_imu_frame(cmd_unlock())
+        written = bytes(self.mcu._ser._buf)
+        self.assertEqual(written, cmd_unlock())
+
+    def test_parses_voltage_and_aux6(self):
+        voltage = build_lx_frame(0xFF, 0x0D, struct.pack('<HH', 1240, 0))
+        channels = [1500] * 10
+        channels[9] = 1800
+        rc = build_lx_frame(0xFF, 0x40, struct.pack('<10h', *channels))
+        self.mcu._ser.inject_response(voltage + rc)
+        self.mcu.poll()
+        self.assertAlmostEqual(self.mcu.read_voltage(), 12.4)
+        self.assertEqual(self.mcu.read_aux6(), 1800)
+        self.assertTrue(self.mcu.has_rc_channels())
+
+    def test_rejects_bad_v7_checksum(self):
+        frame = bytearray(build_lx_frame(0xFF, 0x06, bytes([3, 1, 0, 0, 0])))
+        frame[-1] ^= 0xFF
+        self.mcu._ser.inject_response(bytes(frame))
+        self.mcu.poll()
+        self.assertEqual(self.mcu.read_mode(), 0)
+        self.assertGreater(self.mcu.get_stats()['checksum_errors'], 0)
 
     def test_buffer_overflow_prevention(self):
         """测试接收缓冲区溢出保护"""

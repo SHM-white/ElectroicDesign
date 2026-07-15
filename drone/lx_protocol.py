@@ -214,6 +214,28 @@ def cmd_descend(height_cm: int, speed_cmps: int) -> bytes:
         bytes([0x10, 0x02, 0x02]) + h + s + bytes(4))
 
 
+def cmd_reset_optical_flow() -> bytes:
+    """复位光流运动解算（V7 E0: CID=01, CMD0=10, CMD1=03）。"""
+    return build_lx_frame(0xFF, 0xE0,
+        bytes([0x01, 0x10, 0x03]) + bytes(8))
+
+
+def parse_lx_frame(frame: bytes) -> Optional[dict]:
+    """解析并校验一帧匿名V7数据。"""
+    if len(frame) < 6 or frame[0] != 0xAA:
+        return None
+    expected_length = frame[3] + 6
+    if len(frame) != expected_length or not verify_lx_frame(frame):
+        return None
+    return {
+        'address': frame[1],
+        'id': frame[2],
+        'data': frame[4:-2],
+        'sc': frame[-2],
+        'ac': frame[-1],
+    }
+
+
 # ── 辅助函数 ──────────────────────────────────────────────
 
 
