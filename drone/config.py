@@ -84,7 +84,8 @@ CAMERA_FPS = 30
 CAMERA_DEVICE_ID = 0
 
 # OpenMV 识别结果串口。若同时使用 H7 GPIO 板，请为两个设备分配不同端口。
-OPENMV_SERIAL_PORT = '/dev/ttyUSB1'
+# 当前硬件方案: H7 GPIO → /dev/ttyUSB1, OpenMV → /dev/ttyUSB2 (仅OpenMV方案时用)
+OPENMV_SERIAL_PORT = '/dev/ttyUSB2'
 OPENMV_SERIAL_BAUDRATE = 115200
 OPENMV_STALE_TIMEOUT_S = 0.5
 
@@ -113,7 +114,7 @@ ORIGIN_OFFSET_Y_CM = 50
 
 LASER_PIN = 17    # 激光笔GPIO (BCM编号)
 LED_PIN = 27      # LED指示灯GPIO (BCM编号)
-H7_LASER_PIN = 0  # H7自定义协议引脚编号 (0-15)
+H7_LASER_PIN = 1  # H7自定义协议引脚编号 (0-15), 激光头接01脚
 FT232H_LASER_PIN = 0  # FT232H ADBUS引脚编号 (0-7)
 
 # 串口

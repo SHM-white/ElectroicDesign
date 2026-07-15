@@ -247,7 +247,12 @@ Wants=network.target
 Type=simple
 User=$REAL_USER
 WorkingDirectory=$PROJECT_DIR
-ExecStart=/usr/bin/python3 $PROJECT_DIR/main.py
+ExecStart=/usr/bin/python3 $PROJECT_DIR/main.py \
+    --profile competition \
+    --serial-port /dev/ttyUSB0 \
+    --h7-serial /dev/ttyUSB1 \
+    --vision-backend industrial \
+    --verbose
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:$PROJECT_DIR/logs/stdout.log
@@ -270,6 +275,11 @@ warn ""
 warn "  如需启用开机自启, 请完成调试后运行:"
 warn "    sudo systemctl enable drone.service"
 warn "    sudo systemctl start  drone.service"
+warn ""
+warn "  串口分配:"
+warn "    /dev/ttyUSB0 → STM32F4 MCU (凌霄飞控)"
+warn "    /dev/ttyUSB1 → STM32H7/F4 GPIO (激光头, 01脚)"
+warn "    USB直连      → 海康工业相机 (UVC)"
 warn ""
 warn "  ⚠ 务必先在安全环境下完成全部调试再启用自启!"
 warn "  ⚠ 意外自启可能导致无人机意外起飞！"
@@ -401,17 +411,18 @@ info "       ls -la /dev/ttyUSB*"
 info ""
 info "    2. 检查 config.py 中的串口配置:"
 info "       grep SERIAL_PORT $PROJECT_DIR/config.py"
-info "       应显示: SERIAL_PORT = '/dev/ttyUSB0'"
+info "       MCU飞控:  SERIAL_PORT = '/dev/ttyUSB0'"
+info "       H7 GPIO:  H7_SERIAL_PORT = '/dev/ttyUSB1'"
+info "       OpenMV:   OPENMV_SERIAL_PORT = '/dev/ttyUSB2' (本方案不用)"
 info ""
 info "    3. 工业相机模式验证 OpenCV:"
 info "       python3 -c 'import cv2; cap=cv2.VideoCapture(0); print(cap.isOpened())'"
 info ""
-info "       OpenMV模式启动:"
-info "       python3 -m drone.main --vision-backend openmv --openmv-port /dev/ttyUSB1"
-info ""
-info "    4. 手动测试飞行 (⚠ 务必在安全环境下):"
+info "    4. 调试启动 (推荐):"
 info "       cd $PROJECT_DIR"
-info "       python3 test/test_move.py"
+info "       ./debug_start.sh                    # dry-run 模拟"
+info "       ./debug_start.sh --check            # 硬件检测"
+info "       ./debug_start.sh --real --tuning    # 真实飞行 (⚠ 拆桨!)"
 info ""
 info "    5. 调试通过后启用开机自启 (可选):"
 info "       sudo systemctl enable drone.service"

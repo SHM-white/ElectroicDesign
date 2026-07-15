@@ -4,3 +4,4 @@
 *.zip
 .omo/
 __pycache__/
+*.log
