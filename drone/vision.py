@@ -16,7 +16,10 @@ import numpy as np
 import logging
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from itertools import combinations
+from queue import Empty, Full, Queue
+from threading import Event, Thread
 from typing import Optional, List, Tuple
 
 try:
@@ -144,6 +147,122 @@ def draw_mission_overlay(
     return out
 
 
+@dataclass(frozen=True)
+class _PreviewSnapshot:
+    """预览线程独占的帧和绘制元数据快照。"""
+
+    frame: np.ndarray
+    state_label: str
+    green_ratio: float
+    green_blocks: tuple
+    digit: Optional[int]
+    ocr_enabled: bool
+    ocr_running: bool
+    start_marker: Optional[Tuple[int, int]]
+    home_cross: Optional[Tuple[float, float]]
+    home_confidence: float
+    processing_fps: float
+
+
+class _PreviewWorker:
+    """异步绘制并显示最新帧；慢速 X11 不向识别线程施加反压。"""
+
+    _WINDOW_NAME = "Mission Vision - [q] quit [s] save"
+
+    def __init__(self, max_width: int):
+        self.max_width = max_width
+        self.quit_requested = Event()
+        self._stop_requested = Event()
+        self._snapshots: Queue[_PreviewSnapshot] = Queue(maxsize=1)
+        self._thread = Thread(
+            target=self._run,
+            name='mission-preview',
+            daemon=True,
+        )
+        self._started = False
+
+    def start(self) -> None:
+        if not self._started:
+            self._started = True
+            self._thread.start()
+
+    def submit(self, snapshot: _PreviewSnapshot) -> None:
+        """非阻塞覆盖旧帧，确保 UI 永远追踪最新识别结果。"""
+        if self._stop_requested.is_set():
+            return
+        try:
+            self._snapshots.put_nowait(snapshot)
+            return
+        except Full:
+            pass
+        try:
+            self._snapshots.get_nowait()
+        except Empty:
+            pass
+        try:
+            self._snapshots.put_nowait(snapshot)
+        except Full:
+            # 消费线程恰好与覆盖操作竞争时，丢弃本帧即可。
+            pass
+
+    def stop(self, timeout: float = 0.5) -> None:
+        self._stop_requested.set()
+        if self._started:
+            self._thread.join(timeout=timeout)
+            if self._thread.is_alive():
+                logger.warning(
+                    "Preview thread did not stop within %.1fs; X11 may be blocked",
+                    timeout,
+                )
+
+    def _run(self) -> None:
+        try:
+            while not self._stop_requested.is_set():
+                try:
+                    snapshot = self._snapshots.get(timeout=0.1)
+                except Empty:
+                    continue
+
+                display = draw_mission_overlay(
+                    snapshot.frame,
+                    state_label=snapshot.state_label,
+                    green_ratio=snapshot.green_ratio,
+                    green_blocks=snapshot.green_blocks,
+                    digit=snapshot.digit,
+                    ocr_enabled=snapshot.ocr_enabled,
+                    ocr_running=snapshot.ocr_running,
+                    start_marker=snapshot.start_marker,
+                    home_cross=snapshot.home_cross,
+                    home_confidence=snapshot.home_confidence,
+                    processing_fps=snapshot.processing_fps,
+                )
+                if 0 < self.max_width < display.shape[1]:
+                    preview_scale = self.max_width / display.shape[1]
+                    display = cv2.resize(
+                        display,
+                        (
+                            self.max_width,
+                            max(1, int(round(display.shape[0] * preview_scale))),
+                        ),
+                        interpolation=cv2.INTER_AREA,
+                    )
+                cv2.imshow(self._WINDOW_NAME, display)
+                key = cv2.waitKey(1) & 0xFF
+                if key in (ord('q'), 27):
+                    self.quit_requested.set()
+                elif key == ord('s'):
+                    filename = f"mission_vision_{cv2.getTickCount()}.png"
+                    cv2.imwrite(filename, snapshot.frame)
+                    logger.info("Vision screenshot saved: %s", filename)
+        except Exception:
+            logger.exception("Preview UI thread failed")
+        finally:
+            try:
+                cv2.destroyAllWindows()
+            except Exception:
+                logger.exception("Failed to destroy preview windows")
+
+
 # ── 相机管理 ──────────────────────────────────────────────
 
 class Camera:
@@ -189,6 +308,9 @@ class Camera:
         self._fps_frames = 0
         self._processing_fps = 0.0
         self._last_fps_log = self._fps_started
+        self._preview_worker = (
+            _PreviewWorker(preview_max_width) if preview else None
+        )
 
     def set_processing_modes(self, *, ocr: bool, home_cross: bool,
                              start_marker: bool = False,
@@ -280,6 +402,10 @@ class Camera:
 
     def read_result(self) -> Optional[VisionResult]:
         """抓取一帧并在上位机完成工业相机识别。"""
+        if (self._preview_worker is not None
+            and self._preview_worker.quit_requested.is_set()):
+            raise KeyboardInterrupt
+
         ret, frame = self.read()
         if not ret or frame is None:
             return None
@@ -353,11 +479,12 @@ class Camera:
             if (self._state_label == 'NAVIGATE'
                     and self.detector is not None and hsv is not None):
                 green_blocks = self.detector.find_green_blocks(hsv)
-            display = draw_mission_overlay(
-                frame,
+            self._preview_worker.start()
+            self._preview_worker.submit(_PreviewSnapshot(
+                frame=frame.copy(),
                 state_label=self._state_label,
                 green_ratio=green_ratio,
-                green_blocks=green_blocks,
+                green_blocks=tuple(green_blocks),
                 digit=self._last_digit,
                 ocr_enabled=self._ocr_enabled,
                 ocr_running=(
@@ -371,30 +498,10 @@ class Camera:
                 home_cross=cross_center,
                 home_confidence=cross_confidence,
                 processing_fps=self._processing_fps,
-            )
-            # SSH X11 forwarding 对大图传输非常慢。识别和保存仍使用相机
-            # 原始帧，仅在 imshow 前缩小预览，避免窗口拖慢整个主循环。
-            if 0 < self.preview_max_width < display.shape[1]:
-                preview_scale = self.preview_max_width / display.shape[1]
-                display = cv2.resize(
-                    display,
-                    (
-                        self.preview_max_width,
-                        max(1, int(round(display.shape[0] * preview_scale))),
-                    ),
-                    interpolation=cv2.INTER_AREA,
-                )
-            cv2.imshow("Mission Vision - [q] quit [s] save", display)
-            key = cv2.waitKey(1) & 0xFF
-            if key in (ord('q'), 27):
-                raise KeyboardInterrupt
-            if key == ord('s'):
-                filename = f"mission_vision_{cv2.getTickCount()}.png"
-                cv2.imwrite(filename, frame)
-                logger.info("Vision screenshot saved: %s", filename)
+            ))
 
-        # 先完成当前帧的显示和 GUI 事件处理，再启动重型 OCR，避免窗口
-        # 在 FIND_START 切换瞬间因 CPU/进程调度饥饿而显示黑屏。
+        # UI 已在独立线程中绘制和刷新；重型 OCR 也独立执行，主线程只
+        # 负责抓帧、轻量识别和状态机所需结果。
         now = time.monotonic()
         if (self._ocr_enabled and self.digit_reader is not None
                 and self._ocr_future is None
@@ -417,12 +524,12 @@ class Camera:
 
     def release(self):
         """释放相机"""
+        if self._preview_worker is not None:
+            self._preview_worker.stop()
         self._ocr_executor.shutdown(wait=True, cancel_futures=True)
         if self.cap is not None:
             self.cap.release()
             self.cap = None
-        if self.preview:
-            cv2.destroyAllWindows()
         logger.info("Camera released")
 
 

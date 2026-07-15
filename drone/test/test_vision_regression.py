@@ -318,6 +318,41 @@ class TestPreviewResponsiveness(unittest.TestCase):
         self.assertTrue(second_frame_read.is_set())
         self.assertLess(elapsed, 0.25, "production preview waited for OCR")
 
+    def test_production_camera_does_not_wait_for_slow_x11_preview(self) -> None:
+        display_started = threading.Event()
+        display_release = threading.Event()
+        second_frame_read = threading.Event()
+        capture = _FrameSequence(second_frame_read)
+        camera = Camera(preview=True, ocr_interval_s=60.0)
+        camera.cap = capture
+        camera.detector = BlockDetector()
+
+        def blocking_imshow(_name: str, _display: np.ndarray) -> None:
+            display_started.set()
+            if not display_release.wait(timeout=5.0):
+                raise TimeoutError("test did not release blocking preview")
+
+        with (
+            patch('vision.cv2.imshow', side_effect=blocking_imshow),
+            patch('vision.cv2.waitKey', return_value=-1),
+            patch('vision.cv2.destroyAllWindows'),
+        ):
+            camera.read_result()
+            self.assertTrue(
+                display_started.wait(timeout=1.0), "preview never started",
+            )
+            started = time.monotonic()
+            try:
+                result = camera.read_result()
+                elapsed = time.monotonic() - started
+            finally:
+                display_release.set()
+                camera.release()
+
+        self.assertIsNotNone(result)
+        self.assertTrue(second_frame_read.is_set())
+        self.assertLess(elapsed, 0.25, "slow X11 preview blocked recognition")
+
     def test_camera_requires_two_matching_ocr_observations(self) -> None:
         camera = Camera(preview=False, ocr_interval_s=0.0)
         camera.cap = _ConstantFrame()
