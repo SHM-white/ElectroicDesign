@@ -54,6 +54,7 @@
 ```
 
 **核心设计**：
+
 - **树莓派 = 主控大脑**：图像采集 → 颜色/区块/数字识别 → 定位融合 → 路径规划 → 发送API指令
 - **STM32F4 MCU = 通信中继 + 物理执行**：接收树莓派指令 → 转发至凌霄IMU；采集光流数据 → 回传树莓派；输出PWM至电调
 - 树莓派与MCU之间通过 **UART (GPIO14=TX, GPIO15=RX) 115200bps** 通信
@@ -62,24 +63,25 @@
 
 ## 2. 硬件清单
 
-| 序号 | 模块 | 规格/型号 | 数量 | 用途 | 接口 |
-|------|------|----------|------|------|------|
-| 1 | 飞控底板 | 凌霄 STM32F407 底板 | 1 | MCU主控，通信中继 | - |
-| 2 | IMU模块 | 凌霄 IMU (BMI088+IST8310+SPL06) | 1 | 姿态解算、PID控制 | UART1 |
-| 3 | 机架 | 333mm轴距四旋翼 | 1 | 载机平台 | - |
-| 4 | 电机+电调 | 配套无刷电机+电调 | 4 | 动力 | PWM1-4 |
-| 5 | 螺旋桨 | 配套桨叶 | 4对 | 升力 | - |
-| 6 | 桨叶防护罩 | 全防护型 | 1套 | 安全（赛题强制要求） | - |
-| 7 | 电池 | 3S/4S LiPo ≥2200mAh | 2块 | 供电（备一块换电） | BAT端子 |
-| 8 | 光流模块 | 匿名光流 | 1 | 水平位置/速度估计 | UART4, 500000bps |
-| 9 | 激光测距 | VL53L0X / TFmini | 1 | 精准定高 | 与光流配套 |
-| 10 | 遥控器+接收机 | FS-i6S + SBUS接收机 | 1 | 手动飞行/紧急接管 | SBUS |
-| 11 | 树莓派 | RPi 4B 1GB | 1 | 图像处理+主控逻辑 | GPIO UART |
-| 12 | 工业相机 | 海康 USB3.0 工业相机 | 1 | 下视图像采集 | USB3.0 |
-| 13 | 激光笔 | 3.3V/5V 红色激光模组 | 1 | 模拟撒药 | GPIO |
-| 14 | LED灯条 | 高亮LED | 1 | 显示条码数字（发挥） | GPIO |
-| 15 | 电源模块 | 5V BEC / 降压模块 | 1 | 给树莓派+相机供电 | - |
-| 16 | USB转TTL | CP2102/CH340 | 1 | 树莓派↔MCU 串口调试 | USB |
+
+| 序号 | 模块          | 规格/型号                       | 数量 | 用途                 | 接口             |
+| ------ | --------------- | --------------------------------- | ------ | ---------------------- | ------------------ |
+| 1    | 飞控底板      | 凌霄 STM32F407 底板             | 1    | MCU主控，通信中继    | -                |
+| 2    | IMU模块       | 凌霄 IMU (BMI088+IST8310+SPL06) | 1    | 姿态解算、PID控制    | UART1            |
+| 3    | 机架          | 333mm轴距四旋翼                 | 1    | 载机平台             | -                |
+| 4    | 电机+电调     | 配套无刷电机+电调               | 4    | 动力                 | PWM1-4           |
+| 5    | 螺旋桨        | 配套桨叶                        | 4对  | 升力                 | -                |
+| 6    | 桨叶防护罩    | 全防护型                        | 1套  | 安全（赛题强制要求） | -                |
+| 7    | 电池          | 3S/4S LiPo ≥2200mAh            | 2块  | 供电（备一块换电）   | BAT端子          |
+| 8    | 光流模块      | 匿名光流                        | 1    | 水平位置/速度估计    | UART4, 500000bps |
+| 9    | 激光测距      | VL53L0X / TFmini                | 1    | 精准定高             | 与光流配套       |
+| 10   | 遥控器+接收机 | FS-i6S + SBUS接收机             | 1    | 手动飞行/紧急接管    | SBUS             |
+| 11   | 树莓派        | RPi 4B 1GB                      | 1    | 图像处理+主控逻辑    | GPIO UART        |
+| 12   | 工业相机      | 海康 USB3.0 工业相机            | 1    | 下视图像采集         | USB3.0           |
+| 13   | 激光笔        | 3.3V/5V 红色激光模组            | 1    | 模拟撒药             | GPIO             |
+| 14   | LED灯条       | 高亮LED                         | 1    | 显示条码数字（发挥） | GPIO             |
+| 15   | 电源模块      | 5V BEC / 降压模块               | 1    | 给树莓派+相机供电    | -                |
+| 16   | USB转TTL      | CP2102/CH340                    | 1    | 树莓派↔MCU 串口调试 | USB              |
 
 ---
 
@@ -432,7 +434,7 @@ void UserTask_OneKeyCmd(void)
     if (pi_rx_len > 0) {
         PiCmd_Parse(pi_rx_buf, pi_rx_len);  // 解析指令
     }
-    
+  
     // 2. 发送光流数据给树莓派(每200ms)
     static u32 last_of_send = 0;
     if (GetSysTimeMs() - last_of_send > 200) {
@@ -444,7 +446,7 @@ void UserTask_OneKeyCmd(void)
 void PiCmd_Parse(u8 *data, u8 len)
 {
     if (len < 3) return;
-    
+  
     if (data[0] == 0xAA) {
         // TYPE=0x01: 转发IMU指令
         // 数据格式: AA [LEN] 01 [IMU_API_FRAME]
@@ -553,11 +555,11 @@ class Camera:
         # 海康相机可能需要额外设置：
         # self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         # self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # 手动曝光
-        
+      
     def read(self):
         ret, frame = self.cap.read()
         return ret, frame
-    
+  
     def release(self):
         self.cap.release()
 ```
@@ -573,29 +575,29 @@ class BlockDetector:
     #   淡绿色播撒区: RGB(150,250,150)
     #   淡灰色非播撒区: RGB(240,240,240)
     #   黑色标志线: 0.5cm宽
-    
+  
     def __init__(self):
         # 绿色阈值 (HSV) — 先以标准值为参考，现场调整
         self.green_lower = np.array([35, 40, 40])
         self.green_upper = np.array([85, 255, 255])
-        
+      
         # 灰色阈值 (HSV)
         self.gray_lower = np.array([0, 0, 180])
         self.gray_upper = np.array([180, 30, 255])
-        
+      
         # 黑色阈值 (HSV) — 用于边界线检测
         self.black_lower = np.array([0, 0, 0])
         self.black_upper = np.array([180, 255, 50])
-    
+  
     def detect_green_mask(self, hsv):
         """返回绿色区域二值mask"""
         return cv2.inRange(hsv, self.green_lower, self.green_upper)
-    
+  
     def calc_green_ratio(self, hsv):
         """计算画面中绿色像素占比（用于边界跳变检测）"""
         mask = self.detect_green_mask(hsv)
         return np.count_nonzero(mask) / mask.size
-    
+  
     def find_green_blocks(self, hsv):
         """
         在画面中找到所有绿色区块轮廓
@@ -606,9 +608,9 @@ class BlockDetector:
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        
+      
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
+      
         blocks = []
         for cnt in contours:
             area = cv2.contourArea(cnt)
@@ -617,11 +619,11 @@ class BlockDetector:
             x, y, w, h = cv2.boundingRect(cnt)
             cx, cy = x + w//2, y + h//2
             blocks.append((cx, cy, w, h, area))
-        
+      
         # 按面积从大到小排
         blocks.sort(key=lambda b: b[4], reverse=True)
         return blocks
-    
+  
     def find_block_boundary_lines(self, hsv):
         """检测黑色边界线（备选方案）"""
         mask = cv2.inRange(hsv, self.black_lower, self.black_upper)
@@ -646,7 +648,7 @@ class DigitReader:
         # 灰色数字的HSV阈值
         self.digit_lower = np.array([0, 0, 180])
         self.digit_upper = np.array([180, 25, 255])
-    
+  
     def extract_digits(self, frame, block_roi=None):
         """
         从画面中提取数字
@@ -658,20 +660,20 @@ class DigitReader:
             roi = frame[y:y+h, x:x+w]
         else:
             roi = frame
-        
+      
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         # 二值化（数字是亮的灰色，背景是暗的绿色）
         # 反转：让数字变成白字黑底
         _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
-        
+      
         # OCR识别
         config = '--psm 6 -c tessedit_char_whitelist=0123456789'
         text = pytesseract.image_to_string(thresh, config=config).strip()
-        
+      
         if text and text.isdigit():
             return int(text)
         return None
-    
+  
     def find_A_marker(self, frame):
         """
         检测"A"标记
@@ -680,12 +682,12 @@ class DigitReader:
         """
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
-        
+      
         # 模板匹配（需要先截取A字符图片作为模板）
         # template = cv2.imread('templates/A_marker.png', 0)
         # result = cv2.matchTemplate(thresh, template, cv2.TM_CCOEFF_NORMED)
         # 或使用轮廓特征检测
-        
+      
         # 简化方案：找大面积的黑色连通区域
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for cnt in contours:
@@ -709,7 +711,7 @@ class DigitReader:
 def calc_offset_to_block(frame_center, block_center, altitude_cm, focal_length_px):
     """
     根据像素偏差计算实际距离偏差(cm)
-    
+  
     frame_center: (cx, cy) 画面中心
     block_center: (bx, by) 区块中心
     altitude_cm: 飞行高度(cm)
@@ -717,12 +719,12 @@ def calc_offset_to_block(frame_center, block_center, altitude_cm, focal_length_p
     """
     dx_px = block_center[0] - frame_center[0]
     dy_px = block_center[1] - frame_center[1]
-    
+  
     # 相似三角形：实际偏差 = 像素偏差 * (高度 / 焦距)
     scale = altitude_cm / focal_length_px
     dx_cm = dx_px * scale
     dy_cm = dy_px * scale
-    
+  
     return dx_cm, dy_cm
 ```
 
@@ -751,25 +753,25 @@ cap = cv2.VideoCapture(0)
 while True:
     ret, frame = cap.read()
     if not ret: break
-    
+  
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    
+  
     h_low = cv2.getTrackbarPos('H Low', 'Threshold Tuner')
     s_low = cv2.getTrackbarPos('S Low', 'Threshold Tuner')
     v_low = cv2.getTrackbarPos('V Low', 'Threshold Tuner')
     h_high = cv2.getTrackbarPos('H High', 'Threshold Tuner')
     s_high = cv2.getTrackbarPos('S High', 'Threshold Tuner')
     v_high = cv2.getTrackbarPos('V High', 'Threshold Tuner')
-    
+  
     lower = np.array([h_low, s_low, v_low])
     upper = np.array([h_high, s_high, v_high])
     mask = cv2.inRange(hsv, lower, upper)
     result = cv2.bitwise_and(frame, frame, mask=mask)
-    
+  
     cv2.imshow('Original', frame)
     cv2.imshow('Mask', mask)
     cv2.imshow('Result', result)
-    
+  
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
@@ -810,54 +812,54 @@ class Localizer:
         self.path = PATH                    # 预设路径 [21, 20, 18, ...]
         self.path_index = 0                 # 当前在路径中的位置
         self.current_block = self.path[0]   # 当前区块号
-        
+      
         # 光流位置积分 (cm)，起飞点为原点
         self.pos_x = 0.0
         self.pos_y = 0.0
-        
+      
         # Layer 2 相关
         self.prev_green_ratio = 0.0
         self.green_drop_threshold = 0.4      # 绿色占比下降超过此值=跨边界
         self.green_high = 0.6                # 绿色占比高=在区块内
         self.green_low = 0.2                 # 绿色占比低=在灰色区域
-        
+      
         # Layer 3 相关
         self.last_ocr_block = None
         self.since_last_ocr = 0             # 距上次OCR读数经过的区块数
         self.ocr_interval = 4               # 每4个区块尝试OCR一次
-        
+      
         # 移动方向追踪
         self.move_direction = 0             # 当前移动方向(度)
         self.block_size_cm = 50             # 每个区块50cm
-        
+      
         # 微调状态
         self.fine_tuning = False
         self.fine_tune_dx = 0
         self.fine_tune_dy = 0
-    
+  
     def update_optical_flow(self, dx_cm, dy_cm):
         """Layer 1: 更新光流积分位置"""
         self.pos_x += dx_cm
         self.pos_y += dy_cm
-    
+  
     def check_boundary_crossed(self, green_ratio):
         """
         Layer 2: 检测是否跨越了区块边界
         返回: True 如果刚刚跨过了边界
         """
         crossed = False
-        
+      
         if self.prev_green_ratio > self.green_high and green_ratio < self.green_low:
             # 从绿色区域进入了灰色区域 → 刚刚离开了一块
             crossed = True
-        
+      
         if self.prev_green_ratio < self.green_low and green_ratio > self.green_high:
             # 从灰色区域进入了绿色区域 → 刚刚进入了一块
             crossed = True
-        
+      
         self.prev_green_ratio = green_ratio
         return crossed
-    
+  
     def apply_ocr(self, block_number):
         """
         Layer 3: OCR读取到了区块编号
@@ -865,7 +867,7 @@ class Localizer:
         """
         if block_number is None:
             return False
-        
+      
         if block_number in self.path:
             self.current_block = block_number
             self.path_index = self.path.index(block_number)
@@ -875,7 +877,7 @@ class Localizer:
             self.pos_y = 0.0
             return True
         return False
-    
+  
     def advance_block(self):
         """
         确认进入下一区块，推进路径索引
@@ -887,19 +889,19 @@ class Localizer:
         self.pos_x = 0.0  # 重置相对漂移
         self.pos_y = 0.0
         self.since_last_ocr += 1
-        
+      
     def get_current_target(self):
         """获取当前目标区块编号"""
         return self.current_block
-    
+  
     def is_mission_complete(self):
         """所有区块是否已覆盖"""
         return self.path_index >= len(self.path) - 1
-    
+  
     def should_do_ocr(self):
         """是否该尝试OCR校准了"""
         return self.since_last_ocr >= self.ocr_interval
-    
+  
     def get_position_for_return(self):
         """
         返回起飞点的位置
@@ -908,12 +910,12 @@ class Localizer:
         # 光流累积位置取反即是从起飞点到当前位置的向量
         # 注意：需要在整个飞行过程中保持全局积分（不重置）
         return -self._global_pos_x, -self._global_pos_y
-    
+  
     def init_global_position(self):
         """起飞时记录全局零点"""
         self._global_pos_x = 0.0
         self._global_pos_y = 0.0
-    
+  
     def update_global_position(self, dx_cm, dy_cm):
         """更新全局位置（用于返航）"""
         self._global_pos_x += dx_cm
@@ -974,23 +976,23 @@ def init_grid():
         (5, 4):  4, (5, 5):  3,
         (6, 4):  1, (6, 5):  2,
     }
-    
+  
     # 起降点坐标: 在左下角外
     # 作业区底部边缘y=0，起降点在y=-50cm左右
     # 作业区左下角(第6行第4列)中心x=4*50+25=225cm(从左边), y=6*50+25=325cm(从顶)
     # 简化：令起降点处x=0
-    
+  
     ORIGIN_OFFSET_X = 100  # 从起降点到作业区左边界的距离(cm)
     ORIGIN_OFFSET_Y = 100  # 从起降点到作业区底部边界的距离(cm)
-    
+  
     for (row, col), bid in layout.items():
         # 在grid坐标中 (col增=X轴正方向, row增=Y轴负方向)
         x = ORIGIN_OFFSET_X + col * 50 + 25  # 区块中心X
         y = ORIGIN_OFFSET_Y + (6 - row) * 50 + 25  # 区块中心Y (翻转axis)
-        
+      
         BLOCK_GRID[bid] = (col, row)
         BLOCK_POSITIONS[bid] = (x, y)
-    
+  
     return BLOCK_POSITIONS
 
 # 预设蛇形路径 (从A=21开始)
@@ -1011,13 +1013,13 @@ def generate_move_commands(path, positions, speed_cmps=30):
         nxt_id = path[i + 1]
         cur_pos = positions[cur_id]
         nxt_pos = positions[nxt_id]
-        
+      
         dx = nxt_pos[0] - cur_pos[0]
         dy = nxt_pos[1] - cur_pos[1]
-        
+      
         distance = np.sqrt(dx**2 + dy**2)
         direction = np.degrees(np.arctan2(dy, dx)) % 360
-        
+      
         commands.append({
             'from': cur_id,
             'to': nxt_id,
@@ -1034,13 +1036,13 @@ def get_return_to_home_command(current_block_id, positions, speed_cmps=30):
     """
     cur_pos = positions[current_block_id]
     home_pos = (0, 0)
-    
+  
     dx = home_pos[0] - cur_pos[0]
     dy = home_pos[1] - cur_pos[1]
-    
+  
     distance = np.sqrt(dx**2 + dy**2)
     direction = np.degrees(np.arctan2(dy, dx)) % 360
-    
+  
     return {
         'from': current_block_id,
         'to': 'HOME',
@@ -1056,25 +1058,26 @@ def get_return_to_home_command(current_block_id, positions, speed_cmps=30):
 def print_path_map():
     """打印路径地图，方便目视验证"""
     init_grid()
-    
+  
     # 创建7×7网格
     grid = [['  ' for _ in range(7)] for _ in range(7)]
     for bid, (col, row) in BLOCK_GRID.items():
         grid[row][col] = f'{bid:2d}'
-    
+  
     print("    Col: 0   1   2   3   4   5   6")
     for row_idx, row in enumerate(grid):
         print(f"Row{row_idx}: " + "  ".join(row))
-    
+  
     print(f"\n飞行路径: {'→'.join(map(str, PATH))}")
 ```
 
 输出示例：
+
 ```
     Col: 0   1   2   3   4   5   6
 Row0: 28  26  25  24  23      22
 Row1: 21  20  18  16  15  19  17
-Row2: 12  14  13  11          
+Row2: 12  14  13  11        
 Row3: 10   9           8   7  
 Row4:                 5   6  
 Row5:                 4   3  
@@ -1154,39 +1157,39 @@ class DroneStateMachine:
         self.laser = laser        # 激光控制对象
         self.visited = [False] * 29  # visited[1..28]
         self.visited[0] = True    # 不用下标0
-        
+      
         self.cfg = config         # 配置参数
-        
+      
         # 状态计时器
         self.state_start_time = 0
         self.spray_start_time = 0
         self.takeoff_start_time = 0
-        
+      
         # 路径相关
         self.path = PATH
         self.move_commands = None
         self.cmd_index = 0
-        
+      
         # 重试计数
         self.retry_count = 0
         self.max_retries = 3
-    
+  
     def run_iteration(self):
         """每个循环周期调用一次（20-50Hz）"""
         frame, green_ratio, ocr_result = self._get_vision_data()
-        
+      
         # 更新光流
         of_dx, of_dy = self.mcu.read_optical_flow()
         self.localizer.update_optical_flow(of_dx, of_dy)
-        
+      
         # 检查颜色跳变
         if self.localizer.check_boundary_crossed(green_ratio):
             self.localizer.advance_block()
-        
+      
         # 尝试OCR校准
         if self.localizer.should_do_ocr():
             self.localizer.apply_ocr(ocr_result)
-        
+      
         # 执行当前状态
         {
             FlightState.IDLE:              self._state_idle,
@@ -1200,17 +1203,17 @@ class DroneStateMachine:
             FlightState.LAND:              self._state_land,
             FlightState.LOCK:              self._state_lock,
         }[self.state](frame, green_ratio, ocr_result)
-    
+  
     def _state_idle(self, frame, green_ratio, ocr_result):
         # 等待启动信号（可以是GPIO按钮 或 CH6开关）
         if self._check_start_signal():
             self._transition(FlightState.ARM_UNLOCK)
-    
+  
     def _state_arm_unlock(self, frame, green_ratio, ocr_result):
         self.mcu.send_cmd_unlock()
         time.sleep(2)
         self._transition(FlightState.SET_PROGRAM_MODE)
-    
+  
     def _state_set_program_mode(self, frame, green_ratio, ocr_result):
         self.mcu.send_cmd_mode(3)  # 程控模式
         time.sleep(1)
@@ -1218,10 +1221,10 @@ class DroneStateMachine:
         self.mcu.send_of_zero_reset()
         self.localizer.init_global_position()
         self._transition(FlightState.TAKEOFF)
-    
+  
     def _state_takeoff(self, frame, green_ratio, ocr_result):
         self.mcu.send_cmd_takeoff(150)  # 起飞至150cm
-        
+      
         # 检查高度是否到达
         alt = self.mcu.read_altitude()
         if 140 <= alt <= 160:
@@ -1233,14 +1236,14 @@ class DroneStateMachine:
                 self._transition(FlightState.EMERGENCY)
             else:
                 self.mcu.send_cmd_takeoff(150)
-    
+  
     def _state_find_start(self, frame, green_ratio, ocr_result):
         # 飞到区块21的大致位置
         # 用路径规划的移动指令
         cmd = generate_move_commands(PATH[:1], BLOCK_POSITIONS, 
                                      self.cfg['debug_speed'])[0]
         self.mcu.send_cmd_move(cmd['distance'], cmd['speed'], cmd['direction'])
-        
+      
         # 等待移动完成 + 视觉确认
         if ocr_result == 21:  # 或检测到A标记
             # 微调居中
@@ -1252,22 +1255,22 @@ class DroneStateMachine:
                 # 发送微调指令(<10cm移动)
                 self.mcu.send_cmd_move(min(abs(dx), 10), 15, 
                     np.degrees(np.arctan2(dy, dx)) % 360)
-    
+  
     def _state_spray(self, frame, green_ratio, ocr_result):
         cur_block = self.localizer.get_current_target()
-        
+      
         if not self.visited[cur_block]:
             # 激光闪烁
             self.laser.blink(count=2, period_ms=1500)
             self.visited[cur_block] = True
             print(f"[SPRAY] Block {cur_block} sprayed")
-        
+      
         # 检查是否完成
         if all(self.visited[1:]):
             self._transition(FlightState.RETURN_HOME)
         else:
             self._transition(FlightState.NAVIGATE)
-    
+  
     def _state_navigate(self, frame, green_ratio, ocr_result):
         # 找下一个未访问区块
         next_block = None
@@ -1275,42 +1278,42 @@ class DroneStateMachine:
             if not self.visited[bid]:
                 next_block = bid
                 break
-        
+      
         if next_block is None:
             self._transition(FlightState.RETURN_HOME)
             return
-        
+      
         # 从当前位置移动到next_block
         cur_block = self.localizer.get_current_target()
         cur_pos = BLOCK_POSITIONS[cur_block]
         nxt_pos = BLOCK_POSITIONS[next_block]
-        
+      
         dx = nxt_pos[0] - cur_pos[0]
         dy = nxt_pos[1] - cur_pos[1]
         distance = int(np.sqrt(dx**2 + dy**2))
         direction = int(np.degrees(np.arctan2(dy, dx)) % 360)
-        
+      
         self.mcu.send_cmd_move(distance, self.cfg['move_speed'], direction)
-        
+      
         # 等待移动完成（颜色跳变检测会自动触发advance_block）
         # 或超时继续
         if time.time() - self.state_start_time > 5:
             self._transition(FlightState.SPRAY)
-    
+  
     def _state_return_home(self, frame, green_ratio, ocr_result):
         # 发送返航指令 (使用凌霄一键返航 或 自行计算)
         gpx, gpy = self.localizer.get_position_for_return()
         distance = int(np.sqrt(gpx**2 + gpy**2))
         direction = int(np.degrees(np.arctan2(gpy, gpx)) % 360)
-        
+      
         self.mcu.send_cmd_move(distance, self.cfg['move_speed'], direction)
         time.sleep(distance / self.cfg['move_speed'] + 1)
-        
+      
         self._transition(FlightState.LAND)
-    
+  
     def _state_land(self, frame, green_ratio, ocr_result):
         self.mcu.send_cmd_land()
-        
+      
         # 等待降落完成
         alt = self.mcu.read_altitude()
         if alt < 10:  # 距离地面10cm以内
@@ -1318,29 +1321,29 @@ class DroneStateMachine:
             self._transition(FlightState.LOCK)
         elif time.time() - self.state_start_time > 20:
             self._transition(FlightState.EMERGENCY)
-    
+  
     def _state_lock(self, frame, green_ratio, ocr_result):
         self.mcu.send_cmd_lock()
         print("==> MISSION COMPLETE <==")
         self._transition(FlightState.DONE)
-    
+  
     def _transition(self, new_state):
         print(f"[STATE] {self.state.name} -> {new_state.name}")
         self.state = new_state
         self.state_start_time = time.time()
         self.retry_count = 0
-    
+  
     def _get_vision_data(self):
         ret, frame = self.camera.read()
         if not ret:
             return None, 0.0, None
-        
+      
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         green_ratio = self.camera.detector.calc_green_ratio(hsv)
         ocr_result = self.camera.digit_reader.extract_digits(frame)
-        
+      
         return frame, green_ratio, ocr_result
-    
+  
     def _check_start_signal(self):
         # 通过MCU读取CH6/AUX2通道值
         # >1700 视为启动
@@ -1367,13 +1370,13 @@ class LaserController:
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(pin, GPIO.OUT)
         GPIO.output(pin, GPIO.LOW)
-    
+  
     def on(self):
         GPIO.output(self.pin, GPIO.HIGH)
-    
+  
     def off(self):
         GPIO.output(self.pin, GPIO.LOW)
-    
+  
     def blink(self, count=2, period_ms=1500):
         """
         闪烁激光笔模拟撒药
@@ -1382,13 +1385,13 @@ class LaserController:
         """
         on_time = period_ms / 2 / 1000.0  # 50%占空比
         off_time = period_ms / 2 / 1000.0
-        
+      
         for i in range(count):
             self.on()
             time.sleep(on_time)
             self.off()
             time.sleep(off_time)
-    
+  
     def cleanup(self):
         GPIO.cleanup()
 
@@ -1402,7 +1405,7 @@ class LEDController:
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(pin, GPIO.OUT)
         GPIO.output(pin, GPIO.LOW)
-    
+  
     def show_number(self, number):
         """闪烁LED显示数字"""
         for _ in range(number):
@@ -1411,7 +1414,7 @@ class LEDController:
             GPIO.output(self.pin, GPIO.LOW)
             time.sleep(0.3)
         time.sleep(2)  # 间隔数秒
-    
+  
     def cleanup(self):
         GPIO.cleanup()
 ```
@@ -1471,30 +1474,30 @@ import time
 def test_single_move(distance_cm, direction_deg, speed_cmps):
     """测试单次水平移动"""
     mcu = MCUSerial(port='/dev/serial0', baudrate=115200)
-    
+  
     print("1. Unlocking...")
     mcu.send(cmd_unlock())
     time.sleep(2)
-    
+  
     print("2. Setting program mode...")
     mcu.send(cmd_mode(3))
     time.sleep(1)
-    
+  
     print("3. Taking off...")
     mcu.send(cmd_takeoff(150))
     time.sleep(5)  # 等待起飞完成
-    
+  
     print(f"4. Moving {distance_cm}cm at {direction_deg}deg, speed {speed_cmps}cm/s")
     mcu.send(cmd_move(distance_cm, speed_cmps, direction_deg))
     time.sleep(distance_cm / speed_cmps + 2)  # 等待移动完成
-    
+  
     print("5. Landing...")
     mcu.send(cmd_land())
     time.sleep(5)
-    
+  
     print("6. Locking...")
     mcu.send(cmd_lock())
-    
+  
     print("Test complete!")
 
 if __name__ == '__main__':
@@ -1504,18 +1507,19 @@ if __name__ == '__main__':
 
 ### 12.3 调试阶段划分
 
-| 阶段 | 速度 | 测试内容 | 通过标准 |
-|------|------|---------|---------|
-| **G1** | debug | 机上不装视觉，遥控手动飞行验证硬件 | 悬停稳定，定点模式OK |
-| **G2** | debug | 串口通信：树莓派→MCU→IMU，验证单条指令 | unlock/takeoff/land/lock 全部OK |
-| **G3** | debug | 移动测试：前进50cm再退回 | 实际位移与指令误差<15% |
-| **G4** | debug | 光流数据读取 | 树莓派能正确解析POS_X/Y |
-| **G5** | debug | 相机画面传输+颜色阈值调试 | 绿色/灰色正确分割 |
-| **G6** | debug | 边界跳变检测 | 手拿飞机模拟移动，能检测跳变 |
-| **G7** | debug | 数字OCR调试 | 辅助灯光，检测OCR准确率 |
-| **G8** | debug | 全流程自主飞行（慢速） | 完成一次完整的28块全覆盖 |
-| **G9** | tuning | 全流程（中速） | 完成时间<300秒 |
-| **G10** | competition | 全流程（高速） | 完成时间<200秒，降落<10cm |
+
+| 阶段    | 速度        | 测试内容                                 | 通过标准                        |
+| --------- | ------------- | ------------------------------------------ | --------------------------------- |
+| **G1**  | debug       | 机上不装视觉，遥控手动飞行验证硬件       | 悬停稳定，定点模式OK            |
+| **G2**  | debug       | 串口通信：树莓派→MCU→IMU，验证单条指令 | unlock/takeoff/land/lock 全部OK |
+| **G3**  | debug       | 移动测试：前进50cm再退回                 | 实际位移与指令误差<15%          |
+| **G4**  | debug       | 光流数据读取                             | 树莓派能正确解析POS_X/Y         |
+| **G5**  | debug       | 相机画面传输+颜色阈值调试                | 绿色/灰色正确分割               |
+| **G6**  | debug       | 边界跳变检测                             | 手拿飞机模拟移动，能检测跳变    |
+| **G7**  | debug       | 数字OCR调试                              | 辅助灯光，检测OCR准确率         |
+| **G8**  | debug       | 全流程自主飞行（慢速）                   | 完成一次完整的28块全覆盖        |
+| **G9**  | tuning      | 全流程（中速）                           | 完成时间<300秒                  |
+| **G10** | competition | 全流程（高速）                           | 完成时间<200秒，降落<10cm       |
 
 ---
 
@@ -1532,7 +1536,7 @@ class EmergencyHandler:
         self.mcu = mcu
         self.fail_count = 0
         self.max_fails = 3
-    
+  
     def handle_comm_timeout(self):
         """MCU通信超时"""
         self.fail_count += 1
@@ -1542,7 +1546,7 @@ class EmergencyHandler:
             # 触发降落（MCU侧应有关断保护）
             return True
         return False
-    
+  
     def handle_altitude_anomaly(self, alt_cm):
         """高度异常（过低或过高）"""
         if alt_cm < 50:
@@ -1554,18 +1558,18 @@ class EmergencyHandler:
         elif alt_cm < 20:
             print("[EMERGENCY] Critically low altitude!")
             self.mcu.send(cmd_land())
-    
+  
     def handle_touchdown(self):
         """触地检测 — 5秒内不能恢复=失败"""
         # MCU侧检测到电机堵转/高度异常低
         pass
-    
+  
     def handle_lost_optical_flow(self):
         """光流失锁"""
         print("[WARN] Optical flow lost! Hovering in place...")
         # 悬停等待恢复
         self.mcu.send(cmd_ascend(0, 0))  # 或者发悬停指令
-    
+  
     def emergency_land(self):
         """紧急降落"""
         print("[EMERGENCY] Initiating emergency landing!")
@@ -1577,16 +1581,16 @@ class EmergencyHandler:
 # 在状态机主循环中集成异常检测
 def check_exceptions(state_machine, emergency):
     alt = state_machine.mcu.read_altitude()
-    
+  
     # 低电量
     voltage = state_machine.mcu.read_voltage()
     if voltage < cfg['low_voltage_threshold']:
         emergency.emergency_land()
-    
+  
     # 高度异常
     if alt < 30 or alt > 250:
         emergency.handle_altitude_anomaly(alt)
-    
+  
     # 任务超时 (360秒)
     if state_machine.mission_time > 360:
         print("[TIMEOUT] Mission time exceeded 360 seconds!")
@@ -1595,16 +1599,17 @@ def check_exceptions(state_machine, emergency):
 
 ### 13.1 异常场景与对策表
 
-| 异常 | 检测方式 | 对策 |
-|------|---------|------|
-| 光流失锁 | 连续1秒无光流数据更新 | 悬停等待，超5秒则触发紧急降落 |
-| 通信超时 | 连续500ms无MCU响应 | 重试3次，仍失败则紧急降落 |
-| 高度过高 | >250cm | 发送下降指令至150cm |
-| 高度过低 | <30cm | 发送上升指令，<10cm紧急降落 |
-| 触地 | 高度<5cm + 光流速率为0 | 立即加锁（其实已落地） |
-| 360秒超时 | 任务计时器 | 放弃剩余区块，直接返航降落 |
-| 电池低压 | 电压<阈值 | 紧急降落在当前位置 |
-| 连续3次边界未检测 | visited超过预期 | 降低速度，重试OCR绝对定位 |
+
+| 异常              | 检测方式               | 对策                          |
+| ------------------- | ------------------------ | ------------------------------- |
+| 光流失锁          | 连续1秒无光流数据更新  | 悬停等待，超5秒则触发紧急降落 |
+| 通信超时          | 连续500ms无MCU响应     | 重试3次，仍失败则紧急降落     |
+| 高度过高          | >250cm                 | 发送下降指令至150cm           |
+| 高度过低          | <30cm                  | 发送上升指令，<10cm紧急降落   |
+| 触地              | 高度<5cm + 光流速率为0 | 立即加锁（其实已落地）        |
+| 360秒超时         | 任务计时器             | 放弃剩余区块，直接返航降落    |
+| 电池低压          | 电压<阈值              | 紧急降落在当前位置            |
+| 连续3次边界未检测 | visited超过预期        | 降低速度，重试OCR绝对定位     |
 
 ---
 
@@ -1644,33 +1649,35 @@ def check_exceptions(state_machine, emergency):
 
 ### 14.3 结果记录表
 
-| 项目 | 要求 | 实测值 | 达标 |
-|------|------|--------|------|
-| 起飞高度 | 150±10cm | ___cm | □ |
-| 起点区块 | 从A(21)开始 | 区块___ | □ |
-| 全覆盖 | 28块全部闪烁 | 完成___块 | □ |
-| 完成任务时间 | <360秒 | ___秒 | □ |
-| 降落偏差 | ≤±10cm | ___cm | □ |
-| 漏撒 | 0 | ___块 | □ |
-| 重撒 | 0 | ___块 | □ |
-| 非播撒区播撒 | 0 | ___块 | □ |
+
+| 项目         | 要求         | 实测值    | 达标 |
+| -------------- | -------------- | ----------- | ------ |
+| 起飞高度     | 150±10cm    | ___cm     | □   |
+| 起点区块     | 从A(21)开始  | 区块___   | □   |
+| 全覆盖       | 28块全部闪烁 | 完成___块 | □   |
+| 完成任务时间 | <360秒       | ___秒     | □   |
+| 降落偏差     | ≤±10cm     | ___cm     | □   |
+| 漏撒         | 0            | ___块     | □   |
+| 重撒         | 0            | ___块     | □   |
+| 非播撒区播撒 | 0            | ___块     | □   |
 
 ---
 
 ## 15. 风险清单与对策
 
-| 编号 | 风险 | 概率 | 影响 | 对策 |
-|------|------|------|------|------|
-| R1 | 光照不均导致颜色识别不稳定 | 高 | 中 | 动态阈值 + 颜色跳变检测不依赖绝对阈值 + 黑色线辅助 |
-| R2 | 边界线太浅无法检测 | 中 | 中 | 用颜色跳变替代线检测，OCR做绝对定位兜底 |
-| R3 | 光流漂移导致路径偏航 | 高 | 高 | 每块用颜色跳变/OCR重置漂移，最多偏半个格子 |
-| R4 | 海康相机帧率不足/延迟 | 低 | 中 | 降分辨率至640x480，启用MJPG编码 |
-| R5 | 树莓派供电不足导致重启 | 中 | 高 | 独立BEC供电(5V 3A+)，加电容滤波 |
-| R6 | 螺旋桨触安全网 | 中 | 高 | 桨叶全防护罩 + 定高选150cm(低于安全网) |
-| R7 | 电池电量不足360秒 | 中 | 高 | 测试续航，备换电池，优化的飞行速度减少悬停 |
-| R8 | API指令响应超时 | 低 | 中 | 每条指令有超时+重试机制 |
-| R9 | 起飞后树莓派死机 | 低 | 高 | MCU侧检测心跳超时→自动触发紧急降落 |
-| R10 | 降落偏差>10cm | 中 | 中 | 光流全程跟踪全局位置 + 下降时光流保持水平位置 |
+
+| 编号 | 风险                       | 概率 | 影响 | 对策                                               |
+| ------ | ---------------------------- | ------ | ------ | ---------------------------------------------------- |
+| R1   | 光照不均导致颜色识别不稳定 | 高   | 中   | 动态阈值 + 颜色跳变检测不依赖绝对阈值 + 黑色线辅助 |
+| R2   | 边界线太浅无法检测         | 中   | 中   | 用颜色跳变替代线检测，OCR做绝对定位兜底            |
+| R3   | 光流漂移导致路径偏航       | 高   | 高   | 每块用颜色跳变/OCR重置漂移，最多偏半个格子         |
+| R4   | 海康相机帧率不足/延迟      | 低   | 中   | 降分辨率至640x480，启用MJPG编码                    |
+| R5   | 树莓派供电不足导致重启     | 中   | 高   | 独立BEC供电(5V 3A+)，加电容滤波                    |
+| R6   | 螺旋桨触安全网             | 中   | 高   | 桨叶全防护罩 + 定高选150cm(低于安全网)             |
+| R7   | 电池电量不足360秒          | 中   | 高   | 测试续航，备换电池，优化的飞行速度减少悬停         |
+| R8   | API指令响应超时            | 低   | 中   | 每条指令有超时+重试机制                            |
+| R9   | 起飞后树莓派死机           | 低   | 高   | MCU侧检测心跳超时→自动触发紧急降落                |
+| R10  | 降落偏差>10cm              | 中   | 中   | 光流全程跟踪全局位置 + 下降时光流保持水平位置      |
 
 ---
 
@@ -1678,37 +1685,39 @@ def check_exceptions(state_machine, emergency):
 
 ### 资料包文件
 
-| 用途 | 路径 |
-|------|------|
-| 通信协议V7 PDF | `凌霄/1.用户手册_通信协议/匿名通信协议V7.pdf` |
-| 凌霄飞控手册 | `凌霄/1.用户手册_通信协议/匿名--凌霄--飞控手册.V1.07pdf.pdf` |
-| 到手飞手册 | `凌霄/1.用户手册_通信协议/匿名--凌霄到手飞手册.pdf` |
-| PID调参参考 | `凌霄/1.用户手册_通信协议/匿名凌霄FC姿态单参数控制参考配置.txt` |
-| MCU源码主工程 | `凌霄/5.飞控MCU源码工程/ANO_LX_FC-2021-7-18 121043.rar` |
-| 例程1(起飞降落) | `凌霄/5.飞控MCU源码工程/例程1.一键起飞_降落/` |
-| 例程2(完整任务) | `凌霄/5.飞控MCU源码工程/例程2.一键任务_起飞+悬停+前进+右移+降落/` |
-| 底板原理图 | `凌霄/6.原理图_PCB/凌霄整机底板ANO-LX-PCB2-20200716.pdf` |
-| STM32F4核心板原理图 | `凌霄/6.原理图_PCB/STM32F407核心板原理图.pdf` |
-| 最新IMU固件 | `凌霄/7.凌霄IMU固件/ANO_LX-hw122-sw135.ano` |
-| STM32F4 Keil包 | `凌霄/3.开发环境安装/Keil.STM32F4xx_DFP.2.2.0.pack` |
-| STM32F4 参考手册 | `凌霄/4.相关芯片Datasheet/STM32F4xx中文参考手册.pdf` |
+
+| 用途                | 路径                                                              |
+| --------------------- | ------------------------------------------------------------------- |
+| 通信协议V7 PDF      | `凌霄/1.用户手册_通信协议/匿名通信协议V7.pdf`                     |
+| 凌霄飞控手册        | `凌霄/1.用户手册_通信协议/匿名--凌霄--飞控手册.V1.07pdf.pdf`      |
+| 到手飞手册          | `凌霄/1.用户手册_通信协议/匿名--凌霄到手飞手册.pdf`               |
+| PID调参参考         | `凌霄/1.用户手册_通信协议/匿名凌霄FC姿态单参数控制参考配置.txt`   |
+| MCU源码主工程       | `凌霄/5.飞控MCU源码工程/ANO_LX_FC-2021-7-18 121043.rar`           |
+| 例程1(起飞降落)     | `凌霄/5.飞控MCU源码工程/例程1.一键起飞_降落/`                     |
+| 例程2(完整任务)     | `凌霄/5.飞控MCU源码工程/例程2.一键任务_起飞+悬停+前进+右移+降落/` |
+| 底板原理图          | `凌霄/6.原理图_PCB/凌霄整机底板ANO-LX-PCB2-20200716.pdf`          |
+| STM32F4核心板原理图 | `凌霄/6.原理图_PCB/STM32F407核心板原理图.pdf`                     |
+| 最新IMU固件         | `凌霄/7.凌霄IMU固件/ANO_LX-hw122-sw135.ano`                       |
+| STM32F4 Keil包      | `凌霄/3.开发环境安装/Keil.STM32F4xx_DFP.2.2.0.pack`               |
+| STM32F4 参考手册    | `凌霄/4.相关芯片Datasheet/STM32F4xx中文参考手册.pdf`              |
 
 ### 本项目文件
 
-| 用途 | 路径 |
-|------|------|
-| 赛题原文 | `G_植保飞行器.pdf` |
-| 本执行计划 | `G_植保飞行器_详细执行计划.md` |
-| 主程序 | `drone/main.py` (待创建) |
-| 配置参数 | `drone/config.py` |
-| 协议库 | `drone/lx_protocol.py` |
-| MCU串口 | `drone/mcu_serial.py` |
-| 视觉处理 | `drone/vision.py` |
-| 定位融合 | `drone/localization.py` |
-| 路径规划 | `drone/path_plan.py` |
-| 状态机 | `drone/state_machine.py` |
-| 激光LED | `drone/laser_led.py` |
-| MCU固件 | `drone/fc/User_Task.c` (待修改) |
+
+| 用途       | 路径                            |
+| ------------ | --------------------------------- |
+| 赛题原文   | `G_植保飞行器.pdf`              |
+| 本执行计划 | `G_植保飞行器_详细执行计划.md`  |
+| 主程序     | `drone/main.py` (待创建)        |
+| 配置参数   | `drone/config.py`               |
+| 协议库     | `drone/lx_protocol.py`          |
+| MCU串口    | `drone/mcu_serial.py`           |
+| 视觉处理   | `drone/vision.py`               |
+| 定位融合   | `drone/localization.py`         |
+| 路径规划   | `drone/path_plan.py`            |
+| 状态机     | `drone/state_machine.py`        |
+| 激光LED    | `drone/laser_led.py`            |
+| MCU固件    | `drone/fc/User_Task.c` (待修改) |
 
 ---
 

@@ -241,6 +241,7 @@ class TestSprayLogic(unittest.TestCase):
         self.laser = MockLaser()
         self.cfg = get_config()
         self.sm = DroneStateMachine(self.mcu, self.cam, self.loc, self.laser, self.cfg)
+        self.sm._start_block_confirmed = True
 
     def test_spray_marks_visited(self):
         """测试SPRAY状态标记区块已访问"""
@@ -262,6 +263,15 @@ class TestSprayLogic(unittest.TestCase):
         self.sm.state = FlightState.SPRAY
         self.sm.run_iteration()
         self.assertEqual(self.laser.blink_count, old_count + 1)
+
+    def test_first_laser_is_blocked_without_21_confirmation(self):
+        self.sm._start_block_confirmed = False
+        self.sm.state = FlightState.SPRAY
+
+        self.sm.run_iteration()
+
+        self.assertEqual(self.laser.blink_count, 0)
+        self.assertEqual(self.sm.state, FlightState.EMERGENCY)
 
 
 class TestNavigateLogic(unittest.TestCase):
@@ -297,6 +307,60 @@ class TestNavigateLogic(unittest.TestCase):
 
         self.sm.run_iteration()
         self.assertEqual(self.sm.state, FlightState.RETURN_HOME)
+
+    def test_manual_navigation_waits_for_target_digit(self):
+        """人工移动模式必须识别到目标区块数字才推进。"""
+        self.cfg['manual_navigation'] = True
+        self.sm.state = FlightState.NAVIGATE
+        self.sm.visited[21] = True
+        next_block = self.loc.get_next_target()
+
+        self.sm._state_navigate(None, 0.5, None)
+        self.assertEqual(self.sm.state, FlightState.NAVIGATE)
+        self.assertEqual(self.loc.get_current_target(), 21)
+
+        self.sm._state_navigate(None, 0.5, next_block)
+        self.assertEqual(self.sm.state, FlightState.SPRAY)
+        self.assertEqual(self.loc.get_current_target(), next_block)
+
+
+class TestStartAndHomeVisionGates(unittest.TestCase):
+    def setUp(self):
+        self.mcu = MockMCU()
+        self.cam = MockCamera()
+        self.loc = Localizer()
+        self.laser = MockLaser()
+        self.cfg = get_config()
+        self.cfg['start_block_confirm_frames'] = 3
+        self.cfg['home_cross_confirm_frames'] = 3
+        self.sm = DroneStateMachine(
+            self.mcu, self.cam, self.loc, self.laser, self.cfg,
+        )
+
+    def test_start_requires_three_21_observations(self):
+        self.sm.state = FlightState.FIND_START
+        target = __import__('path_plan').get_block_position(21)
+        self.loc._global_pos_x, self.loc._global_pos_y = target
+
+        self.sm._state_find_start(None, 0.5, 21)
+        self.sm._state_find_start(None, 0.5, 21)
+        self.assertEqual(self.sm.state, FlightState.FIND_START)
+
+        self.sm._state_find_start(None, 0.5, 21)
+        self.assertEqual(self.sm.state, FlightState.SPRAY)
+        self.assertTrue(self.sm._start_block_confirmed)
+
+    def test_home_alignment_compensates_front_camera(self):
+        self.sm.state = FlightState.ALIGN_HOME
+        self.mcu.set_altitude(100)
+        self.sm._home_cross_confidence = 1.0
+        # fy=800, altitude=100: 25cm前置补偿对应十字在中心下方200px。
+        self.sm._home_cross_center = (720.0, 740.0)
+
+        for _ in range(3):
+            self.sm._state_align_home(None, None, None)
+
+        self.assertEqual(self.sm.state, FlightState.LAND)
 
 
 class TestProgressTracking(unittest.TestCase):

@@ -67,6 +67,11 @@ def _parse_args() -> argparse.Namespace:
         help='模拟模式, 仅模拟不实际飞行',
     )
     parser.add_argument(
+        '--simulate-mcu',
+        action='store_true',
+        help='仅模拟飞控链路；相机和激光仍使用真实硬件',
+    )
+    parser.add_argument(
         '--auto-start',
         action='store_true',
         help='连接完成后自动开始任务 (真实飞行请谨慎使用)',
@@ -78,10 +83,20 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         '--vision-backend',
-        choices=['industrial', 'openmv'],
+        choices=['industrial', 'mvs', 'openmv'],
         default=None,
-        help='视觉后端 (默认使用 config.py 中的 VISION_BACKEND)',
+        help='视觉后端: industrial=UVC, mvs=海康SDK, openmv=串口',
     )
+    parser.add_argument('--camera-id', type=int, default=None,
+                        help='相机设备索引')
+    parser.add_argument('--camera-exposure-ms', type=float, default=50.0,
+                        help='MVS手动曝光时间，毫秒 (默认50)')
+    parser.add_argument('--camera-gain', type=float, default=4.0,
+                        help='MVS手动增益，dB (默认4)')
+    parser.add_argument('--vision-preview', action='store_true',
+                        help='显示实时识别预览窗口')
+    parser.add_argument('--manual-navigation', action='store_true',
+                        help='人工移动场测：识别到目标数字后推进状态机')
     parser.add_argument(
         '--openmv-port',
         default=None,
@@ -150,6 +165,10 @@ def main() -> int:
 
     cfg = get_config()
     cfg['auto_start'] = args.auto_start
+    cfg['manual_navigation'] = args.manual_navigation
+    if args.manual_navigation:
+        cfg['start_block_timeout_s'] = max(cfg['start_block_timeout_s'], 120)
+        cfg['home_align_timeout_s'] = max(cfg['home_align_timeout_s'], 120)
     path_plan.init_grid(
         cfg['origin_offset_x_cm'],
         cfg['origin_offset_y_cm'],
@@ -158,8 +177,9 @@ def main() -> int:
     # ── 初始化硬件组件 ──────────────────────────────────
     serial_port = args.serial_port or cfg['serial_port']
     logger.info(f"  串口设备:  {serial_port}")
+    mcu_simulated = config.DRY_RUN or args.simulate_mcu
     mcu = MCUSerial(
-        dry_run=config.DRY_RUN,
+        dry_run=mcu_simulated,
         port=serial_port,
         baudrate=cfg['serial_baudrate'],
     )
@@ -171,7 +191,7 @@ def main() -> int:
     if not config.DRY_RUN and not args.no_camera:
         vision_backend = args.vision_backend or cfg['vision_backend']
         logger.info("  视觉后端:  %s", vision_backend)
-        if vision_backend not in ('industrial', 'openmv'):
+        if vision_backend not in ('industrial', 'mvs', 'openmv'):
             logger.error("不支持的视觉后端: %s", vision_backend)
             mcu.disconnect()
             return 2
@@ -212,19 +232,28 @@ def main() -> int:
         else:
             try:
                 if __package__:
-                    from .vision import Camera, BlockDetector, DigitReader
+                    from .vision import (
+                        Camera, BlockDetector, DigitReader, HomeCrossDetector,
+                    )
                 else:
-                    from vision import Camera, BlockDetector, DigitReader
+                    from vision import (
+                        Camera, BlockDetector, DigitReader, HomeCrossDetector,
+                    )
             except ImportError as exc:
                 logger.error(f"工业相机视觉依赖不可用: {exc}")
                 logger.error("请安装 opencv-python、numpy，或使用 --no-camera")
                 mcu.disconnect()
                 return 2
             camera = Camera(
-                device_id=cfg['camera_device_id'],
+                device_id=(args.camera_id if args.camera_id is not None
+                           else cfg['camera_device_id']),
                 width=cfg['camera_width'],
                 height=cfg['camera_height'],
                 fps=cfg['camera_fps'],
+                capture_backend='mvs' if vision_backend == 'mvs' else 'uvc',
+                exposure_ms=args.camera_exposure_ms,
+                gain=args.camera_gain,
+                preview=args.vision_preview,
             )
             camera.detector = BlockDetector(
                 green_lower=cfg['green_hsv_lower'],
@@ -236,6 +265,9 @@ def main() -> int:
                 min_contour_area=cfg['min_contour_area'],
             )
             camera.digit_reader = DigitReader()
+            camera.home_cross_detector = HomeCrossDetector(
+                min_confidence=cfg['home_cross_min_confidence'],
+            )
             if not camera.open():
                 logger.error("工业相机打开失败; 可使用 --no-camera 仅测试飞控链路")
                 mcu.disconnect()
@@ -264,7 +296,7 @@ def main() -> int:
                 from gpio_backend import H7GpioBackend
 
             h7_serial = H7GpioSerial(
-                dry_run=config.DRY_RUN,
+                dry_run=False,
                 port=args.h7_serial,
                 baudrate=config.H7_SERIAL_BAUDRATE,
             )
@@ -315,10 +347,10 @@ def main() -> int:
             if now - last_heartbeat >= 0.5:
                 mcu.send_heartbeat()
                 last_heartbeat = now
-            if not config.DRY_RUN and now - last_flow_query >= 0.1:
+            if not mcu_simulated and now - last_flow_query >= 0.1:
                 mcu.send_query(0x01)
                 last_flow_query = now
-            if not config.DRY_RUN and now - last_status_query >= 0.2:
+            if not mcu_simulated and now - last_status_query >= 0.2:
                 mcu.send_query(0x02)
                 last_status_query = now
     except KeyboardInterrupt:

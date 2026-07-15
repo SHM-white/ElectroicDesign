@@ -28,37 +28,67 @@ logger = logging.getLogger('drone.vision')
 # ── 相机管理 ──────────────────────────────────────────────
 
 class Camera:
-    """工业相机封装 (通过OpenCV UVC协议)"""
+    """工业相机封装，支持 OpenCV UVC 或海康 MVS SDK。"""
 
     def __init__(self, device_id: int = 0,
                  width: int = 640, height: int = 480,
-                 fps: int = 30):
+                 fps: int = 30, capture_backend: str = 'uvc',
+                 exposure_ms: float = 50.0, gain: float = 4.0,
+                 preview: bool = False):
         self.device_id = device_id
         self.width = width
         self.height = height
         self.fps = fps
+        self.capture_backend = capture_backend
+        self.exposure_ms = exposure_ms
+        self.gain = gain
+        self.preview = preview
         self.cap = None
         self.detector: Optional[BlockDetector] = None
         self.digit_reader: Optional[DigitReader] = None
+        self.home_cross_detector: Optional[HomeCrossDetector] = None
+        self._sequence = 0
 
     def open(self) -> bool:
         """打开相机"""
         try:
-            self.cap = cv2.VideoCapture(self.device_id)
+            if self.capture_backend == 'mvs':
+                try:
+                    from .mvs_camera import MvsCapture
+                except ImportError:
+                    from mvs_camera import MvsCapture
+                self.cap = MvsCapture(
+                    self.device_id,
+                    auto_exposure=False,
+                    exposure_us=self.exposure_ms * 1000.0,
+                    gain=self.gain,
+                )
+            else:
+                self.cap = cv2.VideoCapture(self.device_id)
             if not self.cap.isOpened():
                 logger.error(f"Cannot open camera {self.device_id}")
+                self.cap.release()
+                self.cap = None
                 return False
 
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-            self.cap.set(cv2.CAP_PROP_FPS, self.fps)
+            if self.capture_backend == 'uvc':
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+                self.cap.set(cv2.CAP_PROP_FPS, self.fps)
             # 海康相机可能需要MJPG编码获得30fps
             # self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
 
             actual_w = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
             actual_h = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
             actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
-            logger.info(f"Camera opened: {actual_w:.0f}x{actual_h:.0f} @ {actual_fps:.0f}fps")
+            identity = ''
+            if self.capture_backend == 'mvs':
+                identity = f" model={self.cap.model} serial={self.cap.serial}"
+            logger.info(
+                "Camera opened via %s: %.0fx%.0f%s%s",
+                self.capture_backend, actual_w, actual_h,
+                f" @ {actual_fps:.0f}fps" if actual_fps > 0 else '', identity,
+            )
             return True
         except Exception as e:
             logger.error(f"Camera open error: {e}")
@@ -90,10 +120,46 @@ class Camera:
         if self.digit_reader is not None:
             digit = self.digit_reader.extract_digits(frame, detector=self.detector)
 
+        cross_center = None
+        cross_confidence = 0.0
+        if self.home_cross_detector is not None:
+            cross_center, cross_confidence = self.home_cross_detector.detect(frame)
+
+        self._sequence += 1
+
+        if self.preview:
+            display = frame.copy()
+            cv2.putText(
+                display,
+                f"Green: {green_ratio:.1%}  OCR: {digit if digit is not None else '-'}",
+                (12, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2,
+            )
+            if cross_center is not None:
+                center = (int(cross_center[0]), int(cross_center[1]))
+                cv2.drawMarker(
+                    display, center, (0, 0, 255), cv2.MARKER_CROSS, 40, 3,
+                )
+                cv2.putText(
+                    display, f"HOME {cross_confidence:.2f}",
+                    (center[0] + 12, center[1] - 12),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2,
+                )
+            cv2.imshow("Mission Vision - [q] quit [s] save", display)
+            key = cv2.waitKey(1) & 0xFF
+            if key in (ord('q'), 27):
+                raise KeyboardInterrupt
+            if key == ord('s'):
+                filename = f"mission_vision_{cv2.getTickCount()}.png"
+                cv2.imwrite(filename, frame)
+                logger.info("Vision screenshot saved: %s", filename)
+
         return VisionResult(
             frame=frame,
             green_ratio=green_ratio,
             digit=digit,
+            sequence=self._sequence,
+            home_cross_center=cross_center,
+            home_cross_confidence=cross_confidence,
         )
 
     def release(self):
@@ -101,6 +167,8 @@ class Camera:
         if self.cap is not None:
             self.cap.release()
             self.cap = None
+        if self.preview:
+            cv2.destroyAllWindows()
         logger.info("Camera released")
 
 
@@ -196,17 +264,101 @@ class BlockDetector:
         return blocks[0] if blocks else None
 
     def find_block_boundary_lines(self, hsv: np.ndarray) -> Optional[np.ndarray]:
-        """
-        检测黑色边界线 (备选方案)
-
-        Returns:
-            HoughLinesP结果 或 None
-        """
+        """检测黑色边界线 (备选方案)。"""
         mask = self.detect_black_mask(hsv)
-        lines = cv2.HoughLinesP(mask, 1, np.pi / 180,
-                                 threshold=50, minLineLength=80, maxLineGap=20)
-        return lines
+        return cv2.HoughLinesP(
+            mask, 1, np.pi / 180,
+            threshold=50, minLineLength=80, maxLineGap=20,
+        )
 
+
+class HomeCrossDetector:
+    """检测起降点黑色十字，并返回其像素中心和几何置信度。
+
+    检测不依赖十字的绝对物理尺寸：先提取低亮度连通域，再验证候选
+    中心的水平、垂直四臂以及对角空白。这可排除单线、L形边界和数字。
+    """
+
+    def __init__(self, value_max: int = 70, min_area_ratio: float = 0.0005,
+                 max_area_ratio: float = 0.25, min_confidence: float = 0.58):
+        self.value_max = value_max
+        self.min_area_ratio = min_area_ratio
+        self.max_area_ratio = max_area_ratio
+        self.min_confidence = min_confidence
+
+    def detect(self, frame: np.ndarray) -> Tuple[Optional[Tuple[float, float]], float]:
+        if frame is None or frame.size == 0:
+            return None, 0.0
+
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, np.array([0, 0, 0]),
+                           np.array([180, 255, self.value_max]))
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+        frame_area = frame.shape[0] * frame.shape[1]
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+        best_center = None
+        best_score = 0.0
+
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if not self.min_area_ratio * frame_area <= area <= self.max_area_ratio * frame_area:
+                continue
+            x, y, w, h = cv2.boundingRect(contour)
+            if w < 15 or h < 15 or not 0.45 <= w / h <= 2.2:
+                continue
+
+            roi = mask[y:y + h, x:x + w]
+            moments = cv2.moments(contour)
+            if moments['m00'] <= 0:
+                continue
+            cx = int(round(moments['m10'] / moments['m00'])) - x
+            cy = int(round(moments['m01'] / moments['m00'])) - y
+            if not 0 <= cx < w or not 0 <= cy < h:
+                continue
+
+            arm = max(4, int(min(w, h) * 0.12))
+            thickness = max(2, int(min(w, h) * 0.08))
+            horizontal = roi[max(0, cy - thickness):min(h, cy + thickness + 1), :]
+            vertical = roi[:, max(0, cx - thickness):min(w, cx + thickness + 1)]
+            if horizontal.size == 0 or vertical.size == 0:
+                continue
+
+            left = np.mean(horizontal[:, :max(1, cx)] > 0)
+            right = np.mean(horizontal[:, min(w - 1, cx + 1):] > 0)
+            up = np.mean(vertical[:max(1, cy), :] > 0)
+            down = np.mean(vertical[min(h - 1, cy + 1):, :] > 0)
+
+            corner_h = max(1, cy - arm)
+            corner_w = max(1, cx - arm)
+            corners = [
+                roi[:corner_h, :corner_w],
+                roi[:corner_h, min(w, cx + arm):],
+                roi[min(h, cy + arm):, :corner_w],
+                roi[min(h, cy + arm):, min(w, cx + arm):],
+            ]
+            corner_density = np.mean([
+                np.mean(part > 0) if part.size else 0.0 for part in corners
+            ])
+            arm_score = float(min(left, right, up, down))
+            balance = min(w, h) / max(w, h)
+            fill = area / max(1.0, float(w * h))
+            fill_score = max(0.0, 1.0 - abs(fill - 0.35) / 0.35)
+            score = (
+                0.55 * arm_score + 0.20 * balance + 0.15 * fill_score
+                + 0.10 * max(0.0, 1.0 - corner_density * 3.0)
+            )
+
+            if score > best_score:
+                best_score = score
+                best_center = (float(x + cx), float(y + cy))
+
+        if best_center is None or best_score < self.min_confidence:
+            return None, best_score
+        return best_center, min(1.0, best_score)
 
 # ── 数字识别 (OCR) ────────────────────────────────────────
 

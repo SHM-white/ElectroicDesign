@@ -34,6 +34,7 @@ class FlightState(Enum):
     SPRAY = auto()              # 撒药 (激光闪烁)
     NAVIGATE = auto()           # 移动到下一区块
     RETURN_HOME = auto()        # 返回起降点
+    ALIGN_HOME = auto()         # 识别十字并将机体中心对准起降点
     LAND = auto()               # 着陆
     LOCK = auto()               # 加锁
     EMERGENCY = auto()          # 紧急状态
@@ -76,6 +77,12 @@ class DroneStateMachine:
         self._retry_count = 0
         self._max_retries = 3
         self._state_command_sent = False
+        self._start_confirm_count = 0
+        self._start_block_confirmed = bool(config.get('dry_run', False))
+        self._home_cross_center = None
+        self._home_cross_confidence = 0.0
+        self._home_cross_confirm_count = 0
+        self._last_home_align_command = 0.0
 
         # 异常检测
         self._emergency_reason = ""
@@ -168,6 +175,7 @@ class DroneStateMachine:
             FlightState.SPRAY: self._state_spray,
             FlightState.NAVIGATE: self._state_navigate,
             FlightState.RETURN_HOME: self._state_return_home,
+            FlightState.ALIGN_HOME: self._state_align_home,
             FlightState.LAND: self._state_land,
             FlightState.LOCK: self._state_lock,
             FlightState.EMERGENCY: self._state_emergency,
@@ -250,23 +258,37 @@ class DroneStateMachine:
         distance, direction = self._calc_move_to_target(target_pos[0], target_pos[1])
 
         if distance < 10:
-            # 已到达, 微调确认
-            if ocr_result == 21 or self.cfg.get('dry_run', False):
-                self.localizer.apply_ocr(21)
-                self._transition(FlightState.SPRAY)
+            # 到达估计位置后，必须连续识别21号才能开始首次喷洒。
+            if ocr_result == 21:
+                self._start_confirm_count += 1
+            else:
+                self._start_confirm_count = 0
+
+            if self.cfg.get('dry_run', False) or self._start_confirm_count >= \
+                    self.cfg.get('start_block_confirm_frames', 3):
+                if self.cfg.get('dry_run', False) or self.localizer.apply_ocr(21):
+                    self._start_block_confirmed = True
+                    logger.info("Start block 21 confirmed by vision")
+                    self._transition(FlightState.SPRAY)
         else:
             # 发送移动指令
             if not self._state_command_sent:
                 self.mcu.send_cmd_move(distance, self.cfg['move_speed'], direction)
                 self._state_command_sent = True
 
-        if self.state_start_time > 15:
-            logger.warning("Find start timeout, proceeding with estimated position")
-            self._transition(FlightState.SPRAY)
+        if self.state_start_time > self.cfg.get('start_block_timeout_s', 30):
+            self._emergency("Block 21 was not confirmed; laser remains disabled")
 
     def _state_spray(self, frame, green_ratio, ocr_result):
         """撒药 (激光闪烁)"""
         cur_block = self.localizer.get_current_target()
+
+        if not self._start_block_confirmed:
+            laser_off = getattr(self.laser, 'off', None)
+            if callable(laser_off):
+                laser_off()
+            self._emergency("Laser interlock: block 21 not confirmed")
+            return
 
         if not self.visited[cur_block]:
             if self.laser is not None:
@@ -305,6 +327,28 @@ class DroneStateMachine:
             self._transition(FlightState.RETURN_HOME)
             return
 
+        # 人工移动场测不使用模拟光流判定到达。程序只记录飞控移动
+        # 指令，并在真实相机连续流程中识别到目标编号后推进。
+        if self.cfg.get('manual_navigation', False):
+            if not self._state_command_sent:
+                distance, direction = self._calc_move_to_target(
+                    target_pos[0], target_pos[1]
+                )
+                logger.info(
+                    "[FIELD] 请人工移动到区块 %d (建议方向=%d°, 距离=%dcm)",
+                    next_block, direction, distance,
+                )
+                self.mcu.send_cmd_move(
+                    distance, self.cfg['move_speed'], direction
+                )
+                self._state_command_sent = True
+
+            if ocr_result == next_block:
+                logger.info("[FIELD] OCR确认到达区块 %d", next_block)
+                self.localizer.apply_ocr(next_block)
+                self._transition(FlightState.SPRAY)
+            return
+
         distance, direction = self._calc_move_to_target(target_pos[0], target_pos[1])
 
         if distance < 10:
@@ -336,8 +380,8 @@ class DroneStateMachine:
         distance, direction = self._calc_move_to_target(hx, hy)
 
         if distance < 20:
-            logger.info("Arrived at home position")
-            self._transition(FlightState.LAND)
+            logger.info("Arrived near home; starting visual cross alignment")
+            self._transition(FlightState.ALIGN_HOME)
         else:
             if not self._state_command_sent:
                 self.mcu.send_cmd_move(
@@ -347,8 +391,59 @@ class DroneStateMachine:
 
             # 超时: 仍然降落
             if self.state_start_time > distance / self.cfg['move_speed'] + 10:
-                logger.warning("Return home timeout, landing anyway")
+                logger.warning("Return estimate timeout; searching for home cross")
+                self._transition(FlightState.ALIGN_HOME)
+
+    def _state_align_home(self, frame, green_ratio, ocr_result):
+        """识别起降十字，并补偿前置相机偏移后对准机体几何中心。"""
+        center = self._home_cross_center
+        confidence = self._home_cross_confidence
+        min_confidence = self.cfg.get('home_cross_min_confidence', 0.58)
+        if center is None or confidence < min_confidence:
+            self._home_cross_confirm_count = 0
+            if self.state_start_time > self.cfg.get('home_align_timeout_s', 30):
+                self._emergency("Home cross not found; landing inhibited")
+            return
+
+        alt = max(float(self.mcu.read_altitude()), 1.0)
+        cx = self.cfg.get('camera_principal_x_px', 720.0)
+        cy = self.cfg.get('camera_principal_y_px', 540.0)
+        fx = self.cfg.get('camera_focal_x_px', 800.0)
+        fy = self.cfg.get('camera_focal_y_px', 800.0)
+
+        # 图像上方对应机头前方。相机在机体中心前方25cm，因此十字
+        # 位于画面中心时，机体仍需向前移动25cm。
+        error_forward = self.cfg.get('camera_forward_offset_cm', 25.0) \
+            - (center[1] - cy) * alt / fy
+        error_right = (center[0] - cx) * alt / fx
+        distance = math.hypot(error_forward, error_right)
+        tolerance = self.cfg.get('home_align_tolerance_cm', 8.0)
+
+        if distance <= tolerance:
+            self._home_cross_confirm_count += 1
+            if self._home_cross_confirm_count >= self.cfg.get(
+                    'home_cross_confirm_frames', 3):
+                logger.info(
+                    "Home cross aligned: forward=%.1fcm right=%.1fcm",
+                    error_forward, error_right,
+                )
                 self._transition(FlightState.LAND)
+            return
+
+        self._home_cross_confirm_count = 0
+        now = time.time()
+        if now - self._last_home_align_command < 1.0:
+            return
+        step = min(distance, self.cfg.get('home_align_max_step_cm', 30))
+        direction = int(math.degrees(math.atan2(error_right, error_forward)) % 360)
+        logger.info(
+            "Home align correction: %.1fcm @ %d° (forward=%.1f right=%.1f)",
+            step, direction, error_forward, error_right,
+        )
+        self.mcu.send_cmd_move(
+            max(1, int(round(step))), self.cfg['move_speed'], direction,
+        )
+        self._last_home_align_command = now
 
     def _state_land(self, frame, green_ratio, ocr_result):
         """着陆"""
@@ -446,7 +541,13 @@ class DroneStateMachine:
         if callable(read_result):
             result = read_result()
             if result is None:
+                self._home_cross_center = None
+                self._home_cross_confidence = 0.0
                 return None, None, None
+            self._home_cross_center = getattr(result, 'home_cross_center', None)
+            self._home_cross_confidence = getattr(
+                result, 'home_cross_confidence', 0.0,
+            )
             return result.frame, result.green_ratio, result.digit
 
         # 兼容旧 Camera/测试桩的抓帧接口。

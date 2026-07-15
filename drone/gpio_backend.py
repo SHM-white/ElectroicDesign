@@ -185,7 +185,9 @@ class H7GpioBackend(GpioBackend):
     通过 USB-TTL 串口连接 STM32H7 开发板 (大疆电机开发板C),
     使用 h7_gpio_protocol 协议帧控制 GPIO 引脚。
 
-    支持硬件定时脉冲 (pulse), 适合激光撒药闪烁等场景。
+    当前桥接板固件仅支持 0x01 SET_OUTPUT；激光闪烁由
+    LaserController 在上位机后台线程中发送 HIGH/LOW 实现，setup
+    不发送协议帧。
     """
 
     def __init__(self, serial: 'H7GpioSerial', **kwargs: object):
@@ -196,56 +198,33 @@ class H7GpioBackend(GpioBackend):
         """
         # 延迟导入避免循环依赖
         try:
-            from .h7_gpio_protocol import cmd_set_output, cmd_configure, cmd_pulse
+            from .h7_gpio_protocol import cmd_set_output
         except ImportError:
-            from h7_gpio_protocol import cmd_set_output, cmd_configure, cmd_pulse
+            from h7_gpio_protocol import cmd_set_output
 
         self._serial = serial
         self._cmd_set_output = cmd_set_output
-        self._cmd_configure = cmd_configure
-        self._cmd_pulse = cmd_pulse
         logger.info("H7 GPIO backend initialized")
 
     def setup(self, pin: int, mode: GpioMode) -> None:
-        """配置引脚模式"""
-        as_output = (mode == GpioMode.OUT)
-        frame = self._cmd_configure(pin, as_output)
-        self._serial.send_frame(frame)
-        resp = self._serial.read_response(timeout_s=0.1)
-        if resp is not None and resp['status'] != 0:
-            logger.warning("H7 GPIO setup error: pin=%d, status=%d", pin, resp['status'])
-        logger.debug("H7 GPIO setup: pin=%d, mode=%s", pin, mode.name)
+        """桥接板固件预配置输出引脚，此处不发送未实现的 0x02。"""
+        logger.debug("H7 GPIO setup skipped: pin=%d, mode=%s", pin, mode.name)
 
     def output(self, pin: int, value: GpioValue) -> None:
         """设置引脚输出电平"""
         high = (value == GpioValue.HIGH)
         frame = self._cmd_set_output(pin, high)
         self._serial.send_frame(frame)
-        resp = self._serial.read_response(timeout_s=0.1)
-        if resp is not None and resp['status'] != 0:
-            logger.warning("H7 GPIO output error: pin=%d, status=%d", pin, resp['status'])
+        # 桥接板的激光响应属于正常回执，不再校验其状态。
+        self._serial.read_response(timeout_s=0.1)
         logger.debug("H7 GPIO output: pin=%d, value=%s", pin, value.name)
-
-    def pulse(self, pin: int, count: int, period_ms: int) -> None:
-        """硬件定时脉冲 — 由 STM32H7 精确控制时序
-
-        Args:
-            pin: GPIO 引脚 0-15
-            count: 脉冲次数
-            period_ms: 脉冲周期 (ms)
-        """
-        frame = self._cmd_pulse(pin, count, period_ms)
-        self._serial.send_frame(frame)
-        logger.info("H7 GPIO pulse: pin=%d, count=%d, period=%dms",
-                    pin, count, period_ms)
 
     def cleanup(self, pin: int) -> None:
         """释放引脚 (设为低电平)"""
         frame = self._cmd_set_output(pin, False)
         self._serial.send_frame(frame)
-        resp = self._serial.read_response(timeout_s=0.1)
-        if resp is not None and resp['status'] != 0:
-            logger.warning("H7 GPIO cleanup error: pin=%d, status=%d", pin, resp['status'])
+        # 返回帧仅作尽力消费，不参与清理结果判定。
+        self._serial.read_response(timeout_s=0.1)
         logger.debug("H7 GPIO cleanup: pin=%d", pin)
 
 

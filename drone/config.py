@@ -83,6 +83,20 @@ CAMERA_HEIGHT = 480
 CAMERA_FPS = 30
 CAMERA_DEVICE_ID = 0
 
+# 相机朝下且位于机体几何中心前方。约定图像上方=机头前方、右方=机体右侧。
+CAMERA_FORWARD_OFFSET_CM = 25.0
+CAMERA_FOCAL_X_PX = 800.0       # 需用实际相机标定结果替换
+CAMERA_FOCAL_Y_PX = 800.0
+CAMERA_PRINCIPAL_X_PX = 720.0   # MVS当前1440x1080画面的中心初值
+CAMERA_PRINCIPAL_Y_PX = 540.0
+HOME_CROSS_MIN_CONFIDENCE = 0.58
+HOME_CROSS_CONFIRM_FRAMES = 3
+HOME_ALIGN_TOLERANCE_CM = 8.0
+HOME_ALIGN_MAX_STEP_CM = 30
+HOME_ALIGN_TIMEOUT_S = 30
+START_BLOCK_CONFIRM_FRAMES = 3
+START_BLOCK_TIMEOUT_S = 30
+
 # OpenMV 识别结果串口。若同时使用 H7 GPIO 板，请为两个设备分配不同端口。
 # 当前硬件方案: H7 GPIO → /dev/ttyUSB1, OpenMV → /dev/ttyUSB2 (仅OpenMV方案时用)
 OPENMV_SERIAL_PORT = '/dev/ttyUSB2'
@@ -171,6 +185,18 @@ def get_config() -> Dict[str, Any]:
         'camera_height': CAMERA_HEIGHT,
         'camera_fps': CAMERA_FPS,
         'camera_device_id': CAMERA_DEVICE_ID,
+        'camera_forward_offset_cm': CAMERA_FORWARD_OFFSET_CM,
+        'camera_focal_x_px': CAMERA_FOCAL_X_PX,
+        'camera_focal_y_px': CAMERA_FOCAL_Y_PX,
+        'camera_principal_x_px': CAMERA_PRINCIPAL_X_PX,
+        'camera_principal_y_px': CAMERA_PRINCIPAL_Y_PX,
+        'home_cross_min_confidence': HOME_CROSS_MIN_CONFIDENCE,
+        'home_cross_confirm_frames': HOME_CROSS_CONFIRM_FRAMES,
+        'home_align_tolerance_cm': HOME_ALIGN_TOLERANCE_CM,
+        'home_align_max_step_cm': HOME_ALIGN_MAX_STEP_CM,
+        'home_align_timeout_s': HOME_ALIGN_TIMEOUT_S,
+        'start_block_confirm_frames': START_BLOCK_CONFIRM_FRAMES,
+        'start_block_timeout_s': START_BLOCK_TIMEOUT_S,
         'openmv_serial_port': OPENMV_SERIAL_PORT,
         'openmv_serial_baudrate': OPENMV_SERIAL_BAUDRATE,
         'openmv_stale_timeout_s': OPENMV_STALE_TIMEOUT_S,

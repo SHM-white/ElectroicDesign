@@ -17,4 +17,6 @@ class VisionResult:
     digit: Optional[int] = None
     frame: Any = None
     sequence: Optional[int] = None
+    home_cross_center: Optional[tuple[float, float]] = None
+    home_cross_confidence: float = 0.0
 

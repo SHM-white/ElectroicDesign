@@ -62,21 +62,14 @@ class LaserController:
         """
         闪烁激光笔模拟撒药
 
-        如果后端支持硬件脉冲 (如 H7GpioBackend.pulse()),
-        则发送单条协议帧由 STM32H7 精确控制时序 (非阻塞)。
-        否则回退到软件 time.sleep() 闪烁。
+        在后台线程中按 50% 占空比切换 HIGH/LOW。H7 桥接板当前仅
+        实现 0x01 SET_OUTPUT，因此同样使用该软件定时路径。
 
         Args:
             count: 闪烁次数 (1-3)
             period_ms: 闪烁周期(ms) (1000-2000)
         """
-        # 硬件脉冲路径 (非阻塞, MCU 控制时序)
-        if hasattr(self._backend, 'pulse') and callable(self._backend.pulse):
-            logger.info(f"Laser hardware pulse: count={count}, period={period_ms}ms")
-            self._backend.pulse(self.pin, count, period_ms)
-            return
-
-        # 软件闪烁路径 (后台线程, 兼容 RPi/FT232H/Dummy 后端)
+        # 软件闪烁路径 (后台线程, 兼容 H7/RPi/FT232H/Dummy 后端)
         half_period_s = period_ms / 1000.0 / 2.0  # 50%占空比
         if self._blink_thread is not None and self._blink_thread.is_alive():
             logger.warning("Laser blink request ignored because a blink is already active")
