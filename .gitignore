@@ -5,3 +5,4 @@
 .omo/
 __pycache__/
 *.log
+.venv/

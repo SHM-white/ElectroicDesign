@@ -14,6 +14,7 @@ Section 7: 视觉识别开发
 import cv2
 import numpy as np
 import logging
+from itertools import combinations
 from typing import Optional, List, Tuple
 
 try:
@@ -87,7 +88,7 @@ class Camera:
 
         digit = None
         if self.digit_reader is not None:
-            digit = self.digit_reader.extract_digits(frame)
+            digit = self.digit_reader.extract_digits(frame, detector=self.detector)
 
         return VisionResult(
             frame=frame,
@@ -209,6 +210,52 @@ class BlockDetector:
 
 # ── 数字识别 (OCR) ────────────────────────────────────────
 
+def _preprocess_ocr(gray: np.ndarray, bgr: np.ndarray = None) -> list[np.ndarray]:
+    """生成多种预处理候选图，供 OCR 逐一尝试。
+
+    返回的候选按推荐优先级排列:
+    1. 颜色差分 (R-G): 灰色数字 vs 绿色背景对比度最高 (~90级 vs 灰度~31级)
+    2. 颜色差分 (B-G): 备选通道
+    3. 灰度线性拉伸
+    4. OTSU 二值化 (白底黑字)
+    5. 灰度原图 (保底)
+    """
+    candidates = []
+
+    # ── 颜色差分预处理: 灰色数字(R≈G≈B) vs 绿色背景(R<G, B<G) ──
+    if bgr is not None:
+        B = bgr[:, :, 0].astype(np.float32)
+        G = bgr[:, :, 1].astype(np.float32)
+        R = bgr[:, :, 2].astype(np.float32)
+
+        for diff, name in [(R - G, 'R-G'), (B - G, 'B-G')]:
+            # 归一化到 0-255, 128 对应差分为 0 (灰色数字)
+            diff_norm = np.clip((diff + 128), 0, 255).astype(np.uint8)
+            # OTSU 找到数字 (白底黑字)
+            _, binary = cv2.threshold(diff_norm, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            if np.count_nonzero(binary) > binary.size * 0.5:
+                binary = cv2.bitwise_not(binary)
+            candidates.append(binary)
+
+    # ── 灰度预处理 ──
+    # 线性拉伸: 将 [p2, p98] 拉伸到 [0, 255]
+    p2, p98 = np.percentile(gray, (2, 98))
+    if p98 > p2 + 30:
+        stretched = np.clip((gray.astype(np.float32) - p2) * 255.0 / (p98 - p2), 0, 255).astype(np.uint8)
+        candidates.append(stretched)
+
+    # OTSU 二值化, 确保白底黑字
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    if np.count_nonzero(binary) > binary.size * 0.5:
+        binary = cv2.bitwise_not(binary)
+    candidates.append(binary)
+
+    # 灰度原图 (保底)
+    candidates.append(gray)
+
+    return candidates
+
+
 class DigitReader:
     """
     识别区块上的数字编号
@@ -235,13 +282,21 @@ class DigitReader:
             self._tesseract_available = False
 
     def extract_digits(self, frame: np.ndarray,
-                        block_roi: Optional[Tuple[int, int, int, int]] = None) -> Optional[int]:
+                        block_roi: Optional[Tuple[int, int, int, int]] = None,
+                        detector = None) -> Optional[int]:
         """
         从画面中提取数字
+
+        策略:
+        1. 如果有 ROI, 先对 ROI 中心区域做 R-G + OTSU + --psm 8
+           (灰色数字 vs 绿色背景对比度最高的方案)
+        2. 再尝试全 ROI 的多预处理管线
+        3. 无 ROI 时全图多预处理
 
         Args:
             frame: BGR图像
             block_roi: (x, y, w, h) 可选, 限定识别区域
+            detector: BlockDetector 实例, 用于自动查找绿色区块 ROI
 
         Returns:
             识别到的数字(int) 或 None
@@ -257,22 +312,183 @@ class DigitReader:
         if block_roi is not None:
             x, y, w, h = block_roi
             roi = frame[y:y + h, x:x + w]
+        elif detector is not None:
+            # 自动检测最大的绿色区块作为 ROI
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            blocks = detector.find_green_blocks(hsv)
+            if blocks:
+                cx, cy, bw, bh, _ = blocks[0]
+                x, y = cx - bw // 2, cy - bh // 2
+                roi = frame[max(0, y):min(frame.shape[0], y + bh),
+                             max(0, x):min(frame.shape[1], x + bw)]
+            else:
+                roi = frame
         else:
             roi = frame
 
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        # 二值化: 数字是亮的灰色, 背景是暗的绿色
-        # 反转: 让数字变成白字黑底
-        _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+        whitelist = '-c tessedit_char_whitelist=0123456789'
 
-        config = '--psm 6 -c tessedit_char_whitelist=0123456789'
+        # ── 管线 1: 区块内成对数字组件 ──
+        if block_roi is not None or detector is not None:
+            result = self._try_component_pair_ocr(roi, whitelist)
+            if result is not None:
+                return result
+
+            # 组件不足时保留中心区域方案，兼容单数字区块。
+            result = self._try_center_rg_ocr(roi, whitelist)
+            if result is not None:
+                return result
+
+        # ── 管线 2: 全 ROI 多预处理 ──
+        psm_modes = ['--psm 7', '--psm 8', '--psm 6']
+        for preprocessed in _preprocess_ocr(gray, bgr=roi):
+            for psm in psm_modes:
+                result = self._ocr_single(preprocessed, f'{psm} {whitelist}')
+                if result is not None:
+                    return result
+
+        return None
+
+    def _try_component_pair_ocr(self, roi: np.ndarray,
+                                whitelist: str) -> Optional[int]:
+        """隔离同一基线上的两个灰色数字组件后执行 OCR。"""
+        blue, green, red = cv2.split(roi)
+        green_delta = (
+            green.astype(np.int16)
+            - np.maximum(red, blue).astype(np.int16)
+        )
+        brightness = np.max(roi, axis=2)
+        mask = np.uint8((green_delta < 20) & (brightness > 70)) * 255
+
+        _, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
+        roi_height, roi_width = roi.shape[:2]
+        min_area = 0.002 * roi_height * roi_width
+        candidates = []
+        for label, stat in enumerate(stats[1:], 1):
+            x, y, width, height, area = map(int, stat)
+            center_x = x + width / 2
+            center_y = y + height / 2
+            if not 0.08 * roi_height <= height <= 0.25 * roi_height:
+                continue
+            if not 0.02 * roi_width <= width <= 0.2 * roi_width:
+                continue
+            if area < min_area:
+                continue
+            if not 0.2 * roi_width <= center_x <= 0.8 * roi_width:
+                continue
+            if not 0.3 * roi_height <= center_y <= 0.75 * roi_height:
+                continue
+            candidates.append((x, y, width, height, area, label))
+
+        if len(candidates) < 2:
+            return None
+
+        def pair_score(pair) -> float:
+            left, right = sorted(pair)
+            max_height = max(left[3], right[3])
+            center_delta = abs(
+                (left[1] + left[3] / 2) - (right[1] + right[3] / 2)
+            ) / max_height
+            height_delta = abs(left[3] - right[3]) / max_height
+            gap = max(0, right[0] - (left[0] + left[2])) / max_height
+            return center_delta + height_delta + 0.2 * gap
+
+        pair = min(combinations(candidates, 2), key=pair_score)
+        if pair_score(pair) > 0.35:
+            return None
+
+        isolated = np.zeros_like(mask)
+        for component in pair:
+            isolated[labels == component[5]] = 255
+
+        padding = 20
+        left = max(0, min(component[0] for component in pair) - padding)
+        top = max(0, min(component[1] for component in pair) - padding)
+        right = min(
+            roi_width,
+            max(component[0] + component[2] for component in pair) + padding,
+        )
+        bottom = min(
+            roi_height,
+            max(component[1] + component[3] for component in pair) + padding,
+        )
+        digit_image = 255 - isolated[top:bottom, left:right]
+        digit_image = cv2.resize(
+            digit_image, None, fx=2, fy=2, interpolation=cv2.INTER_NEAREST
+        )
+
+        for psm in ('--psm 8', '--psm 13'):
+            result = self._ocr_single(digit_image, f'{psm} {whitelist}')
+            if result is not None and 10 <= result <= 28:
+                return result
+        return None
+
+    def _try_center_rg_ocr(self, frame: np.ndarray, whitelist: str) -> Optional[int]:
+        """对画面中心区域做 R-G + OTSU OCR, 专为灰色数字 vs 绿色背景优化。
+
+        画面中心是无人机正下方, 目标区块编号应在此处。
+        尝试多种裁剪比例, 从小到大: 太小会截断数字, 太大会引入相邻区块的噪点。
+        """
         try:
-            text = pytesseract.image_to_string(thresh, config=config).strip()
-            if text and text.isdigit():
-                return int(text)
-        except Exception as e:
-            logger.warning(f"OCR error: {e}")
+            import pytesseract
+        except ImportError:
+            return None
 
+        fh, fw = frame.shape[:2]
+        # 从小比例到大比例: 0.10-0.22 覆盖典型数字尺寸
+        for fraction in [0.18, 0.20, 0.15, 0.22, 0.12]:
+            margin_h = int(fh * (1 - fraction) / 2)
+            margin_w = int(fw * (1 - fraction) / 2)
+            center = frame[margin_h:fh - margin_h, margin_w:fw - margin_w]
+            if center.size == 0:
+                continue
+
+            R = center[:, :, 2].astype(np.float32)
+            G = center[:, :, 1].astype(np.float32)
+            rg_norm = np.clip((R - G + 128), 0, 255).astype(np.uint8)
+
+            # 放大 2x 提高 Tesseract 精度
+            rg_big = cv2.resize(rg_norm, None, fx=2, fy=2,
+                                 interpolation=cv2.INTER_CUBIC)
+
+            # OTSU 二值化
+            _, binary = cv2.threshold(rg_big, 0, 255,
+                                       cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            if np.count_nonzero(binary) > binary.size * 0.5:
+                binary = cv2.bitwise_not(binary)
+
+            # --psm 8 (single word) 对此场景最准
+            for psm in ['--psm 8', '--psm 7']:
+                result = self._ocr_single(binary, f'{psm} {whitelist}')
+                if result is not None:
+                    return result
+
+        return None
+
+    @staticmethod
+    def _ocr_single(image: np.ndarray, config: str) -> Optional[int]:
+        """对单张预处理图执行 OCR, 返回有效数字或 None。"""
+        try:
+            import pytesseract
+        except ImportError:
+            return None
+
+        try:
+            text = pytesseract.image_to_string(image, config=config).strip()
+            if not text:
+                return None
+            digits_only = ''.join(c for c in text if c.isdigit())
+            if not digits_only:
+                return None
+            num = int(digits_only)
+            if 1 <= num <= 28:
+                return num
+            last2 = num % 100
+            if 1 <= last2 <= 28:
+                return last2
+        except Exception:
+            pass
         return None
 
     def find_a_marker(self, frame: np.ndarray) -> Optional[Tuple[int, int]]:
@@ -296,21 +512,32 @@ class DigitReader:
         _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
 
         # 找大面积的黑色连通区域
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL,
-                                        cv2.CHAIN_APPROX_SIMPLE)
-        for cnt in contours:
+        contours, hierarchy = cv2.findContours(thresh, cv2.RETR_CCOMP,
+                                                cv2.CHAIN_APPROX_SIMPLE)
+        if hierarchy is None:
+            return None
+
+        indexed_contours = sorted(
+            enumerate(contours), key=lambda item: cv2.contourArea(item[1]),
+            reverse=True
+        )
+        for index, cnt in indexed_contours:
             x, y, w, h = cv2.boundingRect(cnt)
-            # 字高>字宽的竖长形状
-            if h > 30 and w > 15 and h / w > 1.5:
-                roi = thresh[y:y + h, x:x + w]
-                try:
-                    text = pytesseract.image_to_string(
-                        roi, config='--psm 10 -c tessedit_char_whitelist=A'
-                    ).strip()
-                    if text == 'A':
-                        return (x + w // 2, y + h // 2)
-                except Exception:
-                    pass
+            if h <= 30 or w <= 15:
+                continue
+            if not 0.6 <= w / h <= 1.2:
+                continue
+            has_child_hole = hierarchy[0][index][2] >= 0
+            is_inner_hole = hierarchy[0][index][3] >= 0
+            if not has_child_hole and not is_inner_hole:
+                continue
+
+            roi = thresh[y:y + h, x:x + w]
+            text = pytesseract.image_to_string(
+                roi, config='--psm 10 -c tessedit_char_whitelist=A'
+            ).strip()
+            if text == 'A':
+                return (x + w // 2, y + h // 2)
 
         return None
 

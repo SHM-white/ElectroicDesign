@@ -463,7 +463,8 @@ class DroneStateMachine:
         # OCR识别
         ocr_result = None
         if hasattr(self.camera, 'digit_reader') and self.camera.digit_reader is not None:
-            ocr_result = self.camera.digit_reader.extract_digits(frame)
+            detector = getattr(self.camera, 'detector', None)
+            ocr_result = self.camera.digit_reader.extract_digits(frame, detector=detector)
 
         return frame, green_ratio, ocr_result
 
