@@ -82,9 +82,11 @@ CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
 CAMERA_FPS = 30
 CAMERA_DEVICE_ID = 0
+PREVIEW_MAX_WIDTH = 720          # SSH X11预览宽度；不影响识别原图
 
-# 相机朝下且位于机体几何中心前方。约定图像上方=机头前方、右方=机体右侧。
-CAMERA_FORWARD_OFFSET_CM = 25.0
+# 相机朝下且装在机尾。实测目标定义：机体中心对齐十字时，十字位于
+# 画面中心向下25cm处；激光与相机相距约3cm，播撒时可忽略并视为同轴。
+HOME_TARGET_DOWN_OFFSET_CM = 25.0
 CAMERA_FOCAL_X_PX = 800.0       # 需用实际相机标定结果替换
 CAMERA_FOCAL_Y_PX = 800.0
 CAMERA_PRINCIPAL_X_PX = 720.0   # MVS当前1440x1080画面的中心初值
@@ -185,7 +187,8 @@ def get_config() -> Dict[str, Any]:
         'camera_height': CAMERA_HEIGHT,
         'camera_fps': CAMERA_FPS,
         'camera_device_id': CAMERA_DEVICE_ID,
-        'camera_forward_offset_cm': CAMERA_FORWARD_OFFSET_CM,
+        'preview_max_width': PREVIEW_MAX_WIDTH,
+        'home_target_down_offset_cm': HOME_TARGET_DOWN_OFFSET_CM,
         'camera_focal_x_px': CAMERA_FOCAL_X_PX,
         'camera_focal_y_px': CAMERA_FOCAL_Y_PX,
         'camera_principal_x_px': CAMERA_PRINCIPAL_X_PX,

@@ -19,4 +19,5 @@ class VisionResult:
     sequence: Optional[int] = None
     home_cross_center: Optional[tuple[float, float]] = None
     home_cross_confidence: float = 0.0
+    start_marker_center: Optional[tuple[int, int]] = None
 

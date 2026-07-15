@@ -79,6 +79,7 @@ class DroneStateMachine:
         self._state_command_sent = False
         self._start_confirm_count = 0
         self._start_block_confirmed = bool(config.get('dry_run', False))
+        self._start_marker_center = None
         self._home_cross_center = None
         self._home_cross_confidence = 0.0
         self._home_cross_confirm_count = 0
@@ -133,13 +134,34 @@ class DroneStateMachine:
 
     def run_iteration(self) -> FlightState:
         """
-        每个循环周期调用一次 (20-50Hz)
+        每个循环周期调用一次。主程序限频20Hz；相机目标采集30fps，
+        实际视觉处理帧率由预览与日志中的 FPS 指标给出。
 
         Returns:
             当前状态
         """
         # 读取串口数据 (必须最先调用, 否则所有传感器读数为0)
         self.mcu.poll()
+
+        # 前往21号块只找A；作业途中OCR仅作为非阻塞定位辅助；
+        # 28号块完成后才启用起降十字识别。
+        set_modes = getattr(self.camera, 'set_processing_modes', None)
+        if callable(set_modes):
+            expected_digit = None
+            if self.state == FlightState.NAVIGATE:
+                expected_digit = next(
+                    (bid for bid in self.localizer.path if not self.visited[bid]),
+                    None,
+                )
+            set_modes(
+                ocr=self.state == FlightState.NAVIGATE,
+                start_marker=self.state == FlightState.FIND_START,
+                expected_digit=expected_digit,
+                state_label=self.state.name,
+                home_cross=self.state in (
+                    FlightState.RETURN_HOME, FlightState.ALIGN_HOME,
+                ),
+            )
 
         # 获取视觉数据
         frame, green_ratio, ocr_result = self._get_vision_data()
@@ -156,8 +178,10 @@ class DroneStateMachine:
                 FlightState.EMERGENCY, FlightState.DONE):
             self.localizer.check_boundary_crossed(green_ratio)
 
-        # OCR校准
-        if self.localizer.should_do_ocr() and ocr_result is not None:
+        # OCR只在作业路径中低频辅助校准，不参与A点或返航判定。
+        if (self.state == FlightState.NAVIGATE
+            and self.localizer.should_do_ocr()
+            and ocr_result is not None):
             self.localizer.apply_ocr(ocr_result)
 
         # 异常检测
@@ -248,7 +272,7 @@ class DroneStateMachine:
                 self._state_start_time = time.time()
 
     def _state_find_start(self, frame, green_ratio, ocr_result):
-        """寻找起始区块 (A标记/区块21)"""
+        """按飞控位置前往21号块，并仅用A标记确认起点。"""
         # 计算到区块21的移动指令
         target_pos = get_block_position(21)
         if target_pos is None:
@@ -257,10 +281,16 @@ class DroneStateMachine:
 
         distance, direction = self._calc_move_to_target(target_pos[0], target_pos[1])
 
-        if distance < 10:
-            # 到达估计位置后，必须连续识别21号才能开始首次喷洒。
-            if ocr_result == 21:
+        position_ready = distance < 10 or self.cfg.get('manual_navigation', False)
+        if position_ready:
+            start_seen = self._start_marker_center is not None
+            if start_seen:
                 self._start_confirm_count += 1
+                logger.info(
+                    "Start A-marker observation %d/%d",
+                    self._start_confirm_count,
+                    self.cfg.get('start_block_confirm_frames', 3),
+                )
             else:
                 self._start_confirm_count = 0
 
@@ -268,7 +298,7 @@ class DroneStateMachine:
                     self.cfg.get('start_block_confirm_frames', 3):
                 if self.cfg.get('dry_run', False) or self.localizer.apply_ocr(21):
                     self._start_block_confirmed = True
-                    logger.info("Start block 21 confirmed by vision")
+                    logger.info("Start block 21 confirmed by A marker")
                     self._transition(FlightState.SPRAY)
         else:
             # 发送移动指令
@@ -379,8 +409,19 @@ class DroneStateMachine:
         hx, hy = get_home_position()
         distance, direction = self._calc_move_to_target(hx, hy)
 
-        if distance < 20:
-            logger.info("Arrived near home; starting visual cross alignment")
+        # 28号块完成后一路识别十字。稳定检出时直接转精对准，可减少
+        # 光流累计误差；否则到地图估计位置附近再进入精对准。
+        cross_seen = (
+            self._home_cross_center is not None
+            and self._home_cross_confidence >= self.cfg.get(
+                'home_cross_min_confidence', 0.58,
+            )
+        )
+        if cross_seen or distance < 20:
+            logger.info(
+                "Starting visual home alignment (cross=%s, estimate=%dcm)",
+                cross_seen, distance,
+            )
             self._transition(FlightState.ALIGN_HOME)
         else:
             if not self._state_command_sent:
@@ -395,7 +436,7 @@ class DroneStateMachine:
                 self._transition(FlightState.ALIGN_HOME)
 
     def _state_align_home(self, frame, green_ratio, ocr_result):
-        """识别起降十字，并补偿前置相机偏移后对准机体几何中心。"""
+        """识别起降十字，并补偿机尾相机偏移后对准机体几何中心。"""
         center = self._home_cross_center
         confidence = self._home_cross_confidence
         min_confidence = self.cfg.get('home_cross_min_confidence', 0.58)
@@ -411,9 +452,9 @@ class DroneStateMachine:
         fx = self.cfg.get('camera_focal_x_px', 800.0)
         fy = self.cfg.get('camera_focal_y_px', 800.0)
 
-        # 图像上方对应机头前方。相机在机体中心前方25cm，因此十字
-        # 位于画面中心时，机体仍需向前移动25cm。
-        error_forward = self.cfg.get('camera_forward_offset_cm', 25.0) \
+        # 实测标定：机体中心对准十字时，十字应位于画面中心向下25cm
+        # 对应的位置。该量是图像目标偏移，不再用相机安装方向命名。
+        error_forward = self.cfg.get('home_target_down_offset_cm', 25.0) \
             - (center[1] - cy) * alt / fy
         error_right = (center[0] - cx) * alt / fx
         distance = math.hypot(error_forward, error_right)
@@ -547,6 +588,9 @@ class DroneStateMachine:
             self._home_cross_center = getattr(result, 'home_cross_center', None)
             self._home_cross_confidence = getattr(
                 result, 'home_cross_confidence', 0.0,
+            )
+            self._start_marker_center = getattr(
+                result, 'start_marker_center', None,
             )
             return result.frame, result.green_ratio, result.digit
 

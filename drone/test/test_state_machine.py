@@ -337,24 +337,43 @@ class TestStartAndHomeVisionGates(unittest.TestCase):
             self.mcu, self.cam, self.loc, self.laser, self.cfg,
         )
 
-    def test_start_requires_three_21_observations(self):
+    def test_start_ignores_digit_21_without_a_marker(self):
         self.sm.state = FlightState.FIND_START
         target = __import__('path_plan').get_block_position(21)
         self.loc._global_pos_x, self.loc._global_pos_y = target
 
-        self.sm._state_find_start(None, 0.5, 21)
-        self.sm._state_find_start(None, 0.5, 21)
-        self.assertEqual(self.sm.state, FlightState.FIND_START)
+        for _ in range(3):
+            self.sm._state_find_start(None, 0.5, 21)
 
-        self.sm._state_find_start(None, 0.5, 21)
+        self.assertEqual(self.sm.state, FlightState.FIND_START)
+        self.assertFalse(self.sm._start_block_confirmed)
+
+    def test_manual_start_ignores_digit_without_a_marker(self):
+        self.sm.state = FlightState.FIND_START
+        self.sm.cfg['manual_navigation'] = True
+
+        for _ in range(3):
+            self.sm._state_find_start(None, 0.5, 21)
+
+        self.assertEqual(self.sm.state, FlightState.FIND_START)
+        self.assertFalse(self.sm._start_block_confirmed)
+
+    def test_manual_start_accepts_a_marker(self):
+        self.sm.state = FlightState.FIND_START
+        self.sm.cfg['manual_navigation'] = True
+
+        for _ in range(3):
+            self.sm._start_marker_center = (720, 540)
+            self.sm._state_find_start(None, 0.5, None)
+
         self.assertEqual(self.sm.state, FlightState.SPRAY)
         self.assertTrue(self.sm._start_block_confirmed)
 
-    def test_home_alignment_compensates_front_camera(self):
+    def test_home_alignment_targets_cross_below_center_for_tail_camera(self):
         self.sm.state = FlightState.ALIGN_HOME
         self.mcu.set_altitude(100)
         self.sm._home_cross_confidence = 1.0
-        # fy=800, altitude=100: 25cm前置补偿对应十字在中心下方200px。
+        # fy=800, altitude=100: 机体中心对齐时，十字应在中心下方200px。
         self.sm._home_cross_center = (720.0, 740.0)
 
         for _ in range(3):

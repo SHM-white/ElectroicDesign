@@ -26,6 +26,7 @@ test_vision.py — 视觉识别独立测试脚本
 import argparse
 from concurrent.futures import Future, ThreadPoolExecutor
 import os
+from pathlib import Path
 import sys
 import time
 
@@ -36,7 +37,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import cv2
 import numpy as np
 
-from vision import BlockDetector, DigitReader
+from vision import BlockDetector, DigitReader, draw_mission_overlay
 
 
 # ── 合成测试图生成 ──────────────────────────────────────
@@ -179,6 +180,106 @@ def run_image(image_path: str):
     cv2.imshow("Vision Test - Press any key to close", out)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+
+
+def discover_images(image_dir: str) -> list[Path]:
+    """按文件名顺序返回目录中的现场图片，不递归进入构建/依赖目录。"""
+    root = Path(image_dir).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"图片目录不存在: {root}")
+    extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.webp'}
+    return sorted(
+        (path for path in root.iterdir()
+         if path.is_file() and path.suffix.lower() in extensions),
+        key=lambda path: path.name,
+    )
+
+
+def run_image_directory(image_dir: str, switch_seconds: float = 5.0) -> dict:
+    """用原任务 UI 逐张播放现场图片，并对每张执行一次完整识别。"""
+    if switch_seconds <= 0:
+        raise ValueError("图片切换时间必须大于 0 秒")
+
+    paths = discover_images(image_dir)
+    if not paths:
+        print(f"❌ 目录中没有支持的图片: {Path(image_dir).resolve()}")
+        return {'total': 0, 'readable': 0, 'recognized': 0, 'unreadable': 0}
+
+    detector = BlockDetector()
+    reader = DigitReader()
+    summary = {'total': len(paths), 'readable': 0,
+               'recognized': 0, 'unreadable': 0}
+    print(f"发现 {len(paths)} 张图片，每 {switch_seconds:g} 秒切换一张")
+    print("按键: [q/ESC]退出 [s]保存当前带标注画面")
+
+    for index, path in enumerate(paths, 1):
+        frame = cv2.imread(str(path))
+        if frame is None:
+            summary['unreadable'] += 1
+            print(f"[{index:04d}/{len(paths):04d}] ❌ 无法读取: {path.name}")
+            continue
+
+        summary['readable'] += 1
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        green_ratio = detector.calc_green_ratio(hsv)
+        blocks = detector.find_green_blocks(hsv)
+        digit = reader.extract_digits(frame, detector=detector)
+        marker = reader.find_a_marker(frame)
+        if digit is not None:
+            summary['recognized'] += 1
+
+        status = '识别成功' if digit is not None else '未识别到有效数字'
+        print(
+            f"[{index:04d}/{len(paths):04d}] {path.name} | "
+            f"OCR={digit} | A={'是' if marker is not None else '否'} | "
+            f"绿色={green_ratio:.1%} | {status}"
+        )
+        display = draw_mission_overlay(
+            frame,
+            state_label=f"IMAGE {index}/{len(paths)}",
+            green_ratio=green_ratio,
+            green_blocks=blocks,
+            digit=digit,
+            ocr_enabled=True,
+            start_marker=marker,
+        )
+        cv2.putText(
+            display, path.name[:80], (12, min(display.shape[0] - 38, 108)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            max(0.45, min(0.8, display.shape[1] / 1800.0)),
+            (255, 255, 255), 2,
+        )
+        display_scale = min(
+            1.0,
+            1280.0 / display.shape[1],
+            800.0 / display.shape[0],
+        )
+        if display_scale < 1.0:
+            display = cv2.resize(
+                display, None, fx=display_scale, fy=display_scale,
+                interpolation=cv2.INTER_AREA,
+            )
+
+        deadline = time.monotonic() + switch_seconds
+        while time.monotonic() < deadline:
+            cv2.imshow("Mission Vision - Image Replay", display)
+            key = cv2.waitKey(30) & 0xFF
+            if key in (ord('q'), 27):
+                cv2.destroyAllWindows()
+                print("图片场测已由用户终止")
+                return summary
+            if key == ord('s'):
+                output = f"image_replay_{index:04d}.png"
+                cv2.imwrite(output, display)
+                print(f"  💾 已保存: {output}")
+
+    cv2.destroyAllWindows()
+    print(
+        "图片场测完成: "
+        f"总数={summary['total']} 可读={summary['readable']} "
+        f"识别到数字={summary['recognized']} 损坏={summary['unreadable']}"
+    )
+    return summary
 
 
 def run_synthetic(digit: int = 21):
@@ -379,6 +480,10 @@ def main():
     parser.add_argument('--gain', type=float, default=8.0,
                         help='MVS 手动增益，dB (默认8)')
     parser.add_argument('--image', type=str, default=None, help='识别单张图片')
+    parser.add_argument('--image-dir', type=str, default=None,
+                        help='逐张识别目录中的现场图片')
+    parser.add_argument('--switch-seconds', type=float, default=5.0,
+                        help='图片轮播切换间隔，秒 (默认5)')
     parser.add_argument('--generate', action='store_true', help='生成合成测试图')
     parser.add_argument('--digit', type=int, default=21, help='合成图的区块编号 (默认21)')
     parser.add_argument('--save', action='store_true', help='摄像头模式下允许截图保存')
@@ -388,7 +493,9 @@ def main():
     print("  视觉识别独立测试")
     print("=" * 50)
 
-    if args.image:
+    if args.image_dir:
+        run_image_directory(args.image_dir, args.switch_seconds)
+    elif args.image:
         run_image(args.image)
     elif args.mvs is not None:
         run_mvs_camera(args.mvs, args.save, args.exposure_ms, args.gain)

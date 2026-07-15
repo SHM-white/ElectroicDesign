@@ -14,6 +14,8 @@ Section 7: 视觉识别开发
 import cv2
 import numpy as np
 import logging
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from itertools import combinations
 from typing import Optional, List, Tuple
 
@@ -25,6 +27,123 @@ except ImportError:
 logger = logging.getLogger('drone.vision')
 
 
+# ── 实时预览 UI ───────────────────────────────────────────
+
+def draw_mission_overlay(
+        frame: np.ndarray, *, state_label: str = '', green_ratio: float = 0.0,
+        green_blocks=None, digit: Optional[int] = None,
+        ocr_enabled: bool = False, ocr_running: bool = False,
+        start_marker: Optional[Tuple[int, int]] = None,
+        home_cross: Optional[Tuple[float, float]] = None,
+    home_confidence: float = 0.0, processing_fps: float = 0.0) -> np.ndarray:
+    """绘制场地测试识别 UI，不修改输入帧。"""
+    out = frame.copy()
+    height, width = out.shape[:2]
+    scale = max(0.55, min(1.0, width / 1440.0))
+    line = max(1, int(round(2 * scale)))
+
+    # 绿色区块候选框，最大候选用粗线突出显示。
+    for index, block in enumerate((green_blocks or [])[:5]):
+        cx, cy, block_w, block_h, area = block
+        left = max(0, int(cx - block_w // 2))
+        top = max(0, int(cy - block_h // 2))
+        right = min(width - 1, int(left + block_w))
+        bottom = min(height - 1, int(top + block_h))
+        thickness = line + 1 if index == 0 else line
+        cv2.rectangle(out, (left, top), (right, bottom), (40, 220, 40), thickness)
+        cv2.putText(
+            out, f"GREEN {index + 1}  {int(area)}px",
+            (left + 5, max(88, top + 22)), cv2.FONT_HERSHEY_SIMPLEX,
+            0.48 * scale, (40, 255, 40), line,
+        )
+
+    # 画面中心准星，便于人工移动时把编号放到视野中心。
+    center = (width // 2, height // 2)
+    cv2.drawMarker(
+        out, center, (255, 220, 0), cv2.MARKER_CROSS,
+        max(20, int(36 * scale)), line,
+    )
+
+    if start_marker is not None:
+        marker = (int(start_marker[0]), int(start_marker[1]))
+        cv2.circle(out, marker, max(16, int(28 * scale)), (0, 255, 255), line + 1)
+        cv2.drawMarker(
+            out, marker, (0, 255, 255), cv2.MARKER_TILTED_CROSS,
+            max(24, int(42 * scale)), line + 1,
+        )
+        cv2.putText(
+            out, "A / START 21", (marker[0] + 18, max(90, marker[1] - 18)),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.65 * scale, (0, 255, 255), line + 1,
+        )
+
+    if home_cross is not None:
+        home = (int(home_cross[0]), int(home_cross[1]))
+        cv2.drawMarker(
+            out, home, (0, 80, 255), cv2.MARKER_CROSS,
+            max(30, int(52 * scale)), line + 1,
+        )
+        cv2.putText(
+            out, f"HOME {home_confidence:.2f}",
+            (home[0] + 18, max(90, home[1] - 18)),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.65 * scale, (0, 80, 255), line + 1,
+        )
+
+    # 顶部半透明仪表栏。
+    panel_height = min(height, max(68, int(82 * scale)))
+    panel = out.copy()
+    cv2.rectangle(panel, (0, 0), (width, panel_height), (12, 18, 24), -1)
+    out = cv2.addWeighted(panel, 0.78, out, 0.22, 0)
+    state_text = state_label or 'CAMERA'
+    cv2.putText(
+        out, f"STATE  {state_text}", (14, int(30 * scale)),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.72 * scale, (255, 255, 255), line,
+    )
+    cv2.putText(
+        out, f"GREEN  {green_ratio:.1%}", (14, int(63 * scale)),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.62 * scale, (40, 255, 40), line,
+    )
+
+    if digit is not None:
+        ocr_text = f"OCR  {digit}"
+        ocr_color = (0, 255, 255)
+    elif ocr_running:
+        ocr_text = "OCR  SCANNING..."
+        ocr_color = (0, 200, 255)
+    elif ocr_enabled:
+        ocr_text = "OCR  WAITING"
+        ocr_color = (170, 210, 255)
+    else:
+        ocr_text = "OCR  OFF"
+        ocr_color = (150, 150, 150)
+    (ocr_width, _), _ = cv2.getTextSize(
+        ocr_text, cv2.FONT_HERSHEY_SIMPLEX, 0.72 * scale, line,
+    )
+    cv2.putText(
+        out, ocr_text, (max(14, width - ocr_width - 18), int(30 * scale)),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.72 * scale, ocr_color, line,
+    )
+    mode_parts = []
+    if start_marker is not None:
+        mode_parts.append('START FOUND')
+    if home_cross is not None:
+        mode_parts.append('HOME FOUND')
+    mode_text = ' | '.join(mode_parts) or f"BLOCKS  {len(green_blocks or [])}"
+    mode_text += f" | {processing_fps:.1f} FPS"
+    (mode_width, _), _ = cv2.getTextSize(
+        mode_text, cv2.FONT_HERSHEY_SIMPLEX, 0.55 * scale, line,
+    )
+    cv2.putText(
+        out, mode_text, (max(14, width - mode_width - 18), int(63 * scale)),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.55 * scale, (210, 210, 210), line,
+    )
+
+    cv2.putText(
+        out, "[Q/ESC] quit   [S] save raw frame", (12, height - 12),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.48 * scale, (230, 230, 230), line,
+    )
+    return out
+
+
 # ── 相机管理 ──────────────────────────────────────────────
 
 class Camera:
@@ -33,8 +152,9 @@ class Camera:
     def __init__(self, device_id: int = 0,
                  width: int = 640, height: int = 480,
                  fps: int = 30, capture_backend: str = 'uvc',
-                 exposure_ms: float = 50.0, gain: float = 4.0,
-                 preview: bool = False):
+                 exposure_ms: float = 20.0, gain: float = 16.0,
+                 preview: bool = False, preview_max_width: int = 720,
+                 ocr_interval_s: float = 0.5):
         self.device_id = device_id
         self.width = width
         self.height = height
@@ -43,11 +163,62 @@ class Camera:
         self.exposure_ms = exposure_ms
         self.gain = gain
         self.preview = preview
+        self.preview_max_width = preview_max_width
+        self.ocr_interval_s = ocr_interval_s
         self.cap = None
         self.detector: Optional[BlockDetector] = None
         self.digit_reader: Optional[DigitReader] = None
         self.home_cross_detector: Optional[HomeCrossDetector] = None
         self._sequence = 0
+        self._ocr_enabled = True
+        self._start_marker_enabled = False
+        self._cross_enabled = False
+        self._ocr_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix='mission-ocr',
+        )
+        self._ocr_future: Optional[Future] = None
+        self._last_ocr_submit = 0.0
+        self._last_digit: Optional[int] = None
+        self._last_start_marker: Optional[Tuple[int, int]] = None
+        self._expected_digit: Optional[int] = None
+        self._digit_candidate: Optional[int] = None
+        self._digit_candidate_count = 0
+        self._digit_confirmations = 2
+        self._state_label = ''
+        self._fps_started = time.monotonic()
+        self._fps_frames = 0
+        self._processing_fps = 0.0
+        self._last_fps_log = self._fps_started
+
+    def set_processing_modes(self, *, ocr: bool, home_cross: bool,
+                             start_marker: bool = False,
+                             expected_digit: Optional[int] = None,
+                             state_label: str = '') -> None:
+        """按状态启用重型视觉算法；抓帧、颜色检测和预览始终运行。"""
+        if expected_digit != self._expected_digit:
+            self._digit_candidate = None
+            self._digit_candidate_count = 0
+            self._last_digit = None
+        self._ocr_enabled = ocr
+        self._cross_enabled = home_cross
+        self._start_marker_enabled = start_marker
+        self._expected_digit = expected_digit
+        self._state_label = state_label
+        if not start_marker:
+            self._last_start_marker = None
+
+    def _recognize_start_or_digit(self, frame: np.ndarray):
+        """按当前任务阶段执行A标记检测或数字OCR。"""
+        if self._start_marker_enabled:
+            marker = self.digit_reader.find_a_marker(frame)
+            return None, marker
+        digit = self.digit_reader.extract_digits(
+            frame,
+            detector=self.detector,
+            expected_digit=self._expected_digit,
+        )
+        marker = None
+        return digit, marker
 
     def open(self) -> bool:
         """打开相机"""
@@ -59,6 +230,7 @@ class Camera:
                     from mvs_camera import MvsCapture
                 self.cap = MvsCapture(
                     self.device_id,
+                    timeout_ms=100,
                     auto_exposure=False,
                     exposure_us=self.exposure_ms * 1000.0,
                     gain=self.gain,
@@ -112,37 +284,104 @@ class Camera:
             return None
 
         green_ratio = 0.0
+        hsv = None
         if self.detector is not None:
             hsv = self.convert_to_hsv(frame)
             green_ratio = self.detector.calc_green_ratio(hsv)
 
+        # OCR 在单独线程中运行。这里只消费一次新结果，绝不等待；同一个
+        # OCR 结果不会被状态机重复计为多帧确认。
         digit = None
-        if self.digit_reader is not None:
-            digit = self.digit_reader.extract_digits(frame, detector=self.detector)
+        start_marker = None
+        if self._ocr_future is not None and self._ocr_future.done():
+            try:
+                candidate, candidate_marker = self._ocr_future.result()
+                if candidate is None:
+                    self._digit_candidate = None
+                    self._digit_candidate_count = 0
+                elif candidate == self._digit_candidate:
+                    self._digit_candidate_count += 1
+                else:
+                    self._digit_candidate = candidate
+                    self._digit_candidate_count = 1
+
+                if self._digit_candidate_count >= self._digit_confirmations:
+                    digit = candidate
+                    start_marker = candidate_marker
+                    self._last_digit = digit
+                    self._last_start_marker = start_marker
+
+                if digit is not None or start_marker is not None:
+                    logger.info(
+                        "Vision recognized: digit=%s, start_marker=%s",
+                        digit, start_marker is not None,
+                    )
+                else:
+                    logger.debug(
+                        "Vision OCR candidate: digit=%s, confirmations=%d/%d",
+                        candidate, self._digit_candidate_count,
+                        self._digit_confirmations,
+                    )
+            except Exception:
+                logger.exception("Asynchronous OCR failed")
+            self._ocr_future = None
+            # 从完成时开始冷却，避免耗时任务结束后立即再次满负荷运行。
+            self._last_ocr_submit = time.monotonic()
 
         cross_center = None
         cross_confidence = 0.0
-        if self.home_cross_detector is not None:
+        if self._cross_enabled and self.home_cross_detector is not None:
             cross_center, cross_confidence = self.home_cross_detector.detect(frame)
 
         self._sequence += 1
+        self._fps_frames += 1
+        now = time.monotonic()
+        fps_elapsed = now - self._fps_started
+        if fps_elapsed >= 1.0:
+            self._processing_fps = self._fps_frames / fps_elapsed
+            self._fps_started = now
+            self._fps_frames = 0
+        if now - self._last_fps_log >= 5.0:
+            logger.info("Vision processing rate: %.1f fps", self._processing_fps)
+            self._last_fps_log = now
 
         if self.preview:
-            display = frame.copy()
-            cv2.putText(
-                display,
-                f"Green: {green_ratio:.1%}  OCR: {digit if digit is not None else '-'}",
-                (12, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2,
+            green_blocks = []
+            # 区块轮廓只在作业导航阶段有诊断意义；寻找A和返航时不再
+            # 重复执行第二次绿色形态学/轮廓扫描。
+            if (self._state_label == 'NAVIGATE'
+                    and self.detector is not None and hsv is not None):
+                green_blocks = self.detector.find_green_blocks(hsv)
+            display = draw_mission_overlay(
+                frame,
+                state_label=self._state_label,
+                green_ratio=green_ratio,
+                green_blocks=green_blocks,
+                digit=self._last_digit,
+                ocr_enabled=self._ocr_enabled,
+                ocr_running=(
+                    self._ocr_future is not None
+                    and not self._ocr_future.done()
+                ),
+                start_marker=(
+                    self._last_start_marker
+                    if self._start_marker_enabled else None
+                ),
+                home_cross=cross_center,
+                home_confidence=cross_confidence,
+                processing_fps=self._processing_fps,
             )
-            if cross_center is not None:
-                center = (int(cross_center[0]), int(cross_center[1]))
-                cv2.drawMarker(
-                    display, center, (0, 0, 255), cv2.MARKER_CROSS, 40, 3,
-                )
-                cv2.putText(
-                    display, f"HOME {cross_confidence:.2f}",
-                    (center[0] + 12, center[1] - 12),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2,
+            # SSH X11 forwarding 对大图传输非常慢。识别和保存仍使用相机
+            # 原始帧，仅在 imshow 前缩小预览，避免窗口拖慢整个主循环。
+            if 0 < self.preview_max_width < display.shape[1]:
+                preview_scale = self.preview_max_width / display.shape[1]
+                display = cv2.resize(
+                    display,
+                    (
+                        self.preview_max_width,
+                        max(1, int(round(display.shape[0] * preview_scale))),
+                    ),
+                    interpolation=cv2.INTER_AREA,
                 )
             cv2.imshow("Mission Vision - [q] quit [s] save", display)
             key = cv2.waitKey(1) & 0xFF
@@ -153,6 +392,18 @@ class Camera:
                 cv2.imwrite(filename, frame)
                 logger.info("Vision screenshot saved: %s", filename)
 
+        # 先完成当前帧的显示和 GUI 事件处理，再启动重型 OCR，避免窗口
+        # 在 FIND_START 切换瞬间因 CPU/进程调度饥饿而显示黑屏。
+        now = time.monotonic()
+        if (self._ocr_enabled and self.digit_reader is not None
+                and self._ocr_future is None
+                and now - self._last_ocr_submit >= self.ocr_interval_s):
+            self._ocr_future = self._ocr_executor.submit(
+                self._recognize_start_or_digit,
+                frame.copy(),
+            )
+            self._last_ocr_submit = now
+
         return VisionResult(
             frame=frame,
             green_ratio=green_ratio,
@@ -160,10 +411,12 @@ class Camera:
             sequence=self._sequence,
             home_cross_center=cross_center,
             home_cross_confidence=cross_confidence,
+            start_marker_center=start_marker,
         )
 
     def release(self):
         """释放相机"""
+        self._ocr_executor.shutdown(wait=True, cancel_futures=True)
         if self.cap is not None:
             self.cap.release()
             self.cap = None
@@ -201,8 +454,18 @@ class BlockDetector:
         self.min_contour_area = min_contour_area
 
     def detect_green_mask(self, hsv: np.ndarray) -> np.ndarray:
-        """返回绿色区域二值mask"""
-        return cv2.inRange(hsv, self.green_lower, self.green_upper)
+        """返回绿色区域二值mask，并兼容低照度下饱和度偏低的实拍画面。"""
+        mask = cv2.inRange(hsv, self.green_lower, self.green_upper)
+        if np.count_nonzero(mask) >= mask.size * 0.05:
+            return mask
+        bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+        blue, green, red = cv2.split(bgr)
+        green_i16 = green.astype(np.int16)
+        low_light_green = np.uint8(
+            (green_i16 >= np.maximum(red, blue).astype(np.int16) + 3)
+            & (green_i16 >= 15)
+        ) * 255
+        return cv2.bitwise_or(mask, low_light_green)
 
     def detect_gray_mask(self, hsv: np.ndarray) -> np.ndarray:
         """返回灰色区域二值mask"""
@@ -273,10 +536,11 @@ class BlockDetector:
 
 
 class HomeCrossDetector:
-    """检测起降点黑色十字，并返回其像素中心和几何置信度。
+    """以相对暗度和四臂几何检测起降十字。
 
-    检测不依赖十字的绝对物理尺寸：先提取低亮度连通域，再验证候选
-    中心的水平、垂直四臂以及对角空白。这可排除单线、L形边界和数字。
+    现场图整体亮度会随曝光显著变化，因此不用固定黑色阈值。检测器在
+    多个暗像素分位数上寻找低凸度连通域，以行列投影的交点代替易偏移
+    的轮廓质心，再验证交点四侧均有连续暗色笔画。
     """
 
     def __init__(self, value_max: int = 70, min_area_ratio: float = 0.0005,
@@ -290,71 +554,79 @@ class HomeCrossDetector:
         if frame is None or frame.size == 0:
             return None, 0.0
 
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, np.array([0, 0, 0]),
-                           np.array([180, 255, self.value_max]))
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         frame_area = frame.shape[0] * frame.shape[1]
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL,
-                                       cv2.CHAIN_APPROX_SIMPLE)
         best_center = None
         best_score = 0.0
+        thresholds = sorted({
+            int(min(self.value_max, np.percentile(gray, percentile)))
+            for percentile in (3, 5, 8, 10)
+        })
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
 
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if not self.min_area_ratio * frame_area <= area <= self.max_area_ratio * frame_area:
-                continue
-            x, y, w, h = cv2.boundingRect(contour)
-            if w < 15 or h < 15 or not 0.45 <= w / h <= 2.2:
-                continue
-
-            roi = mask[y:y + h, x:x + w]
-            moments = cv2.moments(contour)
-            if moments['m00'] <= 0:
-                continue
-            cx = int(round(moments['m10'] / moments['m00'])) - x
-            cy = int(round(moments['m01'] / moments['m00'])) - y
-            if not 0 <= cx < w or not 0 <= cy < h:
-                continue
-
-            arm = max(4, int(min(w, h) * 0.12))
-            thickness = max(2, int(min(w, h) * 0.08))
-            horizontal = roi[max(0, cy - thickness):min(h, cy + thickness + 1), :]
-            vertical = roi[:, max(0, cx - thickness):min(w, cx + thickness + 1)]
-            if horizontal.size == 0 or vertical.size == 0:
-                continue
-
-            left = np.mean(horizontal[:, :max(1, cx)] > 0)
-            right = np.mean(horizontal[:, min(w - 1, cx + 1):] > 0)
-            up = np.mean(vertical[:max(1, cy), :] > 0)
-            down = np.mean(vertical[min(h - 1, cy + 1):, :] > 0)
-
-            corner_h = max(1, cy - arm)
-            corner_w = max(1, cx - arm)
-            corners = [
-                roi[:corner_h, :corner_w],
-                roi[:corner_h, min(w, cx + arm):],
-                roi[min(h, cy + arm):, :corner_w],
-                roi[min(h, cy + arm):, min(w, cx + arm):],
-            ]
-            corner_density = np.mean([
-                np.mean(part > 0) if part.size else 0.0 for part in corners
-            ])
-            arm_score = float(min(left, right, up, down))
-            balance = min(w, h) / max(w, h)
-            fill = area / max(1.0, float(w * h))
-            fill_score = max(0.0, 1.0 - abs(fill - 0.35) / 0.35)
-            score = (
-                0.55 * arm_score + 0.20 * balance + 0.15 * fill_score
-                + 0.10 * max(0.0, 1.0 - corner_density * 3.0)
+        for threshold in thresholds:
+            mask = np.uint8(gray <= threshold) * 255
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            contours, _ = cv2.findContours(
+                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE,
             )
+            for contour in contours:
+                area = cv2.contourArea(contour)
+                if not self.min_area_ratio * frame_area <= area <= \
+                        self.max_area_ratio * frame_area:
+                    continue
+                x, y, w, h = cv2.boundingRect(contour)
+                if min(w, h) < 30 or not 0.35 <= w / h <= 2.85:
+                    continue
 
-            if score > best_score:
-                best_score = score
-                best_center = (float(x + cx), float(y + cy))
+                hull_area = cv2.contourArea(cv2.convexHull(contour))
+                solidity = area / max(1.0, hull_area)
+                fill = area / max(1.0, float(w * h))
+                if not 0.10 <= fill <= 0.72 or solidity > 0.86:
+                    continue
+
+                component = np.zeros_like(mask)
+                cv2.drawContours(component, [contour], -1, 255, -1)
+                roi = component[y:y + h, x:x + w]
+                row_density = np.mean(roi > 0, axis=1)
+                col_density = np.mean(roi > 0, axis=0)
+
+                def plateau_center(values: np.ndarray) -> int:
+                    lo = int(len(values) * 0.15)
+                    hi = max(lo + 1, int(len(values) * 0.85))
+                    middle = values[lo:hi]
+                    peak = float(np.max(middle))
+                    indexes = np.flatnonzero(middle >= peak * 0.95)
+                    return lo + int(round(float(np.mean(indexes))))
+
+                cy = plateau_center(row_density)
+                cx = plateau_center(col_density)
+                thickness = max(2, int(min(w, h) * 0.04))
+                horizontal = roi[
+                    max(0, cy - thickness):min(h, cy + thickness + 1), :
+                ]
+                vertical = roi[
+                    :, max(0, cx - thickness):min(w, cx + thickness + 1)
+                ]
+                arms = (
+                    np.mean(horizontal[:, :max(1, cx)] > 0),
+                    np.mean(horizontal[:, min(w - 1, cx + 1):] > 0),
+                    np.mean(vertical[:max(1, cy), :] > 0),
+                    np.mean(vertical[min(h - 1, cy + 1):, :] > 0),
+                )
+                arm_min = float(min(arms))
+                if arm_min < 0.25:
+                    continue
+                balance = min(w, h) / max(w, h)
+                fill_score = max(0.0, 1.0 - abs(fill - 0.30) / 0.50)
+                score = (
+                    0.35 * arm_min + 0.25 * float(np.mean(arms))
+                    + 0.15 * balance + 0.15 * (1.0 - solidity)
+                    + 0.10 * fill_score
+                )
+                if score > best_score:
+                    best_score = score
+                    best_center = (float(x + cx), float(y + cy))
 
         if best_center is None or best_score < self.min_confidence:
             return None, best_score
@@ -370,7 +642,8 @@ def _preprocess_ocr(gray: np.ndarray, bgr: np.ndarray = None) -> list[np.ndarray
     2. 颜色差分 (B-G): 备选通道
     3. 灰度线性拉伸
     4. OTSU 二值化 (白底黑字)
-    5. 灰度原图 (保底)
+    5. CLAHE + 自适应阈值 (低照度/局部阴影)
+    6. 灰度原图 (保底)
     """
     candidates = []
 
@@ -401,6 +674,20 @@ def _preprocess_ocr(gray: np.ndarray, bgr: np.ndarray = None) -> list[np.ndarray
     if np.count_nonzero(binary) > binary.size * 0.5:
         binary = cv2.bitwise_not(binary)
     candidates.append(binary)
+
+    # OpenMV 参考方案依赖现场阈值；工业相机光照不均时改用局部阈值，
+    # 并以小尺度闭运算连接因短曝光而断开的粗体数字笔画。
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+    adaptive = cv2.adaptiveThreshold(
+        clahe, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY, 31, 7,
+    )
+    if np.count_nonzero(adaptive) > adaptive.size * 0.5:
+        adaptive = cv2.bitwise_not(adaptive)
+    adaptive = cv2.morphologyEx(
+        adaptive, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8),
+    )
+    candidates.append(adaptive)
 
     # 灰度原图 (保底)
     candidates.append(gray)
@@ -435,7 +722,8 @@ class DigitReader:
 
     def extract_digits(self, frame: np.ndarray,
                         block_roi: Optional[Tuple[int, int, int, int]] = None,
-                        detector = None) -> Optional[int]:
+                        detector = None,
+                        expected_digit: Optional[int] = None) -> Optional[int]:
         """
         从画面中提取数字
 
@@ -449,6 +737,7 @@ class DigitReader:
             frame: BGR图像
             block_roi: (x, y, w, h) 可选, 限定识别区域
             detector: BlockDetector 实例, 用于自动查找绿色区块 ROI
+            expected_digit: 状态机当前目标编号；提供时拒绝其他 OCR 结果
 
         Returns:
             识别到的数字(int) 或 None
@@ -474,67 +763,150 @@ class DigitReader:
                 roi = frame[max(0, y):min(frame.shape[0], y + bh),
                              max(0, x):min(frame.shape[1], x + bw)]
             else:
-                roi = frame
+                # 没找到绿色区块时避免对1440x1080整帧执行大量OCR回退。
+                roi = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
         else:
             roi = frame
 
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         whitelist = '-c tessedit_char_whitelist=0123456789'
 
+        def is_expected(result: Optional[int]) -> bool:
+            return result is not None and (
+                expected_digit is None or result == expected_digit
+            )
+
         # ── 管线 1: 区块内成对数字组件 ──
         if block_roi is not None or detector is not None:
-            result = self._try_component_pair_ocr(roi, whitelist)
-            if result is not None:
+            result = self._try_component_pair_ocr(
+                roi, whitelist, expected_digit=expected_digit,
+            )
+            if is_expected(result):
                 return result
 
             # 组件不足时保留中心区域方案，兼容单数字区块。
             result = self._try_center_rg_ocr(roi, whitelist)
-            if result is not None:
+            if is_expected(result):
                 return result
 
         # ── 管线 2: 全 ROI 多预处理 ──
-        psm_modes = ['--psm 7', '--psm 8', '--psm 6']
-        for preprocessed in _preprocess_ocr(gray, bgr=roi):
+        psm_modes = ['--psm 7', '--psm 8']
+        # 颜色差分失败后继续尝试灰度拉伸、全局阈值和局部阈值；这对
+        # 白平衡漂移、阴影和低照度场景比只使用 R-G/B-G 更稳健。
+        # 原始灰度图仍不送入 Tesseract，避免无效调用过多。
+        for preprocessed in _preprocess_ocr(gray, bgr=roi)[:-1]:
             for psm in psm_modes:
                 result = self._ocr_single(preprocessed, f'{psm} {whitelist}')
-                if result is not None:
+                if is_expected(result):
                     return result
 
         return None
 
     def _try_component_pair_ocr(self, roi: np.ndarray,
-                                whitelist: str) -> Optional[int]:
-        """隔离同一基线上的两个灰色数字组件后执行 OCR。"""
+                                whitelist: str,
+                                expected_digit: Optional[int] = None
+                                ) -> Optional[int]:
+        """隔离同一基线上的两个灰色数字组件后执行 OCR。
+
+        亮图沿用原阈值；暗图按自身亮度分位数和 0~3 级颜色差生成多张
+        掩膜。低照度下绝对亮度只有 20~60，固定 ``brightness > 70`` 会
+        完全丢失数字，因此必须使用相对亮度，但仍由几何条件排除噪点。
+        """
         blue, green, red = cv2.split(roi)
         green_delta = (
             green.astype(np.int16)
             - np.maximum(red, blue).astype(np.int16)
         )
         brightness = np.max(roi, axis=2)
-        mask = np.uint8((green_delta < 20) & (brightness > 70)) * 255
-
-        _, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
         roi_height, roi_width = roi.shape[:2]
-        min_area = 0.002 * roi_height * roi_width
+        masks = [
+            np.uint8((green_delta < 20) & (brightness > 70)) * 255,
+        ]
+        repair_kernel = np.ones((3, 3), np.uint8)
+        masks[0] = cv2.morphologyEx(
+            masks[0], cv2.MORPH_CLOSE, repair_kernel,
+        )
+        if float(np.percentile(brightness, 90)) < 110:
+            brightness_floor = float(np.percentile(brightness, 35))
+            kernel = np.ones((2, 2), np.uint8)
+            for delta_limit in (0, 1, 2, 3):
+                adaptive = np.uint8(
+                    (green_delta <= delta_limit)
+                    & (brightness >= brightness_floor)
+                ) * 255
+                adaptive = cv2.morphologyEx(
+                    adaptive, cv2.MORPH_CLOSE, repair_kernel,
+                )
+                masks.append(cv2.morphologyEx(
+                    adaptive, cv2.MORPH_OPEN, kernel,
+                ))
+
+        fallback = None
+        for mask_index, mask in enumerate(masks):
+            result = self._ocr_component_mask(
+                mask, whitelist, expected_digit=expected_digit,
+                strict_geometry=mask_index == 0,
+            )
+            if result is None:
+                continue
+            if expected_digit is not None and result == expected_digit:
+                return result
+            if fallback is None:
+                fallback = result
+        return fallback
+
+    def _ocr_component_mask(self, mask: np.ndarray, whitelist: str,
+                            expected_digit: Optional[int] = None,
+                            strict_geometry: bool = False,
+                            ) -> Optional[int]:
+        """从一张候选掩膜选择最佳数字对并调用现有 Tesseract。"""
+        _, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
+        roi_height, roi_width = mask.shape[:2]
+        min_area_ratio = 0.002 if strict_geometry else 0.0005
+        min_area = min_area_ratio * roi_height * roi_width
         candidates = []
         for label, stat in enumerate(stats[1:], 1):
             x, y, width, height, area = map(int, stat)
             center_x = x + width / 2
             center_y = y + height / 2
-            if not 0.08 * roi_height <= height <= 0.25 * roi_height:
+            min_height = 0.08 if strict_geometry else 0.06
+            max_height = 0.25 if strict_geometry else 0.32
+            min_width = 0.02 if strict_geometry else 0.012
+            max_width = 0.20 if strict_geometry else 0.22
+            min_center_x = 0.20 if strict_geometry else 0.10
+            max_center_x = 0.80 if strict_geometry else 0.90
+            min_center_y = 0.30 if strict_geometry else 0.15
+            max_center_y = 0.75 if strict_geometry else 0.85
+            if not min_height * roi_height <= height <= max_height * roi_height:
                 continue
-            if not 0.02 * roi_width <= width <= 0.2 * roi_width:
+            if not min_width * roi_width <= width <= max_width * roi_width:
                 continue
             if area < min_area:
                 continue
-            if not 0.2 * roi_width <= center_x <= 0.8 * roi_width:
+            if not strict_geometry and not 0.1 <= width / height <= 1.0:
                 continue
-            if not 0.3 * roi_height <= center_y <= 0.75 * roi_height:
+            if not min_center_x * roi_width <= center_x <= max_center_x * roi_width:
+                continue
+            if not min_center_y * roi_height <= center_y <= max_center_y * roi_height:
                 continue
             candidates.append((x, y, width, height, area, label))
 
-        if len(candidates) < 2:
-            return None
+        # 参考多截面算法的离群剔除思想：优先保留面积大且靠近区块中心的
+        # 组件，并限制组合规模。低照度噪声可能产生数十个组件，若直接对
+        # 全部组件两两组合会造成 O(n²) 排序和大量无意义 OCR。
+        def component_score(component) -> float:
+            x, y, width, height, area, _ = component
+            center_x = x + width / 2
+            center_y = y + height / 2
+            center_distance = (
+                abs(center_x - roi_width / 2) / max(1.0, roi_width)
+                + abs(center_y - roi_height / 2) / max(1.0, roi_height)
+            )
+            return float(area) / max(1.0, width * height) - center_distance
+
+        candidates = sorted(
+            candidates, key=component_score, reverse=True,
+        )[:12]
 
         def pair_score(pair) -> float:
             left, right = sorted(pair)
@@ -544,37 +916,71 @@ class DigitReader:
             ) / max_height
             height_delta = abs(left[3] - right[3]) / max_height
             gap = max(0, right[0] - (left[0] + left[2])) / max_height
-            return center_delta + height_delta + 0.2 * gap
+            return center_delta + height_delta + 0.15 * gap
 
-        pair = min(combinations(candidates, 2), key=pair_score)
-        if pair_score(pair) > 0.35:
-            return None
+        ranked_pairs = sorted(combinations(candidates, 2), key=pair_score)
+        fallback = None
+        for pair in ranked_pairs[:4]:
+            max_pair_score = 0.35 if strict_geometry else 0.45
+            if pair_score(pair) > max_pair_score:
+                break
+            isolated = np.zeros_like(mask)
+            for component in pair:
+                isolated[labels == component[5]] = 255
 
-        isolated = np.zeros_like(mask)
-        for component in pair:
-            isolated[labels == component[5]] = 255
+            max_height = max(component[3] for component in pair)
+            padding = 20 if strict_geometry else max(8, int(max_height * 0.05))
+            left = max(0, min(component[0] for component in pair) - padding)
+            top = max(0, min(component[1] for component in pair) - padding)
+            right = min(
+                roi_width,
+                max(component[0] + component[2] for component in pair) + padding,
+            )
+            bottom = min(
+                roi_height,
+                max(component[1] + component[3] for component in pair) + padding,
+            )
+            digit_image = cv2.resize(
+                255 - isolated[top:bottom, left:right], None,
+                fx=2 if strict_geometry else 3,
+                fy=2 if strict_geometry else 3,
+                interpolation=cv2.INTER_NEAREST,
+            )
+            for psm in ('--psm 8', '--psm 13'):
+                result = self._ocr_single(
+                    digit_image, f'{psm} {whitelist}',
+                )
+                if result is None or not 10 <= result <= 28:
+                    continue
+                if expected_digit is not None and result == expected_digit:
+                    return result
+                if fallback is None:
+                    fallback = result
 
-        padding = 20
-        left = max(0, min(component[0] for component in pair) - padding)
-        top = max(0, min(component[1] for component in pair) - padding)
-        right = min(
-            roi_width,
-            max(component[0] + component[2] for component in pair) + padding,
-        )
-        bottom = min(
-            roi_height,
-            max(component[1] + component[3] for component in pair) + padding,
-        )
-        digit_image = 255 - isolated[top:bottom, left:right]
-        digit_image = cv2.resize(
-            digit_image, None, fx=2, fy=2, interpolation=cv2.INTER_NEAREST
-        )
-
-        for psm in ('--psm 8', '--psm 13'):
-            result = self._ocr_single(digit_image, f'{psm} {whitelist}')
-            if result is not None and 10 <= result <= 28:
-                return result
-        return None
+        # 原实现只处理成对组件，1..9 只能依赖中心裁剪。借鉴参考代码的
+        # 几何一致性筛选：仅在掩膜中恰有一个可信组件时尝试单字符 OCR，
+        # 防止把两位数字的碎片分别误识别成单数字。
+        if len(candidates) == 1 and (
+                expected_digit is None or 1 <= expected_digit <= 9):
+            x, y, width, height, _, label = candidates[0]
+            padding = max(6, int(height * 0.12))
+            left = max(0, x - padding)
+            top = max(0, y - padding)
+            right = min(roi_width, x + width + padding)
+            bottom = min(roi_height, y + height + padding)
+            isolated = np.zeros_like(mask)
+            isolated[labels == label] = 255
+            digit_image = cv2.resize(
+                255 - isolated[top:bottom, left:right], None,
+                fx=3, fy=3, interpolation=cv2.INTER_NEAREST,
+            )
+            result = self._ocr_single(
+                digit_image, f'--psm 10 {whitelist}',
+            )
+            if result is not None and 1 <= result <= 9:
+                if expected_digit is None or result == expected_digit:
+                    return result
+        return fallback
 
     def _try_center_rg_ocr(self, frame: np.ndarray, whitelist: str) -> Optional[int]:
         """对画面中心区域做 R-G + OTSU OCR, 专为灰色数字 vs 绿色背景优化。
@@ -589,7 +995,11 @@ class DigitReader:
 
         fh, fw = frame.shape[:2]
         # 从小比例到大比例: 0.10-0.22 覆盖典型数字尺寸
-        for fraction in [0.18, 0.20, 0.15, 0.22, 0.12]:
+        fractions = [0.18, 0.20, 0.15, 0.22, 0.12]
+        if float(np.percentile(frame, 90)) < 110:
+            # 暗图中数字边缘更弱，扩大中心区域可避免裁掉第二位数字。
+            fractions.extend([0.26, 0.30, 0.35])
+        for fraction in fractions:
             margin_h = int(fh * (1 - fraction) / 2)
             margin_w = int(fw * (1 - fraction) / 2)
             center = frame[margin_h:fh - margin_h, margin_w:fw - margin_w]
@@ -661,35 +1071,53 @@ class DigitReader:
             return None
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
+        # 固定阈值兼容明亮旧样本；图像分位数阈值兼容短曝光现场图。
+        p60 = float(np.percentile(gray, 60))
+        thresholds = [100]
+        adaptive_value = int(np.clip(p60, 25, 90))
+        if abs(adaptive_value - 100) > 5:
+            thresholds.append(adaptive_value)
 
-        # 找大面积的黑色连通区域
-        contours, hierarchy = cv2.findContours(thresh, cv2.RETR_CCOMP,
-                                                cv2.CHAIN_APPROX_SIMPLE)
-        if hierarchy is None:
-            return None
-
-        indexed_contours = sorted(
-            enumerate(contours), key=lambda item: cv2.contourArea(item[1]),
-            reverse=True
-        )
-        for index, cnt in indexed_contours:
-            x, y, w, h = cv2.boundingRect(cnt)
-            if h <= 30 or w <= 15:
-                continue
-            if not 0.6 <= w / h <= 1.2:
-                continue
-            has_child_hole = hierarchy[0][index][2] >= 0
-            is_inner_hole = hierarchy[0][index][3] >= 0
-            if not has_child_hole and not is_inner_hole:
+        frame_area = frame.shape[0] * frame.shape[1]
+        for threshold in thresholds:
+            _, binary = cv2.threshold(
+                gray, threshold, 255, cv2.THRESH_BINARY_INV,
+            )
+            contours, hierarchy = cv2.findContours(
+                binary, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE,
+            )
+            if hierarchy is None:
                 continue
 
-            roi = thresh[y:y + h, x:x + w]
-            text = pytesseract.image_to_string(
-                roi, config='--psm 10 -c tessedit_char_whitelist=A'
-            ).strip()
-            if text == 'A':
-                return (x + w // 2, y + h // 2)
+            indexed_contours = sorted(
+                enumerate(contours),
+                key=lambda item: cv2.contourArea(item[1]),
+                reverse=True,
+            )
+            for index, cnt in indexed_contours[:100]:
+                area = cv2.contourArea(cnt)
+                x, y, w, h = cv2.boundingRect(cnt)
+                if not 0.0002 * frame_area <= area <= 0.08 * frame_area:
+                    continue
+                if h <= 30 or w <= 15:
+                    continue
+                if not 0.45 <= w / h <= 1.2:
+                    continue
+                has_child_hole = hierarchy[0][index][2] >= 0
+                is_inner_hole = hierarchy[0][index][3] >= 0
+                if not has_child_hole and not is_inner_hole:
+                    continue
+
+                padding = max(3, int(min(w, h) * 0.06))
+                roi = binary[
+                    max(0, y - padding):min(binary.shape[0], y + h + padding),
+                    max(0, x - padding):min(binary.shape[1], x + w + padding),
+                ]
+                text = pytesseract.image_to_string(
+                    roi, config='--psm 10 -c tessedit_char_whitelist=A'
+                ).strip().upper()
+                if text == 'A':
+                    return (x + w // 2, y + h // 2)
 
         return None
 

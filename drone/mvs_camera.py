@@ -74,6 +74,8 @@ class MvsCapture:
         self.height = 0
         self.model = ""
         self.serial = ""
+        self._rgb_buffer = None
+        self._rgb_buffer_size = 0
         self._open()
 
     @staticmethod
@@ -181,7 +183,10 @@ class MvsCapture:
             self.width = frame_info.nWidth
             self.height = frame_info.nHeight
             rgb_size = self.width * self.height * 3
-            rgb_buffer = (c_ubyte * rgb_size)()
+            if self._rgb_buffer is None or self._rgb_buffer_size != rgb_size:
+                self._rgb_buffer = (c_ubyte * rgb_size)()
+                self._rgb_buffer_size = rgb_size
+            rgb_buffer = self._rgb_buffer
 
             params = MV_CC_PIXEL_CONVERT_PARAM_EX()
             memset(byref(params), 0, sizeof(params))
@@ -219,3 +224,5 @@ class MvsCapture:
             self._opened = False
         self.camera.MV_CC_DestroyHandle()
         MvCamera.MV_CC_Finalize()
+        self._rgb_buffer = None
+        self._rgb_buffer_size = 0

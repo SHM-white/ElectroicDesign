@@ -89,12 +89,14 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument('--camera-id', type=int, default=None,
                         help='相机设备索引')
-    parser.add_argument('--camera-exposure-ms', type=float, default=50.0,
-                        help='MVS手动曝光时间，毫秒 (默认50)')
-    parser.add_argument('--camera-gain', type=float, default=4.0,
-                        help='MVS手动增益，dB (默认4)')
+    parser.add_argument('--camera-exposure-ms', type=float, default=20.0,
+                        help='MVS手动曝光时间，毫秒 (默认20，减少运动模糊)')
+    parser.add_argument('--camera-gain', type=float, default=16.0,
+                        help='MVS手动增益，dB (默认16，补偿短曝光)')
     parser.add_argument('--vision-preview', action='store_true',
                         help='显示实时识别预览窗口')
+    parser.add_argument('--preview-width', type=int, default=None,
+                        help='预览窗口最大宽度，默认720；不影响识别分辨率')
     parser.add_argument('--manual-navigation', action='store_true',
                         help='人工移动场测：识别到目标数字后推进状态机')
     parser.add_argument(
@@ -191,6 +193,11 @@ def main() -> int:
     if not config.DRY_RUN and not args.no_camera:
         vision_backend = args.vision_backend or cfg['vision_backend']
         logger.info("  视觉后端:  %s", vision_backend)
+        if vision_backend == 'mvs':
+            logger.info(
+                "  MVS成像:    曝光=%.1fms, 增益=%.1fdB",
+                args.camera_exposure_ms, args.camera_gain,
+            )
         if vision_backend not in ('industrial', 'mvs', 'openmv'):
             logger.error("不支持的视觉后端: %s", vision_backend)
             mcu.disconnect()
@@ -254,6 +261,11 @@ def main() -> int:
                 exposure_ms=args.camera_exposure_ms,
                 gain=args.camera_gain,
                 preview=args.vision_preview,
+                preview_max_width=(
+                    args.preview_width
+                    if args.preview_width is not None
+                    else cfg['preview_max_width']
+                ),
             )
             camera.detector = BlockDetector(
                 green_lower=cfg['green_hsv_lower'],
