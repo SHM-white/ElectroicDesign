@@ -78,6 +78,7 @@ class DroneStateMachine:
         self._max_retries = 3
         self._state_command_sent = False
         self._start_confirm_count = 0
+        self._last_start_observation_time = 0.0
         self._start_block_confirmed = bool(config.get('dry_run', False))
         self._start_marker_center = None
         self._home_cross_center = None
@@ -290,7 +291,21 @@ class DroneStateMachine:
                 self._start_marker_center is not None or ocr_result == 21
             )
             if start_seen:
+                now = time.monotonic()
+                confirmation_window = self.cfg.get(
+                    'start_block_confirm_window_s', 5.0,
+                )
+                if (self._last_start_observation_time > 0.0
+                        and now - self._last_start_observation_time
+                        > confirmation_window):
+                    logger.info(
+                        "Start confirmation window expired after %.1fs; "
+                        "restarting observations",
+                        now - self._last_start_observation_time,
+                    )
+                    self._start_confirm_count = 0
                 self._start_confirm_count += 1
+                self._last_start_observation_time = now
                 logger.info(
                     "Start observation %d/%d (%s)",
                     self._start_confirm_count,
@@ -298,8 +313,12 @@ class DroneStateMachine:
                     "A marker" if self._start_marker_center is not None
                     else "digit 21",
                 )
-            else:
+            elif (self._start_confirm_count > 0
+                  and time.monotonic() - self._last_start_observation_time
+                  > self.cfg.get('start_block_confirm_window_s', 5.0)):
+                logger.info("Start confirmation window expired; observations reset")
                 self._start_confirm_count = 0
+                self._last_start_observation_time = 0.0
 
             if self.cfg.get('dry_run', False) or self._start_confirm_count >= \
                     self.cfg.get('start_block_confirm_frames', 3):

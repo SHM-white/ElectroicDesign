@@ -1179,18 +1179,40 @@ class DigitReader:
             return None
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        frame_height, frame_width = gray.shape
         # 固定阈值兼容明亮旧样本；图像分位数阈值兼容短曝光现场图。
         p60 = float(np.percentile(gray, 60))
+        masks = []
         thresholds = [100]
         adaptive_value = int(np.clip(p60, 25, 90))
         if abs(adaptive_value - 100) > 5:
             thresholds.append(adaptive_value)
-
-        frame_area = frame.shape[0] * frame.shape[1]
         for threshold in thresholds:
             _, binary = cv2.threshold(
                 gray, threshold, 255, cv2.THRESH_BINARY_INV,
             )
+            masks.append((binary, True))
+
+        # 短曝光现场帧中 A 和暗绿色背景可能都低于全局阈值，轮廓会
+        # 粘成大块。CLAHE + 局部阈值保留字符局部对比度；此路径不再
+        # 强制要求闭合孔洞，因为低照度噪声常会打断 A 的三角孔。
+        if float(np.percentile(gray, 90)) < 110:
+            enhanced = cv2.createCLAHE(
+                clipLimit=2.5, tileGridSize=(8, 8),
+            ).apply(gray)
+            local = cv2.adaptiveThreshold(
+                enhanced, 255,
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY_INV,
+                31, 5,
+            )
+            local = cv2.morphologyEx(
+                local, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8),
+            )
+            masks.append((local, False))
+
+        frame_area = frame.shape[0] * frame.shape[1]
+        for binary, require_hole in masks:
             contours, hierarchy = cv2.findContours(
                 binary, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE,
             )
@@ -1202,29 +1224,80 @@ class DigitReader:
                 key=lambda item: cv2.contourArea(item[1]),
                 reverse=True,
             )
-            for index, cnt in indexed_contours[:100]:
+            max_candidates = 100 if require_hole else 12
+            checked_candidates = 0
+            for index, cnt in indexed_contours:
                 area = cv2.contourArea(cnt)
                 x, y, w, h = cv2.boundingRect(cnt)
-                if not 0.0002 * frame_area <= area <= 0.08 * frame_area:
+                min_area_ratio = 0.0002 if require_hole else 0.0003
+                max_area_ratio = 0.08 if require_hole else 0.03
+                if not min_area_ratio * frame_area <= area <= \
+                        max_area_ratio * frame_area:
                     continue
-                if h <= 30 or w <= 15:
+                if require_hole:
+                    if h <= 30 or w <= 15:
+                        continue
+                elif not (0.04 * frame_height <= h <= 0.25 * frame_height
+                          and 0.02 * frame_width <= w <= 0.20 * frame_width):
                     continue
-                if not 0.45 <= w / h <= 1.2:
+                if not (0.45 <= w / h <= 1.2 if require_hole
+                        else 0.40 <= w / h <= 1.25):
                     continue
                 has_child_hole = hierarchy[0][index][2] >= 0
                 is_inner_hole = hierarchy[0][index][3] >= 0
-                if not has_child_hole and not is_inner_hole:
+                if require_hole and not has_child_hole and not is_inner_hole:
                     continue
 
-                padding = max(3, int(min(w, h) * 0.06))
+                fill = area / max(1.0, float(w * h))
+                if not require_hole and not 0.15 <= fill <= 0.70:
+                    continue
+
+                checked_candidates += 1
+                if checked_candidates > max_candidates:
+                    break
+
+                padding_ratio = 0.06 if require_hole else 0.22
+                padding = max(3, int(max(w, h) * padding_ratio))
                 roi = binary[
                     max(0, y - padding):min(binary.shape[0], y + h + padding),
                     max(0, x - padding):min(binary.shape[1], x + w + padding),
                 ]
-                text = pytesseract.image_to_string(
-                    roi, config='--psm 10 -c tessedit_char_whitelist=A'
-                ).strip().upper()
-                if text == 'A':
+                if require_hole:
+                    variants = [roi]
+                else:
+                    # 给单字符 OCR 留出稳定边界，并同时尝试两种极性。
+                    white_on_black = cv2.copyMakeBorder(
+                        roi, 20, 20, 20, 20,
+                        cv2.BORDER_CONSTANT, value=0,
+                    )
+                    black_on_white = cv2.copyMakeBorder(
+                        255 - roi, 20, 20, 20, 20,
+                        cv2.BORDER_CONSTANT, value=255,
+                    )
+                    variants = [white_on_black, black_on_white]
+
+                matches = 0
+                for variant in variants:
+                    enlarged = cv2.resize(
+                        variant, None, fx=2, fy=2,
+                        interpolation=cv2.INTER_NEAREST,
+                    )
+                    orientations = (
+                        (enlarged,) if require_hole
+                        else (enlarged, cv2.rotate(enlarged, cv2.ROTATE_180))
+                    )
+                    for oriented in orientations:
+                        text = pytesseract.image_to_string(
+                            oriented,
+                            config='--psm 10 -c tessedit_char_whitelist=A',
+                        ).strip().upper()
+                        if text == 'A':
+                            matches += 1
+
+                # 局部阈值更容易产生纹理伪轮廓，因此要求两种极性均被
+                # OCR 判定为 A；全局阈值路径保持原有单次命中语义。
+                required_matches = 1 if require_hole else 2
+                if matches >= required_matches:
                     return (x + w // 2, y + h // 2)
 
         return None

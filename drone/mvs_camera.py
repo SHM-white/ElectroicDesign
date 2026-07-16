@@ -55,6 +55,12 @@ except ImportError as exc:
     ) from exc
 
 
+def _orient_mvs_rgb_frame(rgb: np.ndarray) -> np.ndarray:
+    """将 MVS RGB 帧转换为 BGR，并校正相机朝机尾安装造成的倒置。"""
+    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    return cv2.rotate(bgr, cv2.ROTATE_180)
+
+
 class MvsCapture:
     """Provide ``read``/``release`` methods compatible with VideoCapture."""
 
@@ -203,8 +209,10 @@ class MvsCapture:
             if ret != 0:
                 return False, None
 
-            rgb = np.ctypeslib.as_array(rgb_buffer).reshape(self.height, self.width, 3)
-            return True, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            rgb = np.ctypeslib.as_array(rgb_buffer).reshape(
+                self.height, self.width, 3,
+            )
+            return True, _orient_mvs_rgb_frame(rgb)
         finally:
             self.camera.MV_CC_FreeImageBuffer(output)
 

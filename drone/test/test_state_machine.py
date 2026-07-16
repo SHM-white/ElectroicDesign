@@ -369,6 +369,34 @@ class TestStartAndHomeVisionGates(unittest.TestCase):
         self.assertEqual(self.sm.state, FlightState.SPRAY)
         self.assertTrue(self.sm._start_block_confirmed)
 
+    def test_start_confirmation_ignores_frames_without_new_ocr_event(self):
+        self.sm.state = FlightState.FIND_START
+        self.sm.cfg['manual_navigation'] = True
+
+        self.sm._state_find_start(None, 0.5, 21)
+        for _ in range(20):
+            self.sm._start_marker_center = None
+            self.sm._state_find_start(None, 0.5, None)
+        self.sm._state_find_start(None, 0.5, 21)
+        for _ in range(20):
+            self.sm._state_find_start(None, 0.5, None)
+        self.sm._state_find_start(None, 0.5, 21)
+
+        self.assertEqual(self.sm.state, FlightState.SPRAY)
+        self.assertTrue(self.sm._start_block_confirmed)
+
+    def test_start_confirmation_resets_after_event_window_expires(self):
+        self.sm.state = FlightState.FIND_START
+        self.sm.cfg['manual_navigation'] = True
+        self.sm.cfg['start_block_confirm_window_s'] = 5.0
+
+        with patch('state_machine.time.monotonic', side_effect=(10.0, 16.0)):
+            self.sm._state_find_start(None, 0.5, 21)
+            self.sm._state_find_start(None, 0.5, 21)
+
+        self.assertEqual(self.sm.state, FlightState.FIND_START)
+        self.assertEqual(self.sm._start_confirm_count, 1)
+
     def test_home_alignment_targets_cross_below_center_for_tail_camera(self):
         self.sm.state = FlightState.ALIGN_HOME
         self.mcu.set_altitude(100)

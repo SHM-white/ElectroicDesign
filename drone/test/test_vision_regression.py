@@ -29,6 +29,7 @@ SAMPLE_21_2 = SAMPLE_ROOT / "Vision Test - [h] help_screenshot_15.07.2026-2.png"
 SAMPLE_28 = SAMPLE_ROOT / "Vision Test - [h] help_screenshot_15.07.2026-3.png"
 PHONE_SAMPLE_21 = SAMPLE_ROOT / "IMG_20260715_175823.jpg"
 LOW_LIGHT_START_SAMPLE = SAMPLE_ROOT / "mission_vision_156657515933.png"
+LOW_LIGHT_START_SAMPLE_2 = SAMPLE_ROOT / "mission_vision_159211884392.png"
 LOW_LIGHT_FALSE_DIGIT_SAMPLE = SAMPLE_ROOT / "mission_vision_194047772428.png"
 LOW_LIGHT_DIGIT_SAMPLES = {
     19: SAMPLE_ROOT / "mission_vision_216786120831.png",
@@ -81,10 +82,16 @@ class TestMvsSampleRecognition(unittest.TestCase):
         )
         self.assertIsNotNone(self.reader.find_a_marker(frame))
 
-    def test_finds_a_marker_in_low_light_start_sample(self) -> None:
-        frame = self._read(LOW_LIGHT_START_SAMPLE)
+    def test_finds_a_marker_in_low_light_start_samples(self) -> None:
+        for path in (LOW_LIGHT_START_SAMPLE, LOW_LIGHT_START_SAMPLE_2):
+            with self.subTest(path=path.name):
+                frame = self._read(path)
 
-        self.assertIsNotNone(self.reader.find_a_marker(frame))
+                marker = self.reader.find_a_marker(frame)
+                self.assertIsNotNone(marker)
+                if path == LOW_LIGHT_START_SAMPLE_2:
+                    self.assertLess(abs(marker[0] - 362), 30)
+                    self.assertLess(abs(marker[1] - 588), 40)
 
     def test_expected_digit_rejects_low_light_noise_ocr(self) -> None:
         frame = self._read(LOW_LIGHT_FALSE_DIGIT_SAMPLE)

@@ -97,6 +97,7 @@ HOME_ALIGN_TOLERANCE_CM = 8.0
 HOME_ALIGN_MAX_STEP_CM = 30
 HOME_ALIGN_TIMEOUT_S = 30
 START_BLOCK_CONFIRM_FRAMES = 3
+START_BLOCK_CONFIRM_WINDOW_S = 5.0  # 异步OCR成功事件累计时间窗
 START_BLOCK_TIMEOUT_S = 30
 
 # OpenMV 识别结果串口。若同时使用 H7 GPIO 板，请为两个设备分配不同端口。
@@ -199,6 +200,7 @@ def get_config() -> Dict[str, Any]:
         'home_align_max_step_cm': HOME_ALIGN_MAX_STEP_CM,
         'home_align_timeout_s': HOME_ALIGN_TIMEOUT_S,
         'start_block_confirm_frames': START_BLOCK_CONFIRM_FRAMES,
+        'start_block_confirm_window_s': START_BLOCK_CONFIRM_WINDOW_S,
         'start_block_timeout_s': START_BLOCK_TIMEOUT_S,
         'openmv_serial_port': OPENMV_SERIAL_PORT,
         'openmv_serial_baudrate': OPENMV_SERIAL_BAUDRATE,
