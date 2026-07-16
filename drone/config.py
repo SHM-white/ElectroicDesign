@@ -50,6 +50,10 @@ TAKEOFF_TIMEOUT_S = 15           # 起飞超时(秒)
 
 LAND_ALT_THRESHOLD_CM = 10       # 降落完成判定的高度阈值(cm)
 LAND_TIMEOUT_S = 20              # 降落超时(秒)
+LAND_MIN_WAIT_S = 3              # 发送降落后禁止加锁的最短等待时间
+LAND_CONFIRM_SAMPLES = 3         # 连续新鲜低高度样本数
+ALTITUDE_MAX_AGE_S = 1.0         # 高度遥测最大允许年龄
+LOCK_TIMEOUT_S = 5               # 加锁遥测确认超时
 
 MAX_MISSION_TIME_S = 360         # 任务总超时(秒) - 赛题要求
 
@@ -177,6 +181,10 @@ def get_config() -> Dict[str, Any]:
         'takeoff_timeout_s': TAKEOFF_TIMEOUT_S,
         'land_alt_threshold_cm': LAND_ALT_THRESHOLD_CM,
         'land_timeout_s': LAND_TIMEOUT_S,
+        'land_min_wait_s': LAND_MIN_WAIT_S,
+        'land_confirm_samples': LAND_CONFIRM_SAMPLES,
+        'altitude_max_age_s': ALTITUDE_MAX_AGE_S,
+        'lock_timeout_s': LOCK_TIMEOUT_S,
         'max_mission_time_s': MAX_MISSION_TIME_S,
         'alt_min_cm': ALT_MIN_CM,
         'alt_low_warn_cm': ALT_LOW_WARN_CM,

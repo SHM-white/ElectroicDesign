@@ -119,6 +119,11 @@ class TestMcuSerialTxRx(unittest.TestCase):
         self.assertEqual(self.mcu.read_mode(), 3)
         self.assertEqual(self.mcu.read_locked(), 0)
         self.assertEqual(self.mcu.read_altitude(), 150)
+        altitude_value, sequence, age = self.mcu.read_altitude_sample()
+        self.assertEqual(altitude_value, 150)
+        self.assertGreater(sequence, 0)
+        self.assertLess(age, 1.0)
+        self.assertTrue(self.mcu.has_recent_altitude())
 
     def test_garbage_data_handling(self):
         """测试垃圾数据不会导致崩溃"""

@@ -28,6 +28,8 @@ class MockMCU:
         self._sent_commands = []
         self._comm_ok = True
         self._comm_age_ms = 0
+        self._altitude_sequence = 0
+        self._altitude_age = 0.0
 
     def poll(self):
         """模拟串口轮询 (run_iteration 需要在每次迭代中调用)"""
@@ -38,6 +40,9 @@ class MockMCU:
 
     def read_altitude(self):
         return self._altitude
+
+    def read_altitude_sample(self):
+        return self._altitude, self._altitude_sequence, self._altitude_age
 
     def read_mode(self):
         return self._mode
@@ -58,6 +63,9 @@ class MockMCU:
         return self._comm_age_ms
 
     def has_flight_status(self):
+        return True
+
+    def has_recent_lock_status(self):
         return True
 
     def send_cmd_unlock(self):
@@ -102,6 +110,12 @@ class MockMCU:
 
     def set_altitude(self, alt):
         self._altitude = alt
+        self._altitude_sequence += 1
+
+    def inject_altitude_sample(self, alt, age=0.0):
+        self._altitude = alt
+        self._altitude_sequence += 1
+        self._altitude_age = age
 
     def trigger_start(self):
         self._read_aux6_original = self.read_aux6
@@ -236,6 +250,18 @@ class TestStateTransitions(unittest.TestCase):
                 self.sm.run_iteration()
 
         # 此时可能已经在其他状态, 但高度异常应被检测
+
+    def test_takeoff_one_cm_does_not_trigger_emergency_or_lock(self):
+        """事故回归：起飞初期1cm不得触发紧急降落和立即加锁。"""
+        self.sm.state = FlightState.TAKEOFF
+        self.sm._state_start_time = __import__('time').time() - 3
+        self.mcu.inject_altitude_sample(1)
+
+        self.sm.run_iteration()
+
+        self.assertEqual(self.sm.state, FlightState.TAKEOFF)
+        self.assertNotIn('land', self.mcu._sent_commands)
+        self.assertNotIn('lock', self.mcu._sent_commands)
 
 
 class TestSprayLogic(unittest.TestCase):
@@ -530,6 +556,95 @@ class TestEmergencyHandling(unittest.TestCase):
         # 应发送降落指令
         land_cmds = [c for c in self.mcu._sent_commands if c == 'land']
         self.assertGreaterEqual(len(land_cmds), 1)
+
+    def test_emergency_never_locks_in_same_iteration(self):
+        """事故回归：低高度缓存不能让降落和加锁在同一轮发生。"""
+        self.mcu.inject_altitude_sample(1)
+        self.sm._emergency("Test crash regression")
+
+        self.sm.run_iteration()
+
+        self.assertEqual(self.sm.state, FlightState.EMERGENCY)
+        self.assertIn('land', self.mcu._sent_commands)
+        self.assertNotIn('lock', self.mcu._sent_commands)
+
+    def test_emergency_requires_three_new_low_altitude_samples(self):
+        self.cfg['land_min_wait_s'] = 3
+        self.cfg['land_confirm_samples'] = 3
+        self.sm._emergency("Test safe landing")
+        self.sm._state_start_time = __import__('time').time() - 4
+
+        for _ in range(2):
+            self.mcu.inject_altitude_sample(1)
+            self.sm.run_iteration()
+            self.assertEqual(self.sm.state, FlightState.EMERGENCY)
+            self.assertNotIn('lock', self.mcu._sent_commands)
+
+        self.mcu.inject_altitude_sample(1)
+        self.sm.run_iteration()
+        self.assertEqual(self.sm.state, FlightState.LOCK)
+        self.assertNotIn('lock', self.mcu._sent_commands)
+
+        self.sm.run_iteration()
+        self.assertIn('lock', self.mcu._sent_commands)
+        self.assertEqual(self.sm.state, FlightState.DONE)
+
+    def test_repeated_cached_altitude_does_not_confirm_landing(self):
+        self.cfg['land_min_wait_s'] = 0
+        self.sm._emergency("Test cached altitude")
+        self.mcu.inject_altitude_sample(1)
+
+        for _ in range(10):
+            self.sm.run_iteration()
+
+        self.assertEqual(self.sm.state, FlightState.EMERGENCY)
+        self.assertNotIn('lock', self.mcu._sent_commands)
+
+    def test_stale_altitude_does_not_confirm_landing(self):
+        self.cfg['land_min_wait_s'] = 0
+        self.sm._emergency("Test stale altitude")
+
+        for _ in range(3):
+            self.mcu.inject_altitude_sample(1, age=2.0)
+            self.sm.run_iteration()
+
+        self.assertEqual(self.sm.state, FlightState.EMERGENCY)
+        self.assertNotIn('lock', self.mcu._sent_commands)
+
+    def test_simulated_mcu_can_confirm_landing_with_one_sample(self):
+        self.cfg['land_min_wait_s'] = 0
+        self.mcu.dry_run = True
+        self.sm._emergency("Test simulated landing")
+        self.mcu.inject_altitude_sample(0)
+
+        self.sm.run_iteration()
+
+        self.assertEqual(self.sm.state, FlightState.LOCK)
+
+    def test_land_does_not_send_ascend_at_low_altitude(self):
+        self.sm.state = FlightState.LAND
+        self.sm._state_start_time = __import__('time').time()
+        self.mcu.inject_altitude_sample(20)
+
+        self.sm.run_iteration()
+
+        self.assertIn('land', self.mcu._sent_commands)
+        self.assertFalse(any(
+            command.startswith('ascend')
+            for command in self.mcu._sent_commands
+        ))
+
+    def test_emergency_is_not_overwritten_by_low_voltage_return(self):
+        self.sm.state = FlightState.NAVIGATE
+        self.mcu._comm_ok = False
+        self.mcu._comm_age_ms = self.cfg['comm_timeout_ms'] * 4
+        self.mcu.read_voltage = lambda: 10.4
+        self.sm._low_voltage_count = self.cfg['low_voltage_confirm_samples'] - 1
+
+        self.sm._check_exceptions()
+
+        self.assertEqual(self.sm.state, FlightState.EMERGENCY)
+        self.assertIn('Lost communication', self.sm.emergency_reason)
 
     def test_confirmed_low_voltage_returns_home(self):
         self.sm.state = FlightState.NAVIGATE

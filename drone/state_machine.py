@@ -88,6 +88,8 @@ class DroneStateMachine:
         self._spray_started = False
         self._low_voltage_count = 0
         self._consecutive_ocr_timeouts = 0
+        self._landing_low_alt_count = 0
+        self._last_landing_alt_sequence = None
 
         # 异常检测
         self._emergency_reason = ""
@@ -552,11 +554,13 @@ class DroneStateMachine:
         """着陆"""
         if not self._state_command_sent:
             logger.info("Landing...")
-            self.mcu.send_cmd_land()
+            if not self.mcu.send_cmd_land():
+                self._emergency("Failed to send landing command")
+                return
             self._state_command_sent = True
 
         alt = self.mcu.read_altitude()
-        if self._has_flight_status() and alt <= self.cfg['land_alt_threshold_cm']:
+        if self._landing_confirmed():
             logger.info(f"Land complete: altitude={alt}cm")
             self._transition(FlightState.LOCK)
         elif self.state_start_time > self.cfg['land_timeout_s']:
@@ -566,11 +570,22 @@ class DroneStateMachine:
         """加锁"""
         if not self._state_command_sent:
             logger.info("Locking motors...")
-            self.mcu.send_cmd_lock()
+            if not self.mcu.send_cmd_lock():
+                self._emergency("Failed to send motor lock command")
+                return
             self._state_command_sent = True
-        if self.state_start_time > 1:
+
+        has_lock_status = getattr(self.mcu, 'has_recent_lock_status', None)
+        status_is_recent = (
+            has_lock_status() if callable(has_lock_status)
+            else self._has_flight_status()
+        )
+        # V7 状态语义：0=已锁定，1=已解锁。
+        if status_is_recent and self.mcu.read_locked() == 0:
             logger.info("=== MISSION COMPLETE ===")
             self._transition(FlightState.DONE)
+        elif self.state_start_time > self.cfg.get('lock_timeout_s', 5):
+            self._emergency("Motor lock could not be confirmed")
 
     def _state_emergency(self, frame, green_ratio, ocr_result):
         """
@@ -580,13 +595,13 @@ class DroneStateMachine:
         """
         if not self._state_command_sent:
             logger.critical(f"EMERGENCY: {self._emergency_reason}")
-            self.mcu.send_cmd_land()
+            if not self.mcu.send_cmd_land():
+                logger.critical("Emergency landing command could not be sent")
             self._state_command_sent = True
 
-        alt = self.mcu.read_altitude()
-        if self._has_flight_status() and alt <= self.cfg['land_alt_threshold_cm']:
-            self.mcu.send_cmd_lock()
-            self._transition(FlightState.DONE)
+        if self._landing_confirmed():
+            logger.critical("Emergency landing confirmed; locking motors")
+            self._transition(FlightState.LOCK)
         elif self.state_start_time > self.cfg['land_timeout_s']:
             logger.critical("Emergency landing could not be confirmed; leaving motors unlocked")
             self._transition(FlightState.DONE)
@@ -608,6 +623,9 @@ class DroneStateMachine:
         self._retry_count = 0
         self._state_command_sent = False
         self._spray_started = False
+        if new_state in (FlightState.LAND, FlightState.EMERGENCY):
+            self._landing_low_alt_count = 0
+            self._last_landing_alt_sequence = None
         self._total_states += 1
         self._state_history.append((old_state, new_state, time.time()))
 
@@ -621,6 +639,8 @@ class DroneStateMachine:
 
     def _emergency(self, reason: str):
         """触发紧急状态"""
+        if self.state in (FlightState.EMERGENCY, FlightState.DONE):
+            return
         self._emergency_reason = reason
         logger.critical(f"Emergency triggered: {reason}")
         self._transition(FlightState.EMERGENCY)
@@ -639,6 +659,36 @@ class DroneStateMachine:
     def _has_flight_status(self) -> bool:
         checker = getattr(self.mcu, 'has_flight_status', None)
         return bool(checker()) if callable(checker) else True
+
+    def _landing_confirmed(self) -> bool:
+        """仅用降落后的多个新鲜独立高度样本确认已经落地。"""
+        if self.state_start_time < self.cfg.get('land_min_wait_s', 3):
+            return False
+
+        read_sample = getattr(self.mcu, 'read_altitude_sample', None)
+        if callable(read_sample):
+            altitude, sequence, age = read_sample()
+            if age > self.cfg.get('altitude_max_age_s', 1.0):
+                self._landing_low_alt_count = 0
+                return False
+            # 模拟飞控的降落命令只生成一次0cm样本，不会持续产生遥测；
+            # 最短等待仍保留，但仅真实飞控要求三个独立新样本。
+            if getattr(self.mcu, 'dry_run', False):
+                return altitude <= self.cfg['land_alt_threshold_cm']
+            if sequence == self._last_landing_alt_sequence:
+                return False
+            self._last_landing_alt_sequence = sequence
+        else:
+            # 兼容旧测试桩；真实 MCUSerial 始终提供带序号的样本。
+            altitude = self.mcu.read_altitude()
+
+        if altitude <= self.cfg['land_alt_threshold_cm']:
+            self._landing_low_alt_count += 1
+        else:
+            self._landing_low_alt_count = 0
+        return self._landing_low_alt_count >= self.cfg.get(
+            'land_confirm_samples', 3,
+        )
 
     # ── 视觉数据获取 ──────────────────────────────────────
 
@@ -696,24 +746,35 @@ class DroneStateMachine:
             # 触发紧急降落 (MCU应该有自己的关断逻辑)
             if self.mcu.get_communication_age_ms() > self.cfg['comm_timeout_ms'] * 3:
                 self._emergency("Lost communication with MCU")
+                return
 
-        # 2. 高度异常
+        # 2. 高度异常。起飞阶段的 0~数厘米是正常爬升过程，绝不能
+        # 触发低高度紧急降落；降落相关状态也禁止发送补升命令。
         if alt > 0:  # 有有效高度读数时才检查
-            if alt < self.cfg['alt_critical_low_cm']:
-                self._emergency(f"Critical low altitude: {alt}cm")
-            elif alt < self.cfg['alt_low_warn_cm']:
-                logger.warning(f"Altitude too low: {alt}cm, attempting ascent")
-                self.mcu.send_cmd_ascend(
-                    self.cfg['takeoff_height_cm'] - alt,
-                    self.cfg['ascent_speed']
-                )
-            elif alt > self.cfg['alt_max_cm']:
+            altitude_guard_states = (
+                FlightState.FIND_START, FlightState.SPRAY,
+                FlightState.NAVIGATE, FlightState.RETURN_HOME,
+                FlightState.ALIGN_HOME,
+            )
+            if self.state in altitude_guard_states:
+                if alt < self.cfg['alt_critical_low_cm']:
+                    self._emergency(f"Critical low altitude: {alt}cm")
+                    return
+                if alt < self.cfg['alt_low_warn_cm']:
+                    logger.warning(f"Altitude too low: {alt}cm, attempting ascent")
+                    self.mcu.send_cmd_ascend(
+                        self.cfg['takeoff_height_cm'] - alt,
+                        self.cfg['ascent_speed']
+                    )
+            if alt > self.cfg['alt_max_cm']:
                 self._emergency(f"Altitude too high: {alt}cm")
+                return
 
         # 3. 任务超时
         if self.mission_time > self.cfg['max_mission_time_s']:
             self._emergency(f"Mission timeout ({self.mission_time:.0f}s > "
                            f"{self.cfg['max_mission_time_s']}s)")
+            return
 
         # 4. 电池低压。0V 表示尚未收到有效遥测，不能据此触发保护。
         voltage = self.mcu.read_voltage()
@@ -730,9 +791,11 @@ class DroneStateMachine:
                 'low_voltage_confirm_samples', 3):
             if voltage <= critical_threshold:
                 self._emergency(f"Critical battery voltage: {voltage:.2f}V")
+                return
             elif self.state not in (
                     FlightState.RETURN_HOME, FlightState.ALIGN_HOME,
-                    FlightState.LAND, FlightState.LOCK):
+                    FlightState.LAND, FlightState.LOCK,
+                    FlightState.EMERGENCY, FlightState.DONE):
                 logger.warning(
                     "Low battery voltage: %.2fV; returning home", voltage,
                 )

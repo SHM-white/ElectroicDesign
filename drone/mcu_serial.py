@@ -133,8 +133,11 @@ class MCUSerial:
         self._last_of_x = 0.0      # 上一次光流X
         self._last_of_y = 0.0      # 上一次光流Y
         self._altitude = 0         # 高度 (cm)
+        self._altitude_sequence = 0  # 高度遥测帧序号（仅新帧递增）
+        self._last_altitude_update = time.time() if dry_run else 0.0
         self._mode = 0             # 飞行模式
         self._locked = 0           # V7协议: 0=锁定, 1=解锁
+        self._last_lock_status_update = time.time() if dry_run else 0.0
         self._voltage_mv = 0       # 电池电压 (mV)
         self._of_updated = False   # 光流数据是否更新
         self._last_of_update = 0.0  # 上次光流更新时间
@@ -215,6 +218,7 @@ class MCUSerial:
         if ok and self.dry_run:
             with self._lock:
                 self._locked = 1
+                self._last_lock_status_update = time.time()
                 self._touch_simulated_status()
         return ok
 
@@ -223,6 +227,7 @@ class MCUSerial:
         if ok and self.dry_run:
             with self._lock:
                 self._locked = 0
+                self._last_lock_status_update = time.time()
                 self._touch_simulated_status()
         return ok
 
@@ -240,6 +245,8 @@ class MCUSerial:
         if ok and self.dry_run:
             with self._lock:
                 self._altitude = height_cm or 150
+                self._altitude_sequence += 1
+                self._last_altitude_update = time.time()
                 self._touch_simulated_status()
         return ok
 
@@ -248,6 +255,8 @@ class MCUSerial:
         if ok and self.dry_run:
             with self._lock:
                 self._altitude = 0
+                self._altitude_sequence += 1
+                self._last_altitude_update = time.time()
                 self._touch_simulated_status()
         return ok
 
@@ -372,11 +381,14 @@ class MCUSerial:
                 self._ack_count += 1
             elif frame_id == 0x05 and len(data) >= 9:
                 self._altitude = struct.unpack_from('<i', data, 0)[0]
+                self._altitude_sequence += 1
+                self._last_altitude_update = now
                 self._flight_status_received = True
                 self._last_flight_status_update = now
             elif frame_id == 0x06 and len(data) >= 2:
                 self._mode = data[0]
                 self._locked = data[1]
+                self._last_lock_status_update = now
                 self._flight_status_received = True
                 self._last_flight_status_update = now
             elif frame_id == 0x08 and len(data) >= 8:
@@ -434,6 +446,21 @@ class MCUSerial:
         with self._lock:
             return self._altitude
 
+    def read_altitude_sample(self) -> Tuple[int, int, float]:
+        """返回高度、独立帧序号和样本年龄（秒）。"""
+        with self._lock:
+            age = (time.time() - self._last_altitude_update
+                   if self._last_altitude_update > 0 else float('inf'))
+            return self._altitude, self._altitude_sequence, age
+
+    def has_recent_altitude(self, max_age_s: float = 1.0) -> bool:
+        """是否收到过近期有效的高度遥测帧。"""
+        with self._lock:
+            return self._last_altitude_update > 0 and (
+                self.dry_run
+                or time.time() - self._last_altitude_update <= max_age_s
+            )
+
     def read_mode(self) -> int:
         """读取飞行模式"""
         with self._lock:
@@ -443,6 +470,14 @@ class MCUSerial:
         """读取锁定状态"""
         with self._lock:
             return self._locked
+
+    def has_recent_lock_status(self, max_age_s: float = 2.0) -> bool:
+        """是否收到过近期模式/锁定状态遥测。"""
+        with self._lock:
+            return self._last_lock_status_update > 0 and (
+                self.dry_run
+                or time.time() - self._last_lock_status_update <= max_age_s
+            )
 
     def read_aux6(self) -> int:
         """读取V7 0x40遥控帧中的AUX6。"""
