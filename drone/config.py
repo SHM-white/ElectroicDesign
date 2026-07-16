@@ -152,7 +152,14 @@ COMM_TIMEOUT_MS = 500         # MCU通信超时(毫秒)
 COMM_MAX_RETRIES = 3           # 最大重试次数
 MAX_BOUNDARY_MISSES = 3        # 连续边界检测失败上限
 LOW_VOLTAGE_THRESHOLD = 10.5   # 3S电池低压阈值(V)
+CRITICAL_VOLTAGE_THRESHOLD = 10.0  # 低于此值直接紧急降落(V)
+LOW_VOLTAGE_CONFIRM_SAMPLES = 3    # 连续低压样本数，过滤瞬时压降
 FLOW_LOST_TIMEOUT_S = 5        # 光流失锁超时(秒)
+
+# 人工移动场测中，单块等待 OCR 15 秒后按预定目标继续播撒；连续
+# 3 个目标均超时则判定任务失败并紧急降落。
+MANUAL_NAVIGATION_TIMEOUT_S = 15
+MAX_CONSECUTIVE_OCR_TIMEOUTS = 3
 
 # ── 调试模式 ──────────────────────────────────────────────
 
@@ -225,7 +232,11 @@ def get_config() -> Dict[str, Any]:
         'comm_max_retries': COMM_MAX_RETRIES,
         'max_boundary_misses': MAX_BOUNDARY_MISSES,
         'low_voltage_threshold': LOW_VOLTAGE_THRESHOLD,
+        'critical_voltage_threshold': CRITICAL_VOLTAGE_THRESHOLD,
+        'low_voltage_confirm_samples': LOW_VOLTAGE_CONFIRM_SAMPLES,
         'flow_lost_timeout_s': FLOW_LOST_TIMEOUT_S,
+        'manual_navigation_timeout_s': MANUAL_NAVIGATION_TIMEOUT_S,
+        'max_consecutive_ocr_timeouts': MAX_CONSECUTIVE_OCR_TIMEOUTS,
         'auto_start': False,
         'dry_run': DRY_RUN,
         'save_logs': SAVE_LOGS,

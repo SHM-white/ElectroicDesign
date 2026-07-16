@@ -58,7 +58,7 @@ class LaserController:
         if self._enabled:
             self._backend.output(self.pin, GpioValue.LOW)
 
-    def blink(self, count: int = 2, period_ms: int = 1500):
+    def blink(self, count: int = 2, period_ms: int = 1500) -> bool:
         """
         闪烁激光笔模拟撒药
 
@@ -73,7 +73,7 @@ class LaserController:
         half_period_s = period_ms / 1000.0 / 2.0  # 50%占空比
         if self._blink_thread is not None and self._blink_thread.is_alive():
             logger.warning("Laser blink request ignored because a blink is already active")
-            return
+            return False
 
         self._blink_stop.clear()
 
@@ -96,6 +96,11 @@ class LaserController:
             daemon=True,
         )
         self._blink_thread.start()
+        return True
+
+    def is_blinking(self) -> bool:
+        """返回当前闪烁序列是否仍在执行。"""
+        return self._blink_thread is not None and self._blink_thread.is_alive()
 
     def enable(self):
         self._blink_stop.clear()
@@ -178,10 +183,14 @@ class DummyLaser(LaserController):
     def off(self):
         self._log.append(('OFF', time.time()))
 
-    def blink(self, count: int = 2, period_ms: int = 1500):
+    def blink(self, count: int = 2, period_ms: int = 1500) -> bool:
         self._blink_count += 1
         self._log.append(('BLINK', time.time(), count, period_ms))
         logger.info(f"[DUMMY] Laser blink: {count}x @ {period_ms}ms")
+        return True
+
+    def is_blinking(self) -> bool:
+        return False
 
     @property
     def total_blinks(self):

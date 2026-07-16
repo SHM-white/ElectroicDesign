@@ -18,6 +18,7 @@ G_植保飞行器项目 | x86迷你主机 + 凌霄飞控 + 工业相机/OpenMV
 """
 
 import argparse
+import signal
 import sys
 import time
 import logging
@@ -348,11 +349,26 @@ def main() -> int:
     exit_code = 0
     last_heartbeat = 0.0
 
+    def request_safe_stop(signum, _frame):
+        logger.warning("收到终止信号 %s，执行安全降落", signum)
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, request_safe_stop)
+    signal.signal(signal.SIGHUP, request_safe_stop)
+
+    def initiate_safe_landing() -> None:
+        if laser is not None:
+            disable_laser = getattr(laser, 'disable', None)
+            if callable(disable_laser):
+                disable_laser()
+        if mcu.is_connected():
+            mcu.send_cmd_land()
+
     try:
         while not sm.is_completed:
             rate.wait()
             sm.run_iteration()
-            # 每 500ms 发送一次心跳 (MCU 侧若 2s 无心跳则触发紧急降落)
+            # 保留兼容调用；原生 V7 当前没有项目自定义心跳帧。
             now = time.time()
             if now - last_heartbeat >= 0.5:
                 mcu.send_heartbeat()
@@ -360,8 +376,12 @@ def main() -> int:
             # 原生V7遥测由凌霄IMU主动输出，无需旧桥接协议的BB查询。
     except KeyboardInterrupt:
         logger.info("Aborted by user (Ctrl+C)")
-        mcu.send_cmd_land()
+        initiate_safe_landing()
         exit_code = 130
+    except Exception:
+        logger.exception("主循环发生未处理异常，执行安全降落")
+        initiate_safe_landing()
+        exit_code = 3
     finally:
         # ── 清理资源 ────────────────────────────────────
         logger.info("正在清理资源...")

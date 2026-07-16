@@ -129,6 +129,13 @@ class MockLaser:
     def blink(self, count=2, period_ms=1500):
         self.blink_count += 1
         self.blink_records.append((count, period_ms))
+        return True
+
+    def is_blinking(self):
+        return False
+
+    def disable(self):
+        pass
 
 
 class TestStateMachineInit(unittest.TestCase):
@@ -253,6 +260,7 @@ class TestSprayLogic(unittest.TestCase):
         self.assertFalse(self.sm.visited[cur_block])
 
         self.sm.run_iteration()
+        self.sm.run_iteration()
 
         # 应标记为已访问
         self.assertTrue(self.sm.visited[cur_block])
@@ -322,6 +330,69 @@ class TestNavigateLogic(unittest.TestCase):
         self.sm._state_navigate(None, 0.5, next_block)
         self.assertEqual(self.sm.state, FlightState.SPRAY)
         self.assertEqual(self.loc.get_current_target(), next_block)
+
+    def test_manual_navigation_ocr_timeout_sprays_first_two_blocks(self):
+        self.cfg['manual_navigation'] = True
+        self.cfg['manual_navigation_timeout_s'] = 15
+        self.cfg['max_consecutive_ocr_timeouts'] = 3
+        self.sm.state = FlightState.NAVIGATE
+        self.sm.visited[21] = True
+        self.sm._state_start_time = __import__('time').time() - 16
+
+        self.sm._state_navigate(None, 0.5, None)
+
+        self.assertEqual(self.sm.state, FlightState.SPRAY)
+        self.assertEqual(self.loc.get_current_target(), 20)
+        self.assertEqual(self.sm._consecutive_ocr_timeouts, 1)
+
+        self.sm.visited[20] = True
+        self.sm.state = FlightState.NAVIGATE
+        self.sm._state_start_time = __import__('time').time() - 16
+        self.sm._state_navigate(None, 0.5, None)
+
+        self.assertEqual(self.sm.state, FlightState.SPRAY)
+        self.assertEqual(self.loc.get_current_target(), 19)
+        self.assertEqual(self.sm._consecutive_ocr_timeouts, 2)
+
+    def test_third_consecutive_ocr_timeout_triggers_emergency(self):
+        self.cfg['manual_navigation'] = True
+        self.cfg['manual_navigation_timeout_s'] = 15
+        self.cfg['max_consecutive_ocr_timeouts'] = 3
+        self.sm.state = FlightState.NAVIGATE
+        self.sm.visited[21] = True
+        self.sm.visited[20] = True
+        self.sm.visited[19] = True
+        self.loc.apply_ocr(19)
+        self.sm._consecutive_ocr_timeouts = 2
+        self.sm._state_start_time = __import__('time').time() - 16
+
+        self.sm._state_navigate(None, 0.5, None)
+
+        self.assertEqual(self.sm.state, FlightState.EMERGENCY)
+        self.assertFalse(self.sm.visited[18])
+        self.assertIn('3 consecutive blocks', self.sm.emergency_reason)
+
+    def test_successful_ocr_resets_consecutive_timeout_count(self):
+        self.cfg['manual_navigation'] = True
+        self.sm.state = FlightState.NAVIGATE
+        self.sm.visited[21] = True
+        self.sm._consecutive_ocr_timeouts = 2
+
+        self.sm._state_navigate(None, 0.5, 20)
+
+        self.assertEqual(self.sm.state, FlightState.SPRAY)
+        self.assertEqual(self.sm._consecutive_ocr_timeouts, 0)
+
+    def test_navigation_failure_does_not_mark_block_visited(self):
+        self.sm.state = FlightState.NAVIGATE
+        self.sm.visited[21] = True
+        self.sm._retry_count = self.sm._max_retries
+        self.sm._state_start_time = __import__('time').time() - 11
+
+        self.sm._state_navigate(None, 0.5, None)
+
+        self.assertEqual(self.sm.state, FlightState.EMERGENCY)
+        self.assertFalse(self.sm.visited[20])
 
 
 class TestStartAndHomeVisionGates(unittest.TestCase):
@@ -459,6 +530,25 @@ class TestEmergencyHandling(unittest.TestCase):
         # 应发送降落指令
         land_cmds = [c for c in self.mcu._sent_commands if c == 'land']
         self.assertGreaterEqual(len(land_cmds), 1)
+
+    def test_confirmed_low_voltage_returns_home(self):
+        self.sm.state = FlightState.NAVIGATE
+        self.mcu.read_voltage = lambda: 10.4
+
+        for _ in range(self.cfg['low_voltage_confirm_samples']):
+            self.sm._check_exceptions()
+
+        self.assertEqual(self.sm.state, FlightState.RETURN_HOME)
+
+    def test_confirmed_critical_voltage_triggers_emergency(self):
+        self.sm.state = FlightState.NAVIGATE
+        self.mcu.read_voltage = lambda: 9.9
+
+        for _ in range(self.cfg['low_voltage_confirm_samples']):
+            self.sm._check_exceptions()
+
+        self.assertEqual(self.sm.state, FlightState.EMERGENCY)
+        self.assertIn('Critical battery voltage', self.sm.emergency_reason)
 
 
 if __name__ == '__main__':

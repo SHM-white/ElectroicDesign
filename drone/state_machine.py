@@ -85,6 +85,9 @@ class DroneStateMachine:
         self._home_cross_confidence = 0.0
         self._home_cross_confirm_count = 0
         self._last_home_align_command = 0.0
+        self._spray_started = False
+        self._low_voltage_count = 0
+        self._consecutive_ocr_timeouts = 0
 
         # 异常检测
         self._emergency_reason = ""
@@ -346,12 +349,22 @@ class DroneStateMachine:
             self._emergency("Laser interlock: block 21 not confirmed")
             return
 
-        if not self.visited[cur_block]:
+        if not self.visited[cur_block] and not self._spray_started:
             if self.laser is not None:
-                self.laser.blink(
+                started = self.laser.blink(
                     count=self.cfg.get('laser_count', 2),
                     period_ms=self.cfg.get('laser_period', 1500),
                 )
+                if started is False:
+                    self._emergency("Laser was busy; spray cycle did not start")
+                    return
+            self._spray_started = True
+            return
+
+        if not self.visited[cur_block]:
+            is_blinking = getattr(self.laser, 'is_blinking', None)
+            if callable(is_blinking) and is_blinking():
+                return
             self.visited[cur_block] = True
             logger.info(f"[SPRAY] Block {cur_block} sprayed "
                         f"({self.visited_count}/{self.total_blocks})")
@@ -401,6 +414,30 @@ class DroneStateMachine:
 
             if ocr_result == next_block:
                 logger.info("[FIELD] OCR确认到达区块 %d", next_block)
+                self._consecutive_ocr_timeouts = 0
+                self.localizer.apply_ocr(next_block)
+                self._transition(FlightState.SPRAY)
+            elif self.state_start_time > self.cfg.get(
+                    'manual_navigation_timeout_s', 15):
+                self._consecutive_ocr_timeouts += 1
+                max_timeouts = self.cfg.get(
+                    'max_consecutive_ocr_timeouts', 3,
+                )
+                if self._consecutive_ocr_timeouts >= max_timeouts:
+                    self._emergency(
+                        f"OCR timed out for {self._consecutive_ocr_timeouts} "
+                        "consecutive blocks"
+                    )
+                    return
+
+                logger.warning(
+                    "[FIELD] 区块 %d 等待OCR超过%.0fs，按预定位置播撒 "
+                    "(连续超时 %d/%d)",
+                    next_block,
+                    self.cfg.get('manual_navigation_timeout_s', 15),
+                    self._consecutive_ocr_timeouts,
+                    max_timeouts,
+                )
                 self.localizer.apply_ocr(next_block)
                 self._transition(FlightState.SPRAY)
             return
@@ -422,10 +459,9 @@ class DroneStateMachine:
                 logger.warning(f"Navigate timeout to block {next_block}")
                 self._retry_count += 1
                 if self._retry_count > self._max_retries:
-                    logger.error(f"Failed to reach block {next_block}, marking as visited")
-                    self.visited[next_block] = True  # 放弃此块
-                    self.localizer.advance_block()
-                    self._transition(FlightState.SPRAY)
+                    self._emergency(
+                        f"Failed to reach block {next_block} after max retries"
+                    )
                 else:
                     self.mcu.send_cmd_move(distance, self.cfg['move_speed'], direction)
                     self._state_start_time = time.time()
@@ -571,8 +607,17 @@ class DroneStateMachine:
         self._state_start_time = time.time()
         self._retry_count = 0
         self._state_command_sent = False
+        self._spray_started = False
         self._total_states += 1
         self._state_history.append((old_state, new_state, time.time()))
+
+        if new_state in (
+            FlightState.RETURN_HOME, FlightState.ALIGN_HOME,
+            FlightState.LAND, FlightState.LOCK,
+            FlightState.EMERGENCY, FlightState.DONE):
+            disable_laser = getattr(self.laser, 'disable', None)
+            if callable(disable_laser):
+                disable_laser()
 
     def _emergency(self, reason: str):
         """触发紧急状态"""
@@ -669,6 +714,29 @@ class DroneStateMachine:
         if self.mission_time > self.cfg['max_mission_time_s']:
             self._emergency(f"Mission timeout ({self.mission_time:.0f}s > "
                            f"{self.cfg['max_mission_time_s']}s)")
+
+        # 4. 电池低压。0V 表示尚未收到有效遥测，不能据此触发保护。
+        voltage = self.mcu.read_voltage()
+        low_threshold = self.cfg.get('low_voltage_threshold', 10.5)
+        critical_threshold = self.cfg.get(
+            'critical_voltage_threshold', low_threshold - 0.5,
+        )
+        if voltage > 0 and voltage <= low_threshold:
+            self._low_voltage_count += 1
+        else:
+            self._low_voltage_count = 0
+
+        if self._low_voltage_count >= self.cfg.get(
+                'low_voltage_confirm_samples', 3):
+            if voltage <= critical_threshold:
+                self._emergency(f"Critical battery voltage: {voltage:.2f}V")
+            elif self.state not in (
+                    FlightState.RETURN_HOME, FlightState.ALIGN_HOME,
+                    FlightState.LAND, FlightState.LOCK):
+                logger.warning(
+                    "Low battery voltage: %.2fV; returning home", voltage,
+                )
+                self._transition(FlightState.RETURN_HOME)
 
     # ── 查询接口 ──────────────────────────────────────────
 
