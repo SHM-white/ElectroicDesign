@@ -437,13 +437,45 @@ class TestStartAndHomeVisionGates(unittest.TestCase):
     def test_start_accepts_three_digit_21_observations(self):
         self.sm.state = FlightState.FIND_START
         target = __import__('path_plan').get_block_position(21)
-        self.loc._global_pos_x, self.loc._global_pos_y = target
+        self.loc._global_pos_x = (
+            target[0] + self.cfg['camera_tail_forward_offset_cm']
+        )
+        self.loc._global_pos_y = target[1]
 
         for _ in range(3):
             self.sm._state_find_start(None, 0.5, 21)
 
         self.assertEqual(self.sm.state, FlightState.SPRAY)
         self.assertTrue(self.sm._start_block_confirmed)
+
+    def test_find_start_moves_body_25cm_past_block_center(self):
+        self.sm.state = FlightState.FIND_START
+        self.loc._global_pos_x = 0.0
+        self.loc._global_pos_y = 0.0
+        target = __import__('path_plan').get_block_position(21)
+
+        self.sm._state_find_start(None, None, None)
+
+        expected_distance, expected_direction = self.sm._calc_move_to_target(
+            target[0] + 25.0, target[1],
+        )
+        self.assertIn(
+            f'move_{expected_distance}_{self.cfg["move_speed"]}_'
+            f'{expected_direction}',
+            self.mcu._sent_commands,
+        )
+
+    def test_return_home_targets_25cm_forward_for_tail_camera(self):
+        self.sm.state = FlightState.RETURN_HOME
+        self.loc._global_pos_x = 100.0
+        self.loc._global_pos_y = 0.0
+
+        self.sm._state_return_home(None, None, None)
+
+        self.assertIn(
+            f'move_75_{self.cfg["return_home_speed_cmps"]}_180',
+            self.mcu._sent_commands,
+        )
 
     def test_manual_start_accepts_digit_without_a_marker(self):
         self.sm.state = FlightState.FIND_START
@@ -494,17 +526,30 @@ class TestStartAndHomeVisionGates(unittest.TestCase):
         self.assertEqual(self.sm.state, FlightState.FIND_START)
         self.assertEqual(self.sm._start_confirm_count, 1)
 
-    def test_home_alignment_targets_cross_below_center_for_tail_camera(self):
+    def test_home_alignment_targets_cross_above_center_for_tail_camera(self):
         self.sm.state = FlightState.ALIGN_HOME
         self.mcu.set_altitude(100)
         self.sm._home_cross_confidence = 1.0
-        # fy=800, altitude=100: 机体中心对齐时，十字应在中心下方200px。
-        self.sm._home_cross_center = (720.0, 740.0)
+        # fy=800, altitude=100: 机体中心对齐时，十字应在中心上方200px。
+        self.sm._home_cross_center = (720.0, 340.0)
 
         for _ in range(3):
             self.sm._state_align_home(None, None, None)
 
         self.assertEqual(self.sm.state, FlightState.LAND)
+
+    def test_centered_cross_commands_backward_correction(self):
+        self.sm.state = FlightState.ALIGN_HOME
+        self.mcu.set_altitude(100)
+        self.sm._home_cross_confidence = 1.0
+        self.sm._home_cross_center = (720.0, 540.0)
+
+        self.sm._state_align_home(None, None, None)
+
+        self.assertIn(
+            f'move_25_{self.cfg["move_speed"]}_180',
+            self.mcu._sent_commands,
+        )
 
 
 class TestProgressTracking(unittest.TestCase):

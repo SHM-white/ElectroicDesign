@@ -8,9 +8,9 @@ PYTHON="${PYTHON:-$PROJECT_DIR/.venv/bin/python3}"
 MCU_PORT="${MCU_PORT:-}"
 H7_PORT="${H7_PORT:-/dev/serial/by-path/pci-0000:00:14.0-usb-0:7:1.0-port0}"
 CAMERA_ID="${CAMERA_ID:-0}"
-CAMERA_EXPOSURE_MS="${CAMERA_EXPOSURE_MS:-50}"
+CAMERA_EXPOSURE_MS="${CAMERA_EXPOSURE_MS:-20}"
 CAMERA_GAIN="${CAMERA_GAIN:-8}"
-PROFILE="${PROFILE:-competition}"
+PROFILE="${PROFILE:-debug}"
 VISION_PREVIEW="${VISION_PREVIEW:-0}"
 
 fail() { printf '\033[0;31m[ERROR]\033[0m %s\n' "$*" >&2; exit 1; }

@@ -555,7 +555,7 @@ class Camera:
         # 海康相机可能需要额外设置：
         # self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         # self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # 手动曝光
-      
+    
     def read(self):
         ret, frame = self.cap.read()
         return ret, frame
@@ -580,11 +580,11 @@ class BlockDetector:
         # 绿色阈值 (HSV) — 先以标准值为参考，现场调整
         self.green_lower = np.array([35, 40, 40])
         self.green_upper = np.array([85, 255, 255])
-      
+    
         # 灰色阈值 (HSV)
         self.gray_lower = np.array([0, 0, 180])
         self.gray_upper = np.array([180, 30, 255])
-      
+    
         # 黑色阈值 (HSV) — 用于边界线检测
         self.black_lower = np.array([0, 0, 0])
         self.black_upper = np.array([180, 255, 50])
@@ -608,9 +608,9 @@ class BlockDetector:
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-      
+    
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-      
+    
         blocks = []
         for cnt in contours:
             area = cv2.contourArea(cnt)
@@ -619,7 +619,7 @@ class BlockDetector:
             x, y, w, h = cv2.boundingRect(cnt)
             cx, cy = x + w//2, y + h//2
             blocks.append((cx, cy, w, h, area))
-      
+    
         # 按面积从大到小排
         blocks.sort(key=lambda b: b[4], reverse=True)
         return blocks
@@ -660,16 +660,16 @@ class DigitReader:
             roi = frame[y:y+h, x:x+w]
         else:
             roi = frame
-      
+    
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         # 二值化（数字是亮的灰色，背景是暗的绿色）
         # 反转：让数字变成白字黑底
         _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
-      
+    
         # OCR识别
         config = '--psm 6 -c tessedit_char_whitelist=0123456789'
         text = pytesseract.image_to_string(thresh, config=config).strip()
-      
+    
         if text and text.isdigit():
             return int(text)
         return None
@@ -682,12 +682,12 @@ class DigitReader:
         """
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
-      
+    
         # 模板匹配（需要先截取A字符图片作为模板）
         # template = cv2.imread('templates/A_marker.png', 0)
         # result = cv2.matchTemplate(thresh, template, cv2.TM_CCOEFF_NORMED)
         # 或使用轮廓特征检测
-      
+    
         # 简化方案：找大面积的黑色连通区域
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for cnt in contours:
@@ -812,26 +812,26 @@ class Localizer:
         self.path = PATH                    # 预设路径 [21, 20, 18, ...]
         self.path_index = 0                 # 当前在路径中的位置
         self.current_block = self.path[0]   # 当前区块号
-      
+    
         # 光流位置积分 (cm)，起飞点为原点
         self.pos_x = 0.0
         self.pos_y = 0.0
-      
+    
         # Layer 2 相关
         self.prev_green_ratio = 0.0
         self.green_drop_threshold = 0.4      # 绿色占比下降超过此值=跨边界
         self.green_high = 0.6                # 绿色占比高=在区块内
         self.green_low = 0.2                 # 绿色占比低=在灰色区域
-      
+    
         # Layer 3 相关
         self.last_ocr_block = None
         self.since_last_ocr = 0             # 距上次OCR读数经过的区块数
         self.ocr_interval = 4               # 每4个区块尝试OCR一次
-      
+    
         # 移动方向追踪
         self.move_direction = 0             # 当前移动方向(度)
         self.block_size_cm = 50             # 每个区块50cm
-      
+    
         # 微调状态
         self.fine_tuning = False
         self.fine_tune_dx = 0
@@ -848,15 +848,15 @@ class Localizer:
         返回: True 如果刚刚跨过了边界
         """
         crossed = False
-      
+    
         if self.prev_green_ratio > self.green_high and green_ratio < self.green_low:
             # 从绿色区域进入了灰色区域 → 刚刚离开了一块
             crossed = True
-      
+    
         if self.prev_green_ratio < self.green_low and green_ratio > self.green_high:
             # 从灰色区域进入了绿色区域 → 刚刚进入了一块
             crossed = True
-      
+    
         self.prev_green_ratio = green_ratio
         return crossed
   
@@ -867,7 +867,7 @@ class Localizer:
         """
         if block_number is None:
             return False
-      
+    
         if block_number in self.path:
             self.current_block = block_number
             self.path_index = self.path.index(block_number)
@@ -889,7 +889,7 @@ class Localizer:
         self.pos_x = 0.0  # 重置相对漂移
         self.pos_y = 0.0
         self.since_last_ocr += 1
-      
+    
     def get_current_target(self):
         """获取当前目标区块编号"""
         return self.current_block
@@ -989,7 +989,7 @@ def init_grid():
         # 在grid坐标中 (col增=X轴正方向, row增=Y轴负方向)
         x = ORIGIN_OFFSET_X + col * 50 + 25  # 区块中心X
         y = ORIGIN_OFFSET_Y + (6 - row) * 50 + 25  # 区块中心Y (翻转axis)
-      
+    
         BLOCK_GRID[bid] = (col, row)
         BLOCK_POSITIONS[bid] = (x, y)
   
@@ -1013,13 +1013,13 @@ def generate_move_commands(path, positions, speed_cmps=30):
         nxt_id = path[i + 1]
         cur_pos = positions[cur_id]
         nxt_pos = positions[nxt_id]
-      
+    
         dx = nxt_pos[0] - cur_pos[0]
         dy = nxt_pos[1] - cur_pos[1]
-      
+    
         distance = np.sqrt(dx**2 + dy**2)
         direction = np.degrees(np.arctan2(dy, dx)) % 360
-      
+    
         commands.append({
             'from': cur_id,
             'to': nxt_id,
@@ -1077,7 +1077,7 @@ def print_path_map():
     Col: 0   1   2   3   4   5   6
 Row0: 28  26  25  24  23      22
 Row1: 21  20  18  16  15  19  17
-Row2: 12  14  13  11        
+Row2: 12  14  13  11      
 Row3: 10   9           8   7  
 Row4:                 5   6  
 Row5:                 4   3  
@@ -1157,19 +1157,19 @@ class DroneStateMachine:
         self.laser = laser        # 激光控制对象
         self.visited = [False] * 29  # visited[1..28]
         self.visited[0] = True    # 不用下标0
-      
+    
         self.cfg = config         # 配置参数
-      
+    
         # 状态计时器
         self.state_start_time = 0
         self.spray_start_time = 0
         self.takeoff_start_time = 0
-      
+    
         # 路径相关
         self.path = PATH
         self.move_commands = None
         self.cmd_index = 0
-      
+    
         # 重试计数
         self.retry_count = 0
         self.max_retries = 3
@@ -1177,19 +1177,19 @@ class DroneStateMachine:
     def run_iteration(self):
         """每个循环周期调用一次（20-50Hz）"""
         frame, green_ratio, ocr_result = self._get_vision_data()
-      
+    
         # 更新光流
         of_dx, of_dy = self.mcu.read_optical_flow()
         self.localizer.update_optical_flow(of_dx, of_dy)
-      
+    
         # 检查颜色跳变
         if self.localizer.check_boundary_crossed(green_ratio):
             self.localizer.advance_block()
-      
+    
         # 尝试OCR校准
         if self.localizer.should_do_ocr():
             self.localizer.apply_ocr(ocr_result)
-      
+    
         # 执行当前状态
         {
             FlightState.IDLE:              self._state_idle,
@@ -1224,7 +1224,7 @@ class DroneStateMachine:
   
     def _state_takeoff(self, frame, green_ratio, ocr_result):
         self.mcu.send_cmd_takeoff(150)  # 起飞至150cm
-      
+    
         # 检查高度是否到达
         alt = self.mcu.read_altitude()
         if 140 <= alt <= 160:
@@ -1243,7 +1243,7 @@ class DroneStateMachine:
         cmd = generate_move_commands(PATH[:1], BLOCK_POSITIONS, 
                                      self.cfg['debug_speed'])[0]
         self.mcu.send_cmd_move(cmd['distance'], cmd['speed'], cmd['direction'])
-      
+    
         # 等待移动完成 + 视觉确认
         if ocr_result == 21:  # 或检测到A标记
             # 微调居中
@@ -1258,13 +1258,13 @@ class DroneStateMachine:
   
     def _state_spray(self, frame, green_ratio, ocr_result):
         cur_block = self.localizer.get_current_target()
-      
+    
         if not self.visited[cur_block]:
             # 激光闪烁
             self.laser.blink(count=2, period_ms=1500)
             self.visited[cur_block] = True
             print(f"[SPRAY] Block {cur_block} sprayed")
-      
+    
         # 检查是否完成
         if all(self.visited[1:]):
             self._transition(FlightState.RETURN_HOME)
@@ -1278,23 +1278,23 @@ class DroneStateMachine:
             if not self.visited[bid]:
                 next_block = bid
                 break
-      
+    
         if next_block is None:
             self._transition(FlightState.RETURN_HOME)
             return
-      
+    
         # 从当前位置移动到next_block
         cur_block = self.localizer.get_current_target()
         cur_pos = BLOCK_POSITIONS[cur_block]
         nxt_pos = BLOCK_POSITIONS[next_block]
-      
+    
         dx = nxt_pos[0] - cur_pos[0]
         dy = nxt_pos[1] - cur_pos[1]
         distance = int(np.sqrt(dx**2 + dy**2))
         direction = int(np.degrees(np.arctan2(dy, dx)) % 360)
-      
+    
         self.mcu.send_cmd_move(distance, self.cfg['move_speed'], direction)
-      
+    
         # 等待移动完成（颜色跳变检测会自动触发advance_block）
         # 或超时继续
         if time.time() - self.state_start_time > 5:
@@ -1305,15 +1305,15 @@ class DroneStateMachine:
         gpx, gpy = self.localizer.get_position_for_return()
         distance = int(np.sqrt(gpx**2 + gpy**2))
         direction = int(np.degrees(np.arctan2(gpy, gpx)) % 360)
-      
+    
         self.mcu.send_cmd_move(distance, self.cfg['move_speed'], direction)
         time.sleep(distance / self.cfg['move_speed'] + 1)
-      
+    
         self._transition(FlightState.LAND)
   
     def _state_land(self, frame, green_ratio, ocr_result):
         self.mcu.send_cmd_land()
-      
+    
         # 等待降落完成
         alt = self.mcu.read_altitude()
         if alt < 10:  # 距离地面10cm以内
@@ -1337,11 +1337,11 @@ class DroneStateMachine:
         ret, frame = self.camera.read()
         if not ret:
             return None, 0.0, None
-      
+    
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         green_ratio = self.camera.detector.calc_green_ratio(hsv)
         ocr_result = self.camera.digit_reader.extract_digits(frame)
-      
+    
         return frame, green_ratio, ocr_result
   
     def _check_start_signal(self):
@@ -1385,7 +1385,7 @@ class LaserController:
         """
         on_time = period_ms / 2 / 1000.0  # 50%占空比
         off_time = period_ms / 2 / 1000.0
-      
+    
         for i in range(count):
             self.on()
             time.sleep(on_time)

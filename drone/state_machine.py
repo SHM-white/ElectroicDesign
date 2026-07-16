@@ -282,11 +282,12 @@ class DroneStateMachine:
 
     def _state_find_start(self, frame, green_ratio, ocr_result):
         """按飞控位置前往21号块，用A标记或数字21确认起点。"""
-        # 计算到区块21的移动指令
+        # 相机装在机尾：机体需越过区块中心25cm，才能让相机位于A点正上方。
         target_pos = get_block_position(21)
         if target_pos is None:
             self._emergency("Cannot find block 21 position")
             return
+        target_pos = self._camera_centered_body_target(*target_pos)
 
         distance, direction = self._calc_move_to_target(target_pos[0], target_pos[1])
 
@@ -471,6 +472,9 @@ class DroneStateMachine:
     def _state_return_home(self, frame, green_ratio, ocr_result):
         """返回起降点"""
         hx, hy = get_home_position()
+        # 与A点一致，粗返航先把机体前移到使机尾相机位于十字上方的位置；
+        # ALIGN_HOME 随后用视觉对同一目标关系做精确闭环。
+        hx, hy = self._camera_centered_body_target(hx, hy)
         distance, direction = self._calc_move_to_target(hx, hy)
 
         # 28号块完成后一路识别十字。稳定检出时直接转精对准，可减少
@@ -516,10 +520,13 @@ class DroneStateMachine:
         fx = self.cfg.get('camera_focal_x_px', 800.0)
         fy = self.cfg.get('camera_focal_y_px', 800.0)
 
-        # 实测标定：机体中心对准十字时，十字应位于画面中心向下25cm
-        # 对应的位置。该量是图像目标偏移，不再用相机安装方向命名。
-        error_forward = self.cfg.get('home_target_down_offset_cm', 25.0) \
-            - (center[1] - cy) * alt / fy
+        # 图像已旋转180°且画面上方为机头方向。机体中心对准十字时，
+        # 机尾相机看到的十字应位于画面主点上方对应25cm的位置。
+        observed_forward = (cy - center[1]) * alt / fy
+        # 移动机体向前会让地面十字在画面中向下移动，因此控制误差为
+        # “观测值-目标值”。十字位于画面中心时 observed=0，需后退25cm。
+        error_forward = observed_forward \
+            - self.cfg.get('home_target_up_offset_cm', 25.0)
         error_right = (center[0] - cx) * alt / fx
         distance = math.hypot(error_forward, error_right)
         tolerance = self.cfg.get('home_align_tolerance_cm', 8.0)
@@ -646,6 +653,14 @@ class DroneStateMachine:
         self._transition(FlightState.EMERGENCY)
 
     # ── 移动计算 ──────────────────────────────────────────
+
+    def _camera_centered_body_target(
+            self, target_x: float, target_y: float) -> tuple[float, float]:
+        """将地面视觉目标转换为机体目标，使机尾相机位于目标正上方。"""
+        return (
+            target_x + self.cfg.get('camera_tail_forward_offset_cm', 25.0),
+            target_y,
+        )
 
     def _calc_move_to_target(self, target_x: float, target_y: float) -> tuple[int, int]:
         """计算从当前位置到目标位置的距离(cm)和方向(度)"""

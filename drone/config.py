@@ -44,7 +44,7 @@ CURRENT_PROFILE: str = 'debug'
 
 # ── 飞行参数 ──────────────────────────────────────────────
 
-TAKEOFF_HEIGHT_CM = 150          # 起飞目标高度(cm)
+TAKEOFF_HEIGHT_CM = 120          # 起飞目标高度(cm)
 TAKEOFF_HEIGHT_TOLERANCE = 10    # 起飞高度容差(±cm)
 TAKEOFF_TIMEOUT_S = 15           # 起飞超时(秒)
 
@@ -88,9 +88,12 @@ CAMERA_FPS = 30
 CAMERA_DEVICE_ID = 0
 PREVIEW_MAX_WIDTH = 720          # SSH X11预览宽度；不影响识别原图
 
-# 相机朝下且装在机尾。实测目标定义：机体中心对齐十字时，十字位于
-# 画面中心向下25cm处；激光与相机相距约3cm，播撒时可忽略并视为同轴。
-HOME_TARGET_DOWN_OFFSET_CM = 25.0
+# 相机朝下且装在机尾，距机体中心约25cm。为使相机位于地面目标正
+# 上方，机体粗导航目标需要沿机头方向（世界坐标+X）多走25cm。
+CAMERA_TAIL_FORWARD_OFFSET_CM = 20.0
+# 图像已旋转180°，画面上方对应机头方向。机体中心对准起降点时，
+# 十字应位于画面主点上方对应25cm的位置。
+HOME_TARGET_UP_OFFSET_CM = CAMERA_TAIL_FORWARD_OFFSET_CM
 CAMERA_FOCAL_X_PX = 800.0       # 需用实际相机标定结果替换
 CAMERA_FOCAL_Y_PX = 800.0
 CAMERA_PRINCIPAL_X_PX = 720.0   # MVS当前1440x1080画面的中心初值
@@ -204,7 +207,8 @@ def get_config() -> Dict[str, Any]:
         'camera_fps': CAMERA_FPS,
         'camera_device_id': CAMERA_DEVICE_ID,
         'preview_max_width': PREVIEW_MAX_WIDTH,
-        'home_target_down_offset_cm': HOME_TARGET_DOWN_OFFSET_CM,
+        'camera_tail_forward_offset_cm': CAMERA_TAIL_FORWARD_OFFSET_CM,
+        'home_target_up_offset_cm': HOME_TARGET_UP_OFFSET_CM,
         'camera_focal_x_px': CAMERA_FOCAL_X_PX,
         'camera_focal_y_px': CAMERA_FOCAL_Y_PX,
         'camera_principal_x_px': CAMERA_PRINCIPAL_X_PX,
