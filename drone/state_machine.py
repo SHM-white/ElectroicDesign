@@ -331,8 +331,7 @@ class DroneStateMachine:
         # C类移动指令只能在程控模式使用，必须确认模式3后才允许起飞。
         mode_switch_wait_s = self.cfg.get('mode_switch_wait_s', 1)
         if (self._has_flight_status() and self.mcu.read_mode() == 3
-            and self.state_start_time >= mode_switch_wait_s):
-            # 重置光流零点
+            and self.state_start_time >= mode_switch_wait_s):            # 重置光流零点
             if not self.mcu.send_of_zero_reset():
                 self._emergency("Failed to reset optical flow origin")
                 return

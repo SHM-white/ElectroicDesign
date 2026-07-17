@@ -44,7 +44,7 @@ CURRENT_PROFILE: str = 'debug'
 
 # ── 飞行参数 ──────────────────────────────────────────────
 
-TAKEOFF_HEIGHT_CM = 120          # 起飞目标高度(cm)
+TAKEOFF_HEIGHT_CM = 130          # 起飞目标高度(cm)
 TAKEOFF_HEIGHT_TOLERANCE = 10    # 起飞高度容差(±cm)
 TAKEOFF_TIMEOUT_S = 15           # 起飞超时(秒)
 
@@ -55,7 +55,7 @@ LAND_CONFIRM_SAMPLES = 3         # 连续新鲜低高度样本数
 ALTITUDE_MAX_AGE_S = 1.0         # 高度遥测最大允许年龄
 LOCK_TIMEOUT_S = 5               # 加锁遥测确认超时
 
-MAX_MISSION_TIME_S = 360         # 任务总超时(秒) - 赛题要求
+MAX_MISSION_TIME_S = 2000         # 任务总超时(秒) - 赛题要求
 
 # 高度警戒
 ALT_MIN_CM = 30                  # 最低安全高度
@@ -82,10 +82,10 @@ BLOCK_SIZE_CM = 50          # 每块50cm×50cm
 
 # ── 视觉参数 ──────────────────────────────────────────────
 
-VISION_BACKEND = 'industrial'  # industrial=工业相机; openmv=板端识别
+VISION_BACKEND = 'mvs'  # industrial=工业相机; openmv=板端识别
 
-CAMERA_WIDTH = 640
-CAMERA_HEIGHT = 480
+CAMERA_WIDTH = 1440
+CAMERA_HEIGHT = 1080
 CAMERA_FPS = 30
 CAMERA_DEVICE_ID = 0
 PREVIEW_MAX_WIDTH = 720          # SSH X11预览宽度；不影响识别原图
@@ -105,7 +105,7 @@ HOME_CROSS_CONFIRM_FRAMES = 3
 HOME_ALIGN_TOLERANCE_CM = 8.0
 HOME_ALIGN_MAX_STEP_CM = 30
 HOME_ALIGN_TIMEOUT_S = 30
-START_BLOCK_CONFIRM_FRAMES = 3
+START_BLOCK_CONFIRM_FRAMES = 2
 START_BLOCK_CONFIRM_WINDOW_S = 5.0  # 异步OCR成功事件累计时间窗
 START_BLOCK_TIMEOUT_S = 30
 
@@ -191,7 +191,7 @@ FLOW_LOST_TIMEOUT_S = 5        # 光流失锁超时(秒)
 # 人工移动场测中，单块等待 OCR 15 秒后按预定目标继续播撒；连续
 # 3 个目标均超时则判定任务失败并紧急降落。
 MANUAL_NAVIGATION_TIMEOUT_S = 15
-MAX_CONSECUTIVE_OCR_TIMEOUTS = 3
+MAX_CONSECUTIVE_OCR_TIMEOUTS = 30
 
 # ── 调试模式 ──────────────────────────────────────────────
 
