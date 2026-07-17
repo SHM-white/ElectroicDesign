@@ -13,6 +13,8 @@ Section 10: 状态机设计
 import math
 import time
 import logging
+from collections import deque
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Optional
 
@@ -39,6 +41,28 @@ class FlightState(Enum):
     LOCK = auto()               # 加锁
     EMERGENCY = auto()          # 紧急状态
     DONE = auto()               # 任务完成
+
+
+class NavigationPhase(Enum):
+    """NAVIGATE内部子阶段。"""
+    ROUTE = auto()
+    ACQUIRE_GRAY = auto()
+    WAIT_CORRECTION = auto()
+    RESUME_ROUTE = auto()
+    ARRIVAL = auto()
+
+
+@dataclass
+class ActiveRoute:
+    target_block: int
+    start_x: float
+    start_y: float
+    target_x: float
+    target_y: float
+    initial_distance_cm: float
+    direction_deg: int
+    started_at: float
+    command_id: int
 
 
 class DroneStateMachine:
@@ -90,6 +114,38 @@ class DroneStateMachine:
         self._consecutive_ocr_timeouts = 0
         self._landing_low_alt_count = 0
         self._last_landing_alt_sequence = None
+        self._gray_marker_center = None
+        self._gray_marker_box = None
+        self._gray_marker_confidence = 0.0
+        self._gray_marker_sequence = None
+
+        # 导航路线与灰色中心辅助校准。
+        self._nav_phase = NavigationPhase.ROUTE
+        self._active_route: Optional[ActiveRoute] = None
+        self._move_command_id = 0
+        self._nav_progress = 0.0
+        self._nav_remaining_cm = 0.0
+        self._nav_cross_track_cm = 0.0
+        self._calibration_started_at = 0.0
+        self._calibration_attempts = 0
+        self._calibration_corrections = 0
+        self._calibration_total_distance_cm = 0.0
+        self._calibration_centers = deque(maxlen=max(
+            1, int(config.get('gray_calibration_confirm_frames', 3)),
+        ))
+        self._last_gray_sequence = None
+        self._last_calibration_command = 0.0
+        self._last_calibration_error_cm = None
+        self._calibration_error_forward_cm = 0.0
+        self._calibration_error_right_cm = 0.0
+        self._calibration_world_anchor_applied = False
+        self._calibration_status = 'idle'
+        self._calibration_last_action = 'WAITING'
+        self._calibration_completed = False
+        self._calibration_stats = {
+            'commands': 0, 'successes': 0, 'degraded': 0,
+            'timeouts': 0, 'skipped': 0, 'distance_cm': 0.0,
+        }
 
         # 异常检测
         self._emergency_reason = ""
@@ -169,6 +225,15 @@ class DroneStateMachine:
                 home_cross=self.state in (
                     FlightState.RETURN_HOME, FlightState.ALIGN_HOME,
                 ),
+                gray_marker=(
+                    self.state == FlightState.NAVIGATE
+                    and self.cfg.get('gray_calibration_enabled', True)
+                    and self._nav_progress >= self.cfg.get(
+                        'gray_calibration_start_progress', 0.66,
+                    )
+                    and not self._calibration_completed
+                ),
+                navigation_details=self._navigation_details(),
             )
 
         # 获取视觉数据
@@ -235,24 +300,43 @@ class DroneStateMachine:
         """解锁电机"""
         if not self._state_command_sent:
             logger.info("Sending unlock command...")
-            self.mcu.send_cmd_unlock()
+            if not self.mcu.send_cmd_unlock():
+                self._emergency("Failed to send motor unlock command")
+                return
             self._state_command_sent = True
-        # 等待解锁完成
-        if self.state_start_time > self.cfg['unlock_wait_s']:
+
+        # V7 0x06 状态帧中 LOCKED: 1=已解锁，0=已锁定。
+        # 真机优先等待遥测确认；旧测试桩或未提供新鲜状态接口时保留延时兼容。
+        has_lock_status = getattr(self.mcu, 'has_recent_lock_status', None)
+        status_is_recent = (
+            has_lock_status() if callable(has_lock_status)
+            else self._has_flight_status()
+        )
+        if status_is_recent and self.mcu.read_locked() == 1:
             self._transition(FlightState.SET_PROGRAM_MODE)
+        elif self.state_start_time > self.cfg.get('unlock_timeout_s', 5):
+            self._emergency("Motor unlock could not be confirmed")
 
     def _state_set_program_mode(self, frame, green_ratio, ocr_result):
         """切换到程控模式"""
         if not self._state_command_sent:
             logger.info("Setting program control mode...")
-            self.mcu.send_cmd_mode(3)  # 程控模式
+            if not self.mcu.send_cmd_mode(3):  # 程控模式
+                self._emergency("Failed to send program mode command")
+                return
             self._state_command_sent = True
-        if self.state_start_time > self.cfg['mode_switch_wait_s']:
+
+        # C类移动指令只能在程控模式使用，必须确认模式3后才允许起飞。
+        if self._has_flight_status() and self.mcu.read_mode() == 3:
             # 重置光流零点
-            self.mcu.send_of_zero_reset()
+            if not self.mcu.send_of_zero_reset():
+                self._emergency("Failed to reset optical flow origin")
+                return
             self.localizer._init_global_position()
             self._mission_start_time = time.time()
             self._transition(FlightState.TAKEOFF)
+        elif self.state_start_time > self.cfg.get('mode_switch_timeout_s', 5):
+            self._emergency("Program control mode could not be confirmed")
 
     def _state_takeoff(self, frame, green_ratio, ocr_result):
         """起飞至目标高度"""
@@ -262,7 +346,9 @@ class DroneStateMachine:
         # 仅第一次进入时发送指令
         if not self._state_command_sent:
             logger.info(f"Taking off to {takeoff_height}cm...")
-            self.mcu.send_cmd_takeoff(takeoff_height)
+            if not self.mcu.send_cmd_takeoff(takeoff_height):
+                self._emergency("Failed to send takeoff command")
+                return
             self._state_command_sent = True
 
         # 检查高度
@@ -379,6 +465,333 @@ class DroneStateMachine:
         else:
             self._transition(FlightState.NAVIGATE)
 
+    def _start_route(self, target_block: int, target_pos: tuple[float, float]) -> None:
+        cur_x, cur_y = self.localizer.get_global_position()
+        distance, direction = self._calc_move_to_target(*target_pos)
+        self._move_command_id += 1
+        self._active_route = ActiveRoute(
+            target_block=target_block,
+            start_x=cur_x,
+            start_y=cur_y,
+            target_x=target_pos[0],
+            target_y=target_pos[1],
+            initial_distance_cm=max(float(distance), 1.0),
+            direction_deg=direction,
+            started_at=time.time(),
+            command_id=self._move_command_id,
+        )
+        self._nav_phase = NavigationPhase.ROUTE
+        self._nav_progress = 0.0
+        self._reset_gray_calibration()
+        logger.info(
+            "[NAV] route=%d target=%d start=(%.1f,%.1f) target_pos=(%.1f,%.1f) "
+            "distance=%dcm direction=%d° speed=%dcm/s",
+            self._active_route.command_id, target_block, cur_x, cur_y,
+            target_pos[0], target_pos[1], distance, direction,
+            self.cfg['move_speed'],
+        )
+
+    def _reset_gray_calibration(self) -> None:
+        self._calibration_started_at = 0.0
+        self._calibration_attempts = 0
+        self._calibration_corrections = 0
+        self._calibration_total_distance_cm = 0.0
+        self._calibration_centers.clear()
+        self._last_gray_sequence = None
+        self._last_calibration_command = 0.0
+        self._last_calibration_error_cm = None
+        self._calibration_error_forward_cm = 0.0
+        self._calibration_error_right_cm = 0.0
+        self._calibration_world_anchor_applied = False
+        self._calibration_status = 'waiting'
+        self._calibration_last_action = 'WAITING FOR 66%'
+        self._calibration_completed = False
+
+    def _update_route_metrics(self) -> None:
+        route = self._active_route
+        if route is None:
+            self._nav_progress = 0.0
+            self._nav_remaining_cm = 0.0
+            self._nav_cross_track_cm = 0.0
+            return
+        cur_x, cur_y = self.localizer.get_global_position()
+        vx = route.target_x - route.start_x
+        vy = route.target_y - route.start_y
+        length_sq = vx * vx + vy * vy
+        if length_sq <= 1e-6:
+            self._nav_progress = 1.0
+            self._nav_cross_track_cm = 0.0
+        else:
+            px = cur_x - route.start_x
+            py = cur_y - route.start_y
+            projected = (px * vx + py * vy) / length_sq
+            self._nav_progress = max(0.0, min(1.0, projected))
+            self._nav_cross_track_cm = abs(px * vy - py * vx) / math.sqrt(length_sq)
+        self._nav_remaining_cm = math.hypot(
+            route.target_x - cur_x, route.target_y - cur_y,
+        )
+        if self.cfg.get('manual_navigation', False):
+            expected_s = route.initial_distance_cm / max(1.0, self.cfg['move_speed'])
+            elapsed_progress = (time.time() - route.started_at) / max(1.0, expected_s)
+            self._nav_progress = max(
+                self._nav_progress, min(0.95, elapsed_progress),
+            )
+
+    def _calibration_tolerance(self) -> float:
+        if self._calibration_corrections == 0:
+            return self.cfg.get('gray_calibration_first_tolerance_cm', 7.0)
+        return self.cfg.get('gray_calibration_later_tolerance_cm', 11.0)
+
+    def _finish_gray_calibration(self, outcome: str, reason: str) -> None:
+        if self._calibration_completed:
+            return
+        self._calibration_completed = True
+        self._calibration_status = outcome
+        self._calibration_last_action = reason
+        if outcome == 'aligned':
+            self._calibration_stats['successes'] += 1
+        elif outcome == 'skipped':
+            self._calibration_stats['skipped'] += 1
+        else:
+            self._calibration_stats['degraded'] += 1
+            if outcome == 'timeout':
+                self._calibration_stats['timeouts'] += 1
+        logger.info(
+            "[GRAY_CAL] target=%s event=completed outcome=%s progress=%.1f%% "
+            "attempts=%d corrections=%d total=%.1fcm reason=%s",
+            self._active_route.target_block if self._active_route else '-',
+            outcome, self._nav_progress * 100.0, self._calibration_attempts,
+            self._calibration_corrections,
+            self._calibration_total_distance_cm, reason,
+        )
+
+    def _anchor_gray_target_to_world(self, route: ActiveRoute) -> None:
+        """确认数字中心对准后，用该区块真实坐标校准0x08→世界坐标偏置。"""
+        if self._calibration_world_anchor_applied:
+            return
+        correction = self.localizer.calibrate_world_position(
+            route.target_x, route.target_y, source='visual',
+        )
+        self._calibration_world_anchor_applied = True
+        self._calibration_last_action = (
+            f'WORLD ANCHOR {correction[0]:+.1f},{correction[1]:+.1f}cm'
+        )
+        logger.info(
+            "[GRAY_CAL] target=%d event=world-anchor correction_x=%+.1fcm "
+            "correction_y=%+.1fcm flow=%s offset=%s",
+            route.target_block, correction[0], correction[1],
+            self.localizer.get_flow_position(),
+            self.localizer.get_world_offset(),
+        )
+
+    def _run_gray_calibration(self) -> bool:
+        """执行导航中段校准；返回True表示本轮应等待校准。"""
+        route = self._active_route
+        if route is None:
+            return False
+        if self._calibration_completed:
+            return False
+        if not self.cfg.get('gray_calibration_enabled', True):
+            self._finish_gray_calibration('skipped', 'disabled')
+            return False
+        if self.camera is None:
+            self._finish_gray_calibration(
+                'skipped', 'no camera / simulated calibration completed',
+            )
+            return False
+        if self._nav_progress < self.cfg.get('gray_calibration_start_progress', 0.66):
+            return False
+
+        now = time.time()
+        if self._calibration_started_at == 0.0:
+            self._calibration_started_at = now
+            self._nav_phase = NavigationPhase.ACQUIRE_GRAY
+            self._calibration_status = 'acquiring'
+            self._calibration_last_action = 'ACQUIRING GRAY CENTER'
+            logger.info(
+                "[GRAY_CAL] target=%d event=armed progress=%.1f%% remaining=%.1fcm",
+                route.target_block, self._nav_progress * 100.0,
+                self._nav_remaining_cm,
+            )
+
+        if now - self._calibration_started_at >= self.cfg.get(
+                'gray_calibration_total_timeout_s', 6.0):
+            self._finish_gray_calibration('timeout', 'total timeout; continue route')
+            return False
+
+        if self._nav_phase == NavigationPhase.WAIT_CORRECTION:
+            if now - self._last_calibration_command < self.cfg.get(
+                    'gray_calibration_command_interval_s', 0.8):
+                return True
+            self._nav_phase = NavigationPhase.ACQUIRE_GRAY
+            self._calibration_centers.clear()
+
+        if (self._gray_marker_center is None
+                or self._gray_marker_confidence < self.cfg.get(
+                    'gray_calibration_min_confidence', 0.55)):
+            if now - self._calibration_started_at >= self.cfg.get(
+                    'gray_calibration_acquire_timeout_s', 2.5):
+                self._finish_gray_calibration(
+                    'degraded', 'gray center unavailable; continue route',
+                )
+                return False
+            return True
+
+        if self._gray_marker_sequence == self._last_gray_sequence:
+            return True
+        self._last_gray_sequence = self._gray_marker_sequence
+        self._calibration_attempts += 1
+        self._calibration_centers.append(self._gray_marker_center)
+        logger.info(
+            "[GRAY_CAL] target=%d event=observed progress=%.1f%% center=(%.1f,%.1f) "
+            "box=%s confidence=%.2f stable=%d/%d",
+            route.target_block, self._nav_progress * 100.0,
+            self._gray_marker_center[0], self._gray_marker_center[1],
+            self._gray_marker_box, self._gray_marker_confidence,
+            len(self._calibration_centers),
+            self.cfg.get('gray_calibration_confirm_frames', 3),
+        )
+        required = self.cfg.get('gray_calibration_confirm_frames', 3)
+        if len(self._calibration_centers) < required:
+            return True
+
+        centers = list(self._calibration_centers)
+        median_x = sorted(point[0] for point in centers)[len(centers) // 2]
+        median_y = sorted(point[1] for point in centers)[len(centers) // 2]
+        max_spread = max(
+            math.hypot(point[0] - median_x, point[1] - median_y)
+            for point in centers
+        )
+        if max_spread > self.cfg.get('gray_calibration_stability_px', 28.0):
+            self._calibration_centers.clear()
+            self._calibration_last_action = f'UNSTABLE {max_spread:.0f}px'
+            logger.warning(
+                "[GRAY_CAL] target=%d event=rejected reason=unstable spread=%.1fpx",
+                route.target_block, max_spread,
+            )
+            return True
+
+        altitude = max(float(self.mcu.read_altitude()), 1.0)
+        cx = self.cfg.get('camera_principal_x_px', 720.0)
+        cy = self.cfg.get('camera_principal_y_px', 540.0)
+        fx = self.cfg.get('camera_focal_x_px', 800.0)
+        fy = self.cfg.get('camera_focal_y_px', 800.0)
+        observed_forward = (cy - median_y) * altitude / fy
+        observed_right = (median_x - cx) * altitude / fx
+        error_forward = observed_forward - self.cfg.get(
+            'work_point_forward_offset_cm',
+            self.cfg.get('camera_tail_forward_offset_cm', 20.0),
+        )
+        error_right = observed_right - self.cfg.get(
+            'work_point_right_offset_cm', 0.0,
+        )
+        error_distance = math.hypot(error_forward, error_right)
+        self._calibration_error_forward_cm = error_forward
+        self._calibration_error_right_cm = error_right
+        tolerance = self._calibration_tolerance()
+        if error_distance <= tolerance:
+            self._anchor_gray_target_to_world(route)
+            self._finish_gray_calibration(
+                'aligned', f'aligned within {tolerance:.1f}cm',
+            )
+            return False
+
+        max_corrections = self.cfg.get('gray_calibration_max_corrections', 3)
+        if self._calibration_corrections >= max_corrections:
+            self._finish_gray_calibration(
+                'degraded', 'correction limit reached; continue route',
+            )
+            return False
+        if (self._last_calibration_error_cm is not None
+                and error_distance > self._last_calibration_error_cm
+                / self.cfg.get('gray_calibration_min_improvement_ratio', 0.90)):
+            self._finish_gray_calibration(
+                'degraded', 'error did not improve; continue route',
+            )
+            return False
+
+        max_step = self.cfg.get(
+            'gray_calibration_first_max_step_cm', 15.0,
+        ) if self._calibration_corrections == 0 else self.cfg.get(
+            'gray_calibration_later_max_step_cm', 10.0,
+        )
+        remaining_budget = self.cfg.get(
+            'gray_calibration_max_total_distance_cm', 35.0,
+        ) - self._calibration_total_distance_cm
+        step = min(error_distance, max_step, remaining_budget)
+        if step < 1.0:
+            self._finish_gray_calibration(
+                'degraded', 'correction distance budget exhausted',
+            )
+            return False
+        direction = int(math.degrees(math.atan2(error_right, error_forward)) % 360)
+        auto_command = self.cfg.get('gray_calibration_auto_command', True)
+        if self.cfg.get('manual_navigation', False):
+            auto_command = self.cfg.get(
+                'manual_gray_calibration_auto_command', True,
+            )
+        source = 'manual-simulated' if self.cfg.get(
+            'manual_navigation', False,
+        ) else ('simulated' if getattr(self.mcu, 'dry_run', False) else 'real')
+        if auto_command:
+            self.mcu.send_cmd_move(
+                max(1, int(round(step))), self.cfg['move_speed'], direction,
+            )
+        self._calibration_corrections += 1
+        self._calibration_total_distance_cm += step
+        self._calibration_stats['commands'] += int(auto_command)
+        self._calibration_stats['distance_cm'] += step
+        self._last_calibration_error_cm = error_distance
+        self._last_calibration_command = now
+        self._nav_phase = NavigationPhase.WAIT_CORRECTION
+        self._calibration_status = 'correcting'
+        self._calibration_last_action = (
+            f"{'MOVE' if auto_command else 'SUGGEST'} {step:.1f}cm @{direction}°"
+        )
+        logger.info(
+            "[GRAY_CAL] target=%d event=commanded source=%s progress=%.1f%% "
+            "center=(%.1f,%.1f) confidence=%.2f error_forward=%+.1fcm "
+            "error_right=%+.1fcm error=%.1fcm tolerance=%.1fcm correction=%d/%d "
+            "command=%s distance=%.1fcm direction=%d° total=%.1fcm",
+            route.target_block, source, self._nav_progress * 100.0,
+            median_x, median_y, self._gray_marker_confidence,
+            error_forward, error_right, error_distance, tolerance,
+            self._calibration_corrections, max_corrections,
+            'sent' if auto_command else 'suggested', step, direction,
+            self._calibration_total_distance_cm,
+        )
+        return True
+
+    def _resume_route_after_gray_calibration(self) -> bool:
+        """灰色修正会覆盖原平移指令，完成后重新下发剩余主路线。"""
+        route = self._active_route
+        if route is None or self._nav_phase != NavigationPhase.RESUME_ROUTE:
+            return False
+
+        distance, direction = self._calc_move_to_target(
+            route.target_x, route.target_y,
+        )
+        if distance < 10:
+            self._nav_phase = NavigationPhase.ARRIVAL
+            return False
+
+        logger.info(
+            "[NAV] route=%d event=resume-after-gray target=%d "
+            "remaining=%dcm direction=%d°",
+            route.command_id, route.target_block, distance, direction,
+        )
+        if not self.mcu.send_cmd_move(
+                distance, self.cfg['move_speed'], direction):
+            self._emergency("Failed to resume route after gray calibration")
+            return True
+        route.started_at = time.time()
+        route.initial_distance_cm = max(float(distance), 1.0)
+        route.start_x, route.start_y = self.localizer.get_global_position()
+        route.direction_deg = direction
+        self._nav_phase = NavigationPhase.ROUTE
+        self._state_command_sent = True
+        return True
+
     def _state_navigate(self, frame, green_ratio, ocr_result):
         """移动到下一未访问区块"""
         # 找下一个未访问区块 (按预设路径)
@@ -399,6 +812,12 @@ class DroneStateMachine:
             self._transition(FlightState.RETURN_HOME)
             return
 
+        if (self._active_route is None
+                or self._active_route.target_block != next_block):
+            self._start_route(next_block, target_pos)
+
+        self._update_route_metrics()
+
         # 人工移动场测不使用模拟光流判定到达。程序只记录飞控移动
         # 指令，并在真实相机连续流程中识别到目标编号后推进。
         if self.cfg.get('manual_navigation', False):
@@ -415,10 +834,17 @@ class DroneStateMachine:
                 )
                 self._state_command_sent = True
 
+            if self._run_gray_calibration():
+                return
+
             if ocr_result == next_block:
                 logger.info("[FIELD] OCR确认到达区块 %d", next_block)
                 self._consecutive_ocr_timeouts = 0
                 self.localizer.apply_ocr(next_block)
+                if not self._calibration_completed:
+                    self._finish_gray_calibration(
+                        'skipped', 'OCR confirmed before gray calibration',
+                    )
                 self._transition(FlightState.SPRAY)
             elif self.state_start_time > self.cfg.get(
                     'manual_navigation_timeout_s', 15):
@@ -442,14 +868,41 @@ class DroneStateMachine:
                     max_timeouts,
                 )
                 self.localizer.apply_ocr(next_block)
+                if not self._calibration_completed:
+                    self._finish_gray_calibration(
+                        'degraded', 'manual timeout; continue mission',
+                    )
                 self._transition(FlightState.SPRAY)
             return
 
         distance, direction = self._calc_move_to_target(target_pos[0], target_pos[1])
 
+        if self._run_gray_calibration():
+            return
+
+        # V7协议规定移动指令与一键控制互斥、同类动作只执行最新指令。
+        # 灰色小步修正会中断原主路线，因此校准结束后必须显式恢复剩余路线。
+        if (self._calibration_completed
+                and self._calibration_corrections > 0
+                and self._nav_phase in (
+                    NavigationPhase.ACQUIRE_GRAY,
+                    NavigationPhase.WAIT_CORRECTION,
+                )):
+            self._nav_phase = NavigationPhase.RESUME_ROUTE
+        if self._resume_route_after_gray_calibration():
+            return
+
         if distance < 10:
-            # 已到达, 直接撒药
-            self.localizer.advance_block()
+            # 到达前保证灰色校准已经完成、跳过或降级。
+            if not self._calibration_completed:
+                self._finish_gray_calibration(
+                    'skipped', 'route reached target before calibration',
+                )
+            self._nav_phase = NavigationPhase.ARRIVAL
+            # OCR可能已把离散路径索引校准到目标块；此时不能再次推进，
+            # 否则会跳过一个区块。未校准到目标时才正常推进。
+            if self.localizer.get_current_target() != next_block:
+                self.localizer.advance_block()
             self._transition(FlightState.SPRAY)
         else:
             # 发送移动指令
@@ -630,6 +1083,11 @@ class DroneStateMachine:
         self._retry_count = 0
         self._state_command_sent = False
         self._spray_started = False
+        if old_state == FlightState.NAVIGATE and new_state != FlightState.NAVIGATE:
+            self._active_route = None
+            self._nav_phase = NavigationPhase.ROUTE
+            self._nav_progress = 0.0
+            self._nav_remaining_cm = 0.0
         if new_state in (FlightState.LAND, FlightState.EMERGENCY):
             self._landing_low_alt_count = 0
             self._last_landing_alt_sequence = None
@@ -671,6 +1129,26 @@ class DroneStateMachine:
         direction = int(math.degrees(math.atan2(dy, dx)) % 360)
         return distance, direction
 
+    def _navigation_details(self) -> dict:
+        return {
+            'target_block': (
+                self._active_route.target_block if self._active_route else '-'
+            ),
+            'phase': self._nav_phase.name,
+            'progress': self._nav_progress,
+            'remaining_cm': self._nav_remaining_cm,
+            'cross_track_cm': self._nav_cross_track_cm,
+            'calibration_attempts': self._calibration_corrections,
+            'calibration_limit': self.cfg.get(
+                'gray_calibration_max_corrections', 3,
+            ),
+            'calibration_tolerance_cm': self._calibration_tolerance(),
+            'error_forward_cm': self._calibration_error_forward_cm,
+            'error_right_cm': self._calibration_error_right_cm,
+            'calibration_status': self._calibration_status,
+            'last_action': self._calibration_last_action,
+        }
+
     def _has_flight_status(self) -> bool:
         checker = getattr(self.mcu, 'has_flight_status', None)
         return bool(checker()) if callable(checker) else True
@@ -682,7 +1160,10 @@ class DroneStateMachine:
 
         read_sample = getattr(self.mcu, 'read_altitude_sample', None)
         if callable(read_sample):
-            altitude, sequence, age = read_sample()
+            sample: Any = read_sample()
+            altitude = sample[0]
+            sequence = sample[1]
+            age = sample[2]
             if age > self.cfg.get('altitude_max_age_s', 1.0):
                 self._landing_low_alt_count = 0
                 return False
@@ -728,7 +1209,21 @@ class DroneStateMachine:
             self._start_marker_center = getattr(
                 result, 'start_marker_center', None,
             )
-            return result.frame, result.green_ratio, result.digit
+            self._gray_marker_center = getattr(
+                result, 'gray_marker_center', None,
+            )
+            self._gray_marker_box = getattr(result, 'gray_marker_box', None)
+            self._gray_marker_confidence = getattr(
+                result, 'gray_marker_confidence', 0.0,
+            )
+            self._gray_marker_sequence = getattr(
+                result, 'gray_marker_sequence', None,
+            )
+            return (
+                getattr(result, 'frame', None),
+                getattr(result, 'green_ratio', None),
+                getattr(result, 'digit', None),
+            )
 
         # 兼容旧 Camera/测试桩的抓帧接口。
         ret, frame = self.camera.read()
@@ -823,7 +1318,7 @@ class DroneStateMachine:
 
     def get_progress(self) -> dict:
         """获取任务进度"""
-        return {
+        progress = {
             'state': self.state.name,
             'visited': self.visited_count,
             'total': self.total_blocks,
@@ -833,12 +1328,19 @@ class DroneStateMachine:
             'emergency': self.is_emergency,
             'emergency_reason': self._emergency_reason if self.is_emergency else '',
         }
+        progress.update(self._navigation_details())
+        return progress
 
     def get_stats(self) -> dict:
         """获取运行统计"""
-        return {
+        stats = {
             'total_state_transitions': self._total_states,
             'mission_time_s': self.mission_time,
             'blocks_completed': self.visited_count,
             'retries': self._retry_count,
         }
+        stats.update({
+            f'gray_calibration_{key}': value
+            for key, value in self._calibration_stats.items()
+        })
+        return stats

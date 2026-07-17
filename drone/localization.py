@@ -72,6 +72,7 @@ class Localizer:
         # 统计数据
         self.total_boundary_crossings = 0
         self.ocr_calibrations = 0
+        self.visual_position_calibrations = 0
         self.total_travel_cm = 0.0
 
         # 移动方向追踪
@@ -86,9 +87,11 @@ class Localizer:
                     f"green_threshold={green_drop_threshold}")
 
     def _init_global_position(self):
-        """起飞时记录全局零点"""
-        self._global_pos_x = 0.0
-        self._global_pos_y = 0.0
+        """初始化0x08原始坐标及其到任务世界坐标系的平移偏置。"""
+        self._flow_pos_x = 0.0
+        self._flow_pos_y = 0.0
+        self._world_offset_x = 0.0
+        self._world_offset_y = 0.0
 
     # ── Layer 1: 光流积分 ─────────────────────────────────
 
@@ -100,9 +103,35 @@ class Localizer:
         """
         self.pos_x += dx_cm
         self.pos_y += dy_cm
-        self._global_pos_x += dx_cm
-        self._global_pos_y += dy_cm
+        self._flow_pos_x += dx_cm
+        self._flow_pos_y += dy_cm
         self.total_travel_cm += abs(dx_cm) + abs(dy_cm)
+
+    def calibrate_world_position(
+            self, world_x: float, world_y: float,
+            source: str = 'visual') -> Tuple[float, float]:
+        """用已知真实位置重估0x08坐标系到世界坐标系的平移偏置。
+
+        0x08继续提供连续位移，校准只改变坐标映射：
+            world = flow_0x08 + offset
+
+        Returns:
+            本次世界坐标修正量(dx, dy)。
+        """
+        old_x, old_y = self.get_global_position()
+        self._world_offset_x = float(world_x) - self._flow_pos_x
+        self._world_offset_y = float(world_y) - self._flow_pos_y
+        correction = (float(world_x) - old_x, float(world_y) - old_y)
+        if source == 'visual':
+            self.visual_position_calibrations += 1
+        logger.info(
+            "World position calibrated: source=%s flow=(%.1f,%.1f) "
+            "world=(%.1f,%.1f) offset=(%+.1f,%+.1f) correction=(%+.1f,%+.1f)",
+            source, self._flow_pos_x, self._flow_pos_y,
+            world_x, world_y, self._world_offset_x, self._world_offset_y,
+            correction[0], correction[1],
+        )
+        return correction
 
     # ── Layer 2: 颜色跳变 ─────────────────────────────────
 
@@ -173,7 +202,9 @@ class Localizer:
             self.pos_y = 0.0
             block_pos = get_block_position(block_number)
             if block_pos is not None:
-                self._global_pos_x, self._global_pos_y = block_pos
+                self.calibrate_world_position(
+                    block_pos[0], block_pos[1], source='ocr',
+                )
             self.ocr_calibrations += 1
             logger.info(f"OCR calibration: block={block_number}, "
                         f"path_index={self.path_index}")
@@ -224,21 +255,32 @@ class Localizer:
 
     def get_position(self) -> Tuple[float, float]:
         """获取当前位置 (相对起飞点, cm)"""
-        return self._global_pos_x, self._global_pos_y
+        return self.get_global_position()
 
     def get_global_position(self) -> Tuple[float, float]:
-        """获取全局位置 (同get_position)"""
-        return self._global_pos_x, self._global_pos_y
+        """获取经过视觉/OCR偏置校准后的任务世界坐标。"""
+        return (
+            self._flow_pos_x + self._world_offset_x,
+            self._flow_pos_y + self._world_offset_y,
+        )
+
+    def get_flow_position(self) -> Tuple[float, float]:
+        """获取飞控0x08坐标系中的原始连续位置。"""
+        return self._flow_pos_x, self._flow_pos_y
+
+    def get_world_offset(self) -> Tuple[float, float]:
+        """获取0x08坐标系到任务世界坐标系的当前平移偏置。"""
+        return self._world_offset_x, self._world_offset_y
 
     def get_distance_to_home(self) -> float:
         """获取到起降点的直线距离(cm)"""
-        x, y = self._global_pos_x, self._global_pos_y
+        x, y = self.get_global_position()
         return (x ** 2 + y ** 2) ** 0.5
 
     def get_homing_direction_deg(self) -> float:
         """获取指向起降点的方向(度)"""
         import math
-        x, y = self._global_pos_x, self._global_pos_y
+        x, y = self.get_global_position()
         return math.degrees(math.atan2(-y, -x)) % 360
 
     # ── 位置误差计算 ──────────────────────────────────────
@@ -284,15 +326,21 @@ class Localizer:
     # ── 统计 ──────────────────────────────────────────────
 
     def get_stats(self) -> dict:
+        global_x, global_y = self.get_global_position()
         return {
             'current_block': self.current_block,
             'path_index': self.path_index,
             'total_path': len(self.path),
             'progress_pct': self.path_index / max(len(self.path) - 1, 1) * 100,
-            'global_x': round(self._global_pos_x, 1),
-            'global_y': round(self._global_pos_y, 1),
+            'global_x': round(global_x, 1),
+            'global_y': round(global_y, 1),
+            'flow_x': round(self._flow_pos_x, 1),
+            'flow_y': round(self._flow_pos_y, 1),
+            'world_offset_x': round(self._world_offset_x, 1),
+            'world_offset_y': round(self._world_offset_y, 1),
             'distance_to_home': round(self.get_distance_to_home(), 1),
             'boundary_crossings': self.total_boundary_crossings,
             'ocr_calibrations': self.ocr_calibrations,
+            'visual_position_calibrations': self.visual_position_calibrations,
             'total_travel_cm': round(self.total_travel_cm, 1),
         }

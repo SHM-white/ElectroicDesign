@@ -58,6 +58,20 @@ class TestOpticalFlowIntegration(unittest.TestCase):
         self.assertEqual(gx, 50.0)
         self.assertEqual(gy, 0.0)
 
+    def test_visual_anchor_corrects_flow_to_world_offset(self):
+        self.loc.update_optical_flow(92.0, 47.0)
+
+        correction = self.loc.calibrate_world_position(100.0, 50.0)
+
+        self.assertEqual(correction, (8.0, 3.0))
+        self.assertEqual(self.loc.get_flow_position(), (92.0, 47.0))
+        self.assertEqual(self.loc.get_world_offset(), (8.0, 3.0))
+        self.assertEqual(self.loc.get_global_position(), (100.0, 50.0))
+
+        self.loc.update_optical_flow(10.0, -5.0)
+        self.assertEqual(self.loc.get_flow_position(), (102.0, 42.0))
+        self.assertEqual(self.loc.get_global_position(), (110.0, 45.0))
+
     def test_total_travel(self):
         """测试总飞行距离统计"""
         self.loc.update_optical_flow(10.0, 0.0)

@@ -20,6 +20,7 @@ class MockMCU:
     """模拟MCU通信"""
 
     def __init__(self):
+        self.dry_run = False
         self._altitude = 0
         self._mode = 0
         self._locked = 0
@@ -50,7 +51,7 @@ class MockMCU:
     def read_locked(self):
         return self._locked
 
-    def read_aux6(self):
+    def read_aux6(self) -> int:
         return 1000  # 未触发
 
     def read_voltage(self):
@@ -132,6 +133,30 @@ class MockResultCamera:
     """模拟已经在相机端完成识别的视觉后端。"""
     def read_result(self):
         return VisionResult(green_ratio=0.75, digit=21)
+
+
+class MockGrayCamera:
+    """逐帧返回灰色数字中心的相机测试桩。"""
+    def __init__(self, center=(720.0, 540.0), confidence=0.9):
+        self.center = center
+        self.confidence = confidence
+        self.sequence = 0
+        self.last_modes = {}
+
+    def set_processing_modes(self, **kwargs):
+        self.last_modes = kwargs
+
+    def read_result(self):
+        self.sequence += 1
+        return VisionResult(
+            green_ratio=0.75,
+            sequence=self.sequence,
+            gray_marker_center=self.center,
+            gray_marker_box=(680, 480, 80, 120),
+            gray_marker_confidence=self.confidence,
+            gray_marker_char_count=2,
+            gray_marker_sequence=self.sequence,
+        )
 
 
 class MockLaser:
@@ -229,6 +254,28 @@ class TestStateTransitions(unittest.TestCase):
         # 应该遍历了多个状态
         self.assertIn(FlightState.ARM_UNLOCK, states_seen)
         self.assertNotEqual(state, FlightState.IDLE)
+
+    def test_unlock_requires_confirmed_status(self):
+        self.sm.state = FlightState.ARM_UNLOCK
+        self.mcu._locked = 0
+
+        self.sm.run_iteration()
+
+        self.assertEqual(self.sm.state, FlightState.ARM_UNLOCK)
+        self.mcu._locked = 1
+        self.sm.run_iteration()
+        self.assertEqual(self.sm.state, FlightState.SET_PROGRAM_MODE)
+
+    def test_program_mode_requires_confirmed_mode_three(self):
+        self.sm.state = FlightState.SET_PROGRAM_MODE
+        self.mcu._mode = 2
+
+        self.sm.run_iteration()
+
+        self.assertEqual(self.sm.state, FlightState.SET_PROGRAM_MODE)
+        self.mcu._mode = 3
+        self.sm.run_iteration()
+        self.assertEqual(self.sm.state, FlightState.TAKEOFF)
 
     def test_emergency_on_altitude(self):
         """测试高度异常触发紧急状态"""
@@ -420,6 +467,17 @@ class TestNavigateLogic(unittest.TestCase):
         self.assertEqual(self.sm.state, FlightState.EMERGENCY)
         self.assertFalse(self.sm.visited[20])
 
+    def test_ocr_arrival_does_not_advance_past_target(self):
+        self.cfg['gray_calibration_enabled'] = False
+        self.sm.state = FlightState.NAVIGATE
+        self.sm.visited[21] = True
+        self.loc.apply_ocr(20)
+
+        self.sm._state_navigate(None, 0.5, 20)
+
+        self.assertEqual(self.sm.state, FlightState.SPRAY)
+        self.assertEqual(self.loc.get_current_target(), 20)
+
 
 class TestStartAndHomeVisionGates(unittest.TestCase):
     def setUp(self):
@@ -437,10 +495,10 @@ class TestStartAndHomeVisionGates(unittest.TestCase):
     def test_start_accepts_three_digit_21_observations(self):
         self.sm.state = FlightState.FIND_START
         target = __import__('path_plan').get_block_position(21)
-        self.loc._global_pos_x = (
-            target[0] + self.cfg['camera_tail_forward_offset_cm']
+        self.loc.calibrate_world_position(
+            target[0] + self.cfg['camera_tail_forward_offset_cm'],
+            target[1], source='test',
         )
-        self.loc._global_pos_y = target[1]
 
         for _ in range(3):
             self.sm._state_find_start(None, 0.5, 21)
@@ -450,8 +508,7 @@ class TestStartAndHomeVisionGates(unittest.TestCase):
 
     def test_find_start_moves_body_25cm_past_block_center(self):
         self.sm.state = FlightState.FIND_START
-        self.loc._global_pos_x = 0.0
-        self.loc._global_pos_y = 0.0
+        self.loc.calibrate_world_position(0.0, 0.0, source='test')
         target = __import__('path_plan').get_block_position(21)
 
         self.sm._state_find_start(None, None, None)
@@ -467,8 +524,7 @@ class TestStartAndHomeVisionGates(unittest.TestCase):
 
     def test_return_home_targets_25cm_forward_for_tail_camera(self):
         self.sm.state = FlightState.RETURN_HOME
-        self.loc._global_pos_x = 100.0
-        self.loc._global_pos_y = 0.0
+        self.loc.calibrate_world_position(100.0, 0.0, source='test')
 
         self.sm._state_return_home(None, None, None)
 
@@ -709,6 +765,139 @@ class TestEmergencyHandling(unittest.TestCase):
 
         self.assertEqual(self.sm.state, FlightState.EMERGENCY)
         self.assertIn('Critical battery voltage', self.sm.emergency_reason)
+
+
+class TestGrayNavigationCalibration(unittest.TestCase):
+    def setUp(self):
+        self.mcu = MockMCU()
+        self.mcu.set_altitude(120)
+        self.camera = MockGrayCamera(center=(820.0, 540.0))
+        self.loc = Localizer()
+        self.cfg = get_config()
+        self.cfg['gray_calibration_confirm_frames'] = 2
+        self.cfg['gray_calibration_command_interval_s'] = 0.0
+        self.cfg['gray_calibration_total_timeout_s'] = 30.0
+        self.cfg['gray_calibration_acquire_timeout_s'] = 30.0
+        self.sm = DroneStateMachine(
+            self.mcu, self.camera, self.loc, MockLaser(), self.cfg,
+        )
+        self.sm.state = FlightState.NAVIGATE
+        self.sm.visited[21] = True
+
+    def _start_and_progress(self, progress: float):
+        self.sm.run_iteration()
+        route = self.sm._active_route
+        self.assertIsNotNone(route)
+        assert route is not None
+        target_x = route.start_x + (
+            route.target_x - route.start_x
+        ) * progress
+        target_y = route.start_y + (
+            route.target_y - route.start_y
+        ) * progress
+        self.loc.calibrate_world_position(target_x, target_y, source='test')
+
+    def test_calibration_not_enabled_before_two_thirds(self):
+        self._start_and_progress(0.50)
+        self.sm.run_iteration()
+        self.assertFalse(self.camera.last_modes.get('gray_marker', False))
+        self.assertEqual(self.sm._calibration_corrections, 0)
+
+    def test_stable_center_after_two_thirds_commands_bounded_move(self):
+        self._start_and_progress(0.70)
+        for _ in range(3):
+            self.sm.run_iteration()
+        move_commands = [
+            command for command in self.mcu._sent_commands
+            if command.startswith('move_')
+        ]
+        self.assertTrue(self.camera.last_modes.get('gray_marker', False))
+        self.assertGreaterEqual(len(move_commands), 2)
+        correction_distance = int(move_commands[-1].split('_')[1])
+        self.assertLessEqual(
+            correction_distance,
+            int(self.cfg['gray_calibration_first_max_step_cm']),
+        )
+        self.assertEqual(self.sm._calibration_corrections, 1)
+
+    def test_gray_alignment_after_correction_anchors_without_extra_route(self):
+        self._start_and_progress(0.70)
+        for _ in range(3):
+            self.sm.run_iteration()
+
+        self.assertEqual(self.sm._calibration_corrections, 1)
+        correction_count = len([
+            command for command in self.mcu._sent_commands
+            if command.startswith('move_')
+        ])
+
+        # 将新观测改为已对准。此时真实位置就是目标数字点，状态机会
+        # 重锚0x08到世界坐标的偏置，因此不应再发送一条多余平移路线。
+        self.camera.center = (720.0, 373.3)
+        for _ in range(3):
+            self.sm.run_iteration()
+
+        move_commands = [
+            command for command in self.mcu._sent_commands
+            if command.startswith('move_')
+        ]
+        self.assertTrue(self.sm._calibration_completed)
+        self.assertEqual(len(move_commands), correction_count)
+        self.assertTrue(self.sm._calibration_world_anchor_applied)
+        self.assertIn(
+            self.sm._nav_phase.name, ('ARRIVAL', 'ROUTE'),
+        )
+
+    def test_aligned_gray_center_anchors_0x08_to_target_world_position(self):
+        self._start_and_progress(0.70)
+        route = self.sm._active_route
+        assert route is not None
+        flow_before = self.loc.get_flow_position()
+        self.camera.center = (720.0, 373.3)
+
+        for _ in range(3):
+            self.sm.run_iteration()
+
+        self.assertTrue(self.sm._calibration_completed)
+        self.assertTrue(self.sm._calibration_world_anchor_applied)
+        self.assertEqual(self.loc.get_flow_position(), flow_before)
+        world_x, world_y = self.loc.get_global_position()
+        self.assertAlmostEqual(world_x, route.target_x)
+        self.assertAlmostEqual(world_y, route.target_y)
+
+    def test_later_calibration_uses_more_tolerant_threshold(self):
+        self.assertGreater(
+            self.cfg['gray_calibration_later_tolerance_cm'],
+            self.cfg['gray_calibration_first_tolerance_cm'],
+        )
+        self.sm._calibration_corrections = 1
+        self.assertEqual(
+            self.sm._calibration_tolerance(),
+            self.cfg['gray_calibration_later_tolerance_cm'],
+        )
+
+    def test_no_camera_simulation_skips_without_blocking(self):
+        sm = DroneStateMachine(
+            self.mcu, None, Localizer(), MockLaser(), self.cfg,
+        )
+        sm.state = FlightState.NAVIGATE
+        sm.visited[21] = True
+        sm.run_iteration()
+        route = sm._active_route
+        self.assertIsNotNone(route)
+        assert route is not None
+        target_x = route.start_x + (
+            route.target_x - route.start_x
+        ) * 0.70
+        target_y = route.start_y + (
+            route.target_y - route.start_y
+        ) * 0.70
+        sm.localizer.calibrate_world_position(
+            target_x, target_y, source='test',
+        )
+        sm.run_iteration()
+        self.assertTrue(sm._calibration_completed)
+        self.assertEqual(sm._calibration_status, 'skipped')
 
 
 if __name__ == '__main__':

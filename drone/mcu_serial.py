@@ -78,7 +78,8 @@ class RealSerial:
         )
 
     def write(self, data: bytes) -> int:
-        return self._ser.write(data)
+        written = self._ser.write(data)
+        return int(written or 0)
 
     def read(self, size: int = 1) -> bytes:
         return self._ser.read(size)

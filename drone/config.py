@@ -10,7 +10,7 @@ from typing import Dict, Any
 
 SPEED_PROFILES: Dict[str, Dict[str, Any]] = {
     'debug': {
-        'move_speed': 15,        # cm/s
+        'move_speed': 10,        # cm/s
         'ascent_speed': 15,      # cm/s
         'descent_speed': 10,     # cm/s
         'block_timeout': 10,     # 每块超时(秒)
@@ -67,6 +67,8 @@ ALT_CRITICAL_LOW_CM = 10         # 临界低高度(触发紧急降落)
 # 电机参数
 UNLOCK_WAIT_S = 2                # 解锁后等待时间
 MODE_SWITCH_WAIT_S = 1           # 模式切换后等待时间
+UNLOCK_TIMEOUT_S = 5             # 等待解锁状态遥测确认超时
+MODE_SWITCH_TIMEOUT_S = 5        # 等待程控模式遥测确认超时
 
 # ── 定位融合参数 ──────────────────────────────────────────
 
@@ -90,7 +92,7 @@ PREVIEW_MAX_WIDTH = 720          # SSH X11预览宽度；不影响识别原图
 
 # 相机朝下且装在机尾，距机体中心约25cm。为使相机位于地面目标正
 # 上方，机体粗导航目标需要沿机头方向（世界坐标+X）多走25cm。
-CAMERA_TAIL_FORWARD_OFFSET_CM = 20.0
+CAMERA_TAIL_FORWARD_OFFSET_CM = 25.0
 # 图像已旋转180°，画面上方对应机头方向。机体中心对准起降点时，
 # 十字应位于画面主点上方对应25cm的位置。
 HOME_TARGET_UP_OFFSET_CM = CAMERA_TAIL_FORWARD_OFFSET_CM
@@ -106,6 +108,29 @@ HOME_ALIGN_TIMEOUT_S = 30
 START_BLOCK_CONFIRM_FRAMES = 3
 START_BLOCK_CONFIRM_WINDOW_S = 5.0  # 异步OCR成功事件累计时间窗
 START_BLOCK_TIMEOUT_S = 30
+
+# 导航约完成2/3后，用灰色数字几何中心对光流终点做有限闭环修正。
+GRAY_CALIBRATION_ENABLED = True
+GRAY_CALIBRATION_AUTO_COMMAND = True
+GRAY_CALIBRATION_START_PROGRESS = 0.66
+GRAY_CALIBRATION_ACQUIRE_TIMEOUT_S = 2.5
+GRAY_CALIBRATION_TOTAL_TIMEOUT_S = 6.0
+GRAY_CALIBRATION_MIN_CONFIDENCE = 0.55
+GRAY_CALIBRATION_CONFIRM_FRAMES = 3
+GRAY_CALIBRATION_STABILITY_PX = 28.0
+GRAY_CALIBRATION_FIRST_TOLERANCE_CM = 7.0
+GRAY_CALIBRATION_LATER_TOLERANCE_CM = 11.0
+GRAY_CALIBRATION_FIRST_MAX_STEP_CM = 15.0
+GRAY_CALIBRATION_LATER_MAX_STEP_CM = 10.0
+GRAY_CALIBRATION_MAX_CORRECTIONS = 3
+GRAY_CALIBRATION_MAX_TOTAL_DISTANCE_CM = 35.0
+GRAY_CALIBRATION_COMMAND_INTERVAL_S = 0.8
+GRAY_CALIBRATION_MIN_IMPROVEMENT_RATIO = 0.90
+# 画面主点对应相机光轴。若实际激光/作业点不在机体中心，可现场修改。
+WORK_POINT_FORWARD_OFFSET_CM = CAMERA_TAIL_FORWARD_OFFSET_CM
+WORK_POINT_RIGHT_OFFSET_CM = 0.0
+# 人工移动场测默认记录并模拟发送修正，达到超时/次数后自动降级。
+MANUAL_GRAY_CALIBRATION_AUTO_COMMAND = True
 
 # OpenMV 识别结果串口。若同时使用 H7 GPIO 板，请为两个设备分配不同端口。
 # 当前硬件方案: H7 GPIO → /dev/ttyUSB1, OpenMV → /dev/ttyUSB2 (仅OpenMV方案时用)
@@ -196,6 +221,8 @@ def get_config() -> Dict[str, Any]:
         'alt_critical_low_cm': ALT_CRITICAL_LOW_CM,
         'unlock_wait_s': UNLOCK_WAIT_S,
         'mode_switch_wait_s': MODE_SWITCH_WAIT_S,
+        'unlock_timeout_s': UNLOCK_TIMEOUT_S,
+        'mode_switch_timeout_s': MODE_SWITCH_TIMEOUT_S,
         'green_drop_threshold': GREEN_DROP_THRESHOLD,
         'green_high': GREEN_HIGH,
         'green_low': GREEN_LOW,
@@ -221,6 +248,25 @@ def get_config() -> Dict[str, Any]:
         'start_block_confirm_frames': START_BLOCK_CONFIRM_FRAMES,
         'start_block_confirm_window_s': START_BLOCK_CONFIRM_WINDOW_S,
         'start_block_timeout_s': START_BLOCK_TIMEOUT_S,
+        'gray_calibration_enabled': GRAY_CALIBRATION_ENABLED,
+        'gray_calibration_auto_command': GRAY_CALIBRATION_AUTO_COMMAND,
+        'gray_calibration_start_progress': GRAY_CALIBRATION_START_PROGRESS,
+        'gray_calibration_acquire_timeout_s': GRAY_CALIBRATION_ACQUIRE_TIMEOUT_S,
+        'gray_calibration_total_timeout_s': GRAY_CALIBRATION_TOTAL_TIMEOUT_S,
+        'gray_calibration_min_confidence': GRAY_CALIBRATION_MIN_CONFIDENCE,
+        'gray_calibration_confirm_frames': GRAY_CALIBRATION_CONFIRM_FRAMES,
+        'gray_calibration_stability_px': GRAY_CALIBRATION_STABILITY_PX,
+        'gray_calibration_first_tolerance_cm': GRAY_CALIBRATION_FIRST_TOLERANCE_CM,
+        'gray_calibration_later_tolerance_cm': GRAY_CALIBRATION_LATER_TOLERANCE_CM,
+        'gray_calibration_first_max_step_cm': GRAY_CALIBRATION_FIRST_MAX_STEP_CM,
+        'gray_calibration_later_max_step_cm': GRAY_CALIBRATION_LATER_MAX_STEP_CM,
+        'gray_calibration_max_corrections': GRAY_CALIBRATION_MAX_CORRECTIONS,
+        'gray_calibration_max_total_distance_cm': GRAY_CALIBRATION_MAX_TOTAL_DISTANCE_CM,
+        'gray_calibration_command_interval_s': GRAY_CALIBRATION_COMMAND_INTERVAL_S,
+        'gray_calibration_min_improvement_ratio': GRAY_CALIBRATION_MIN_IMPROVEMENT_RATIO,
+        'work_point_forward_offset_cm': WORK_POINT_FORWARD_OFFSET_CM,
+        'work_point_right_offset_cm': WORK_POINT_RIGHT_OFFSET_CM,
+        'manual_gray_calibration_auto_command': MANUAL_GRAY_CALIBRATION_AUTO_COMMAND,
         'openmv_serial_port': OPENMV_SERIAL_PORT,
         'openmv_serial_baudrate': OPENMV_SERIAL_BAUDRATE,
         'openmv_stale_timeout_s': OPENMV_STALE_TIMEOUT_S,

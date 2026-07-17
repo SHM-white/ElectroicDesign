@@ -20,4 +20,10 @@ class VisionResult:
     home_cross_center: Optional[tuple[float, float]] = None
     home_cross_confidence: float = 0.0
     start_marker_center: Optional[tuple[int, int]] = None
+    gray_marker_center: Optional[tuple[float, float]] = None
+    gray_marker_box: Optional[tuple[int, int, int, int]] = None
+    gray_marker_confidence: float = 0.0
+    gray_marker_char_count: int = 0
+    gray_marker_dark_scene: bool = False
+    gray_marker_sequence: Optional[int] = None
 

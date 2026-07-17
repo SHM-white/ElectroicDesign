@@ -164,6 +164,12 @@ def main() -> int:
     logger.info(f"  配置档位:  {config.CURRENT_PROFILE}")
     logger.info(f"  模拟模式:  {config.DRY_RUN}")
     logger.info(f"  保存日志:  {config.SAVE_LOGS}")
+    logger.info(
+        "  灰色中心校准: %s (触发进度=%.0f%%, 最大修正=%d次)",
+        '启用' if config.GRAY_CALIBRATION_ENABLED else '禁用',
+        config.GRAY_CALIBRATION_START_PROGRESS * 100,
+        config.GRAY_CALIBRATION_MAX_CORRECTIONS,
+    )
     logger.info("=" * 50)
 
     cfg = get_config()
@@ -400,6 +406,18 @@ def main() -> int:
         logger.info(f"  状态转换次数: {stats['total_state_transitions']}")
         logger.info(f"  任务用时:     {stats['mission_time_s']:.1f}s")
         logger.info(f"  完成区块数:   {stats['blocks_completed']}")
+        logger.info(
+            "  灰色校准:     成功=%d 降级=%d 跳过=%d 超时=%d",
+            stats.get('gray_calibration_successes', 0),
+            stats.get('gray_calibration_degraded', 0),
+            stats.get('gray_calibration_skipped', 0),
+            stats.get('gray_calibration_timeouts', 0),
+        )
+        logger.info(
+            "  校准修正:     指令=%d 累计距离=%.1fcm",
+            stats.get('gray_calibration_commands', 0),
+            stats.get('gray_calibration_distance_cm', 0.0),
+        )
         logger.info("─" * 40)
         logger.info("任务结束")
 

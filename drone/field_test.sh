@@ -36,6 +36,8 @@ info "场地测试模式：飞控=模拟，MVS相机=真实，H7激光=真实"
 info "MVS索引=$CAMERA_ID 曝光=${CAMERA_EXPOSURE_MS}ms 增益=${CAMERA_GAIN}dB"
 info "X11预览宽度=${PREVIEW_WIDTH}px（识别仍使用相机原始分辨率）"
 info "H7串口=$H7_PORT；状态机启动后立即开始，人工移动并由目标数字OCR确认到达"
+info "导航约完成2/3后启用灰色数字中心校准；预览框显示偏差、容差和建议动作"
+info "首次校准严格，二次及以后放宽容差；超时/未对准会记录并自动降级继续，避免卡死"
 printf '\033[1;33m[WARN]\033[0m  激光会由任务状态机自动控制；请勿直视并确保光路安全。\n'
 
 cd "$PROJECT_DIR"

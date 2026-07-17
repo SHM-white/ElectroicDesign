@@ -23,8 +23,10 @@ from threading import Event, Thread
 from typing import Optional, List, Tuple
 
 try:
+    from .gray_marker import GrayMarkerDetector
     from .vision_result import VisionResult
 except ImportError:
+    from gray_marker import GrayMarkerDetector
     from vision_result import VisionResult
 
 logger = logging.getLogger('drone.vision')
@@ -38,7 +40,12 @@ def draw_mission_overlay(
         ocr_enabled: bool = False, ocr_running: bool = False,
         start_marker: Optional[Tuple[int, int]] = None,
         home_cross: Optional[Tuple[float, float]] = None,
-    home_confidence: float = 0.0, processing_fps: float = 0.0) -> np.ndarray:
+    home_confidence: float = 0.0,
+    gray_marker: Optional[Tuple[float, float]] = None,
+    gray_box: Optional[Tuple[int, int, int, int]] = None,
+    gray_confidence: float = 0.0,
+    navigation_details: Optional[dict] = None,
+    processing_fps: float = 0.0) -> np.ndarray:
     """绘制场地测试识别 UI，不修改输入帧。"""
     out = frame.copy()
     height, width = out.shape[:2]
@@ -91,6 +98,25 @@ def draw_mission_overlay(
             cv2.FONT_HERSHEY_SIMPLEX, 0.65 * scale, (0, 80, 255), line + 1,
         )
 
+    if gray_marker is not None:
+        marker = (int(gray_marker[0]), int(gray_marker[1]))
+        if gray_box is not None:
+            x, y, box_w, box_h = gray_box
+            cv2.rectangle(
+                out, (x, y), (x + box_w, y + box_h),
+                (0, 165, 255), line + 1,
+            )
+        cv2.drawMarker(
+            out, marker, (0, 0, 255), cv2.MARKER_CROSS,
+            max(26, int(46 * scale)), line + 1,
+        )
+        cv2.putText(
+            out, f"GRAY CENTER {gray_confidence:.2f}",
+            (marker[0] + 16, max(96, marker[1] - 16)),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.58 * scale,
+            (0, 165, 255), line + 1,
+        )
+
     # 顶部半透明仪表栏。
     panel_height = min(height, max(68, int(82 * scale)))
     panel = out.copy()
@@ -140,6 +166,42 @@ def draw_mission_overlay(
         cv2.FONT_HERSHEY_SIMPLEX, 0.55 * scale, (210, 210, 210), line,
     )
 
+    details = navigation_details or {}
+    if details:
+        detail_lines = [
+            "TARGET {target}  NAV {phase}  ROUTE {progress:.0%}".format(
+                target=details.get('target_block', '-'),
+                phase=details.get('phase', 'IDLE'),
+                progress=float(details.get('progress', 0.0)),
+            ),
+            "REMAIN {remaining:.1f}cm  CAL {attempt}/{limit}  TOL {tol:.1f}cm".format(
+                remaining=float(details.get('remaining_cm', 0.0)),
+                attempt=int(details.get('calibration_attempts', 0)),
+                limit=int(details.get('calibration_limit', 0)),
+                tol=float(details.get('calibration_tolerance_cm', 0.0)),
+            ),
+            "OFFSET F {forward:+.1f}cm R {right:+.1f}cm  {action}".format(
+                forward=float(details.get('error_forward_cm', 0.0)),
+                right=float(details.get('error_right_cm', 0.0)),
+                action=details.get('last_action', 'WAITING'),
+            ),
+        ]
+        panel_w = min(width - 24, max(420, int(700 * scale)))
+        panel_h = int(92 * scale)
+        top = panel_height + 8
+        detail_panel = out.copy()
+        cv2.rectangle(
+            detail_panel, (8, top), (8 + panel_w, top + panel_h),
+            (12, 18, 24), -1,
+        )
+        out = cv2.addWeighted(detail_panel, 0.78, out, 0.22, 0)
+        for index, text in enumerate(detail_lines):
+            cv2.putText(
+                out, text, (18, top + int((25 + index * 28) * scale)),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.52 * scale,
+                (235, 235, 235), line, cv2.LINE_AA,
+            )
+
     cv2.putText(
         out, "[Q/ESC] quit   [S] save raw frame", (12, height - 12),
         cv2.FONT_HERSHEY_SIMPLEX, 0.48 * scale, (230, 230, 230), line,
@@ -161,6 +223,10 @@ class _PreviewSnapshot:
     start_marker: Optional[Tuple[int, int]]
     home_cross: Optional[Tuple[float, float]]
     home_confidence: float
+    gray_marker: Optional[Tuple[float, float]]
+    gray_box: Optional[Tuple[int, int, int, int]]
+    gray_confidence: float
+    navigation_details: dict
     processing_fps: float
 
 
@@ -234,6 +300,10 @@ class _PreviewWorker:
                     start_marker=snapshot.start_marker,
                     home_cross=snapshot.home_cross,
                     home_confidence=snapshot.home_confidence,
+                    gray_marker=snapshot.gray_marker,
+                    gray_box=snapshot.gray_box,
+                    gray_confidence=snapshot.gray_confidence,
+                    navigation_details=snapshot.navigation_details,
                     processing_fps=snapshot.processing_fps,
                 )
                 if 0 < self.max_width < display.shape[1]:
@@ -288,10 +358,13 @@ class Camera:
         self.detector: Optional[BlockDetector] = None
         self.digit_reader: Optional[DigitReader] = None
         self.home_cross_detector: Optional[HomeCrossDetector] = None
+        self.gray_marker_detector = GrayMarkerDetector()
         self._sequence = 0
+        self._gray_marker_sequence = 0
         self._ocr_enabled = True
         self._start_marker_enabled = False
         self._cross_enabled = False
+        self._gray_marker_enabled = False
         self._ocr_executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix='mission-ocr',
         )
@@ -304,6 +377,7 @@ class Camera:
         self._digit_candidate_count = 0
         self._digit_confirmations = 2
         self._state_label = ''
+        self._navigation_details: dict = {}
         self._fps_started = time.monotonic()
         self._fps_frames = 0
         self._processing_fps = 0.0
@@ -314,8 +388,10 @@ class Camera:
 
     def set_processing_modes(self, *, ocr: bool, home_cross: bool,
                              start_marker: bool = False,
+                             gray_marker: bool = False,
                              expected_digit: Optional[int] = None,
-                             state_label: str = '') -> None:
+                             state_label: str = '',
+                             navigation_details: Optional[dict] = None) -> None:
         """按状态启用重型视觉算法；抓帧、颜色检测和预览始终运行。"""
         if expected_digit != self._expected_digit:
             self._digit_candidate = None
@@ -324,8 +400,10 @@ class Camera:
         self._ocr_enabled = ocr
         self._cross_enabled = home_cross
         self._start_marker_enabled = start_marker
+        self._gray_marker_enabled = gray_marker
         self._expected_digit = expected_digit
         self._state_label = state_label
+        self._navigation_details = dict(navigation_details or {})
         if not start_marker:
             self._last_start_marker = None
 
@@ -460,6 +538,24 @@ class Camera:
         if self._cross_enabled and self.home_cross_detector is not None:
             cross_center, cross_confidence = self.home_cross_detector.detect(frame)
 
+        gray_center = None
+        gray_box = None
+        gray_confidence = 0.0
+        gray_char_count = 0
+        gray_dark_scene = False
+        gray_sequence = None
+        if self._gray_marker_enabled and self.gray_marker_detector is not None:
+            gray_result = self.gray_marker_detector.detect(frame)
+            gray_dark_scene = gray_result.dark_scene
+            marker = gray_result.best_marker
+            if marker is not None:
+                gray_center = marker.center
+                gray_box = marker.box
+                gray_confidence = marker.score
+                gray_char_count = len(marker.characters)
+                self._gray_marker_sequence += 1
+                gray_sequence = self._gray_marker_sequence
+
         self._sequence += 1
         self._fps_frames += 1
         now = time.monotonic()
@@ -497,6 +593,10 @@ class Camera:
                 ),
                 home_cross=cross_center,
                 home_confidence=cross_confidence,
+                gray_marker=gray_center,
+                gray_box=gray_box,
+                gray_confidence=gray_confidence,
+                navigation_details=dict(self._navigation_details),
                 processing_fps=self._processing_fps,
             ))
 
@@ -520,6 +620,12 @@ class Camera:
             home_cross_center=cross_center,
             home_cross_confidence=cross_confidence,
             start_marker_center=start_marker,
+            gray_marker_center=gray_center,
+            gray_marker_box=gray_box,
+            gray_marker_confidence=gray_confidence,
+            gray_marker_char_count=gray_char_count,
+            gray_marker_dark_scene=gray_dark_scene,
+            gray_marker_sequence=gray_sequence,
         )
 
     def release(self):
