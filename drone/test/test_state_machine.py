@@ -257,6 +257,8 @@ class TestStateTransitions(unittest.TestCase):
 
     def test_unlock_requires_confirmed_status(self):
         self.sm.state = FlightState.ARM_UNLOCK
+        self.sm._state_start_time = __import__('time').time() - \
+            self.cfg['unlock_wait_s']
         self.mcu._locked = 0
 
         self.sm.run_iteration()
@@ -266,8 +268,19 @@ class TestStateTransitions(unittest.TestCase):
         self.sm.run_iteration()
         self.assertEqual(self.sm.state, FlightState.SET_PROGRAM_MODE)
 
+    def test_unlock_confirmation_still_waits_for_motor_stabilization(self):
+        self.sm.state = FlightState.ARM_UNLOCK
+        self.mcu._locked = 1
+
+        self.sm.run_iteration()
+
+        self.assertEqual(self.sm.state, FlightState.ARM_UNLOCK)
+        self.assertEqual(self.mcu._sent_commands, ['unlock'])
+
     def test_program_mode_requires_confirmed_mode_three(self):
         self.sm.state = FlightState.SET_PROGRAM_MODE
+        self.sm._state_start_time = __import__('time').time() - \
+            self.cfg['mode_switch_wait_s']
         self.mcu._mode = 2
 
         self.sm.run_iteration()
@@ -276,6 +289,16 @@ class TestStateTransitions(unittest.TestCase):
         self.mcu._mode = 3
         self.sm.run_iteration()
         self.assertEqual(self.sm.state, FlightState.TAKEOFF)
+
+    def test_program_mode_confirmation_still_waits_before_takeoff(self):
+        self.sm.state = FlightState.SET_PROGRAM_MODE
+        self.mcu._mode = 3
+
+        self.sm.run_iteration()
+
+        self.assertEqual(self.sm.state, FlightState.SET_PROGRAM_MODE)
+        self.assertEqual(self.mcu._sent_commands, ['mode_3'])
+        self.assertNotIn('of_reset', self.mcu._sent_commands)
 
     def test_emergency_on_altitude(self):
         """测试高度异常触发紧急状态"""

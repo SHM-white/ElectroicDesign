@@ -312,7 +312,9 @@ class DroneStateMachine:
             has_lock_status() if callable(has_lock_status)
             else self._has_flight_status()
         )
-        if status_is_recent and self.mcu.read_locked() == 1:
+        unlock_wait_s = self.cfg.get('unlock_wait_s', 2)
+        if (status_is_recent and self.mcu.read_locked() == 1
+                and self.state_start_time >= unlock_wait_s):
             self._transition(FlightState.SET_PROGRAM_MODE)
         elif self.state_start_time > self.cfg.get('unlock_timeout_s', 5):
             self._emergency("Motor unlock could not be confirmed")
@@ -327,7 +329,9 @@ class DroneStateMachine:
             self._state_command_sent = True
 
         # C类移动指令只能在程控模式使用，必须确认模式3后才允许起飞。
-        if self._has_flight_status() and self.mcu.read_mode() == 3:
+        mode_switch_wait_s = self.cfg.get('mode_switch_wait_s', 1)
+        if (self._has_flight_status() and self.mcu.read_mode() == 3
+            and self.state_start_time >= mode_switch_wait_s):
             # 重置光流零点
             if not self.mcu.send_of_zero_reset():
                 self._emergency("Failed to reset optical flow origin")
