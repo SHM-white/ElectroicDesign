@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="ed_uav">
+  <xacro:arg name="fcu_xyz" default="0 0 0"/>
+  <xacro:arg name="fcu_rpy" default="0 0 0"/>
+  <xacro:arg name="lidar_xyz" default="0 0 0"/>
+  <xacro:arg name="lidar_rpy" default="0 0 0"/>
+  <xacro:arg name="camera_narrow_xyz" default="0 0 0"/>
+  <xacro:arg name="camera_narrow_rpy" default="0 0 0"/>
+  <xacro:arg name="camera_wide_xyz" default="0 0 0"/>
+  <xacro:arg name="camera_wide_rpy" default="0 0 0"/>
+  <xacro:arg name="rangefinder_xyz" default="0 0 0"/>
+  <xacro:arg name="rangefinder_rpy" default="0 0 0"/>
+
+  <link name="base_link"/>
+  <link name="fcu_link"/>
+  <joint name="base_to_fcu" type="fixed">
+    <parent link="base_link"/>
+    <child link="fcu_link"/>
+    <origin xyz="$(arg fcu_xyz)" rpy="$(arg fcu_rpy)"/>
+  </joint>
+
+  <link name="lidar_link"/>
+  <joint name="base_to_lidar" type="fixed">
+    <parent link="base_link"/>
+    <child link="lidar_link"/>
+    <origin xyz="$(arg lidar_xyz)" rpy="$(arg lidar_rpy)"/>
+  </joint>
+
+  <link name="camera_narrow_optical_frame"/>
+  <joint name="base_to_camera_narrow" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_narrow_optical_frame"/>
+    <origin xyz="$(arg camera_narrow_xyz)" rpy="$(arg camera_narrow_rpy)"/>
+  </joint>
+
+  <link name="camera_wide_optical_frame"/>
+  <joint name="base_to_camera_wide" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_wide_optical_frame"/>
+    <origin xyz="$(arg camera_wide_xyz)" rpy="$(arg camera_wide_rpy)"/>
+  </joint>
+
+  <link name="rangefinder_link"/>
+  <joint name="base_to_rangefinder" type="fixed">
+    <parent link="base_link"/>
+    <child link="rangefinder_link"/>
+    <origin xyz="$(arg rangefinder_xyz)" rpy="$(arg rangefinder_rpy)"/>
+  </joint>
+</robot>

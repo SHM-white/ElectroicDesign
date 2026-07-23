@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "interfaces": [
+    {"path": "msg/FcuState.msg", "definition": "builtin_interfaces/Time acquisition_stamp\nuint32 source_sequence\nstring<=64 frame_id"},
+    {"path": "msg/LocalizationStatus.msg", "definition": "builtin_interfaces/Time acquisition_stamp\nuint32 source_sequence\nstring<=96 reason"},
+    {"path": "msg/BoundaryObservation.msg", "definition": "std_msgs/Header header\nuint32 source_sequence\nuint8 observable_dof_mask\ngeometry_msgs/PoseWithCovariance pose\nstring<=64 association_id"},
+    {"path": "action/FlightCommand.action", "definition": "uint8 command\ngeometry_msgs/PoseStamped target_pose\ngeometry_msgs/Twist target_velocity\nstring<=64 correlation_id\n---\nuint8 result_code\nstring<=96 reason\n---\nuint8 execution_state"},
+    {"path": "action/ExecuteMission.action", "definition": "string<=64 mission_id\nstring<=96 field_profile_id\n---\nuint8 result_code\nstring<=96 reason\n---\nstring<=64 state_id"},
+    {"path": "srv/StartMapSession.srv", "definition": "string<=64 session_id\nstring<=128 archive_root\n---\nbool accepted\nstring<=96 reason\nstring<=128 staging_uri"}
+  ],
+  "topics": [
+    {"name": "/fcu/state", "type": "ed_uav_interfaces/msg/FcuState", "owner": "ed_uav_fcu_bridge", "qos": "state_reliable", "units": "SI: m, m/s, V", "frame": "base_link", "clock": "acquisition_ros_time", "freshness": "0.50 s"},
+    {"name": "/fcu/battery", "type": "sensor_msgs/msg/BatteryState", "owner": "ed_uav_fcu_bridge", "qos": "state_reliable", "units": "SI: V, A, C", "frame": "base_link", "clock": "acquisition_ros_time", "freshness": "1.00 s"},
+    {"name": "/fcu/optical_flow/odom", "type": "nav_msgs/msg/Odometry", "owner": "ed_uav_fcu_bridge", "qos": "state_reliable", "units": "SI: m, rad", "frame": "odom", "clock": "acquisition_ros_time", "freshness": "0.20 s"},
+    {"name": "/fcu/diagnostics", "type": "diagnostic_msgs/msg/DiagnosticArray", "owner": "ed_uav_fcu_bridge", "qos": "state_reliable", "units": "unitless diagnostic values", "frame": "base_link", "clock": "steady_clock_age", "freshness": "0.50 s"},
+    {"name": "/rangefinder/range", "type": "sensor_msgs/msg/Range", "owner": "ed_uav_fcu_bridge", "qos": "sensor_data_best_effort", "units": "SI: m", "frame": "rangefinder_link", "clock": "acquisition_ros_time", "freshness": "0.20 s"},
+    {"name": "/camera/narrow/image_raw", "type": "sensor_msgs/msg/Image", "owner": "ed_uav_camera.narrow", "qos": "sensor_data_best_effort", "units": "pixel intensity", "frame": "camera_narrow_optical_frame", "clock": "camera_acquisition_ros_time", "freshness": "0.20 s"},
+    {"name": "/camera/narrow/camera_info", "type": "sensor_msgs/msg/CameraInfo", "owner": "ed_uav_camera.narrow", "qos": "latched_reliable", "units": "pixel calibration", "frame": "camera_narrow_optical_frame", "clock": "camera_acquisition_ros_time", "freshness": "on calibration change"},
+    {"name": "/camera/wide/image_raw", "type": "sensor_msgs/msg/Image", "owner": "ed_uav_camera.wide", "qos": "sensor_data_best_effort", "units": "pixel intensity", "frame": "camera_wide_optical_frame", "clock": "camera_acquisition_ros_time", "freshness": "0.20 s"},
+    {"name": "/camera/wide/camera_info", "type": "sensor_msgs/msg/CameraInfo", "owner": "ed_uav_camera.wide", "qos": "latched_reliable", "units": "pixel calibration", "frame": "camera_wide_optical_frame", "clock": "camera_acquisition_ros_time", "freshness": "on calibration change"},
+    {"name": "/lidar/points", "type": "sensor_msgs/msg/PointCloud2", "owner": "ed_uav_lidar", "qos": "sensor_data_best_effort", "units": "SI: m", "frame": "lidar_link", "clock": "lidar_acquisition_ros_time", "freshness": "0.15 s"},
+    {"name": "/lidar/imu", "type": "sensor_msgs/msg/Imu", "owner": "ed_uav_lidar", "qos": "sensor_data_best_effort", "units": "SI: m/s^2, rad/s", "frame": "lidar_link", "clock": "lidar_acquisition_ros_time", "freshness": "0.15 s"},
+    {"name": "/localization/lio/odom", "type": "nav_msgs/msg/Odometry", "owner": "ed_uav_localization.lio_adapter", "qos": "state_reliable", "units": "SI: m, rad", "frame": "odom", "clock": "source_acquisition_ros_time", "freshness": "0.15 s"},
+    {"name": "/localization/boundary_observation", "type": "ed_uav_interfaces/msg/BoundaryObservation", "owner": "ed_uav_perception.boundary", "qos": "state_reliable", "units": "SI: m, rad", "frame": "camera_wide_optical_frame", "clock": "camera_acquisition_ros_time", "freshness": "0.20 s"},
+    {"name": "/localization/status", "type": "ed_uav_interfaces/msg/LocalizationStatus", "owner": "ed_uav_localization.supervisor", "qos": "state_reliable", "units": "SI: s", "frame": "map", "clock": "steady_clock_age", "freshness": "0.20 s"},
+    {"name": "/localization/odom", "type": "nav_msgs/msg/Odometry", "owner": "ed_uav_localization.ekf", "qos": "state_reliable", "units": "SI: m, rad", "frame": "odom", "clock": "source_acquisition_ros_time", "freshness": "0.15 s"},
+    {"name": "/perception/narrow/detections", "type": "vision_msgs/msg/Detection2DArray", "owner": "ed_uav_perception.narrow", "qos": "state_reliable", "units": "pixel bounding boxes", "frame": "camera_narrow_optical_frame", "clock": "camera_acquisition_ros_time", "freshness": "0.20 s"},
+    {"name": "/diagnostics", "type": "diagnostic_msgs/msg/DiagnosticArray", "owner": "ed_uav_bringup.diagnostics_aggregator", "qos": "state_reliable", "units": "unitless diagnostic values", "frame": "base_link", "clock": "steady_clock_age", "freshness": "1.00 s"}
+  ],
+  "services": [
+    {"name": "/localization/start_map_session", "type": "ed_uav_interfaces/srv/StartMapSession", "owner": "ed_uav_localization.map_archive", "qos": "command_reliable", "units": "session identifiers and filesystem paths", "frame": "map", "clock": "steady_clock"}
+  ],
+  "actions": [
+    {"name": "/fcu/flight_command", "type": "ed_uav_interfaces/action/FlightCommand", "owner": "ed_uav_fcu_bridge", "qos": "command_reliable", "units": "SI/ENU: m, m/s, rad", "frame": "map or odom", "clock": "steady_clock timeout plus acquisition ROS time"},
+    {"name": "/mission/execute", "type": "ed_uav_interfaces/action/ExecuteMission", "owner": "ed_uav_mission", "qos": "command_reliable", "units": "seconds and bounded identifiers", "frame": "map", "clock": "steady_clock timeout"}
+  ],
+  "tf_edges": [
+    {"parent": "map", "child": "odom", "publisher": "ed_uav_localization.field_anchor"},
+    {"parent": "odom", "child": "base_link", "publisher": "ed_uav_localization.ekf"}
+  ],
+  "static_frames": [
+    {"parent": "base_link", "child": "fcu_link", "publisher": "ed_uav_description.robot_state_publisher"},
+    {"parent": "base_link", "child": "lidar_link", "publisher": "ed_uav_description.robot_state_publisher"},
+    {"parent": "base_link", "child": "camera_narrow_optical_frame", "publisher": "ed_uav_description.robot_state_publisher"},
+    {"parent": "base_link", "child": "camera_wide_optical_frame", "publisher": "ed_uav_description.robot_state_publisher"},
+    {"parent": "base_link", "child": "rangefinder_link", "publisher": "ed_uav_description.robot_state_publisher"}
+  ],
+  "lifecycle": [
+    {"node": "ed_uav_fcu_bridge", "hardware_owner": "FCU serial endpoint and FlightCommand action server", "activation": "after exclusive endpoint lock"},
+    {"node": "ed_uav_camera.narrow", "hardware_owner": "narrow camera device", "activation": "after calibration and device identity validation"},
+    {"node": "ed_uav_camera.wide", "hardware_owner": "wide camera device", "activation": "after calibration and device identity validation"},
+    {"node": "ed_uav_lidar", "hardware_owner": "Mid-360 endpoint", "activation": "after time and device validation"},
+    {"node": "ed_uav_localization", "hardware_owner": "map-to-odom and odom-to-base-link TF authorities", "activation": "after fresh eligible sensor sources"},
+    {"node": "ed_uav_mission", "hardware_owner": "mission action server only; no direct hardware", "activation": "after FCU, calibration, profile, localization, and authority prerequisites"}
+  ]
+}

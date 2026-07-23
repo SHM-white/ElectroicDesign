@@ -6,6 +6,7 @@ import unittest
 
 import cv2
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -19,6 +20,7 @@ class TestGrayMarkerDetector(unittest.TestCase):
     def setUp(self):
         self.detector = GrayMarkerDetector()
 
+    @pytest.mark.field_data
     def test_detects_bright_saved_sample_center(self):
         image = cv2.imread(str(
             SAMPLE_ROOT / 'Vision Test - [h] help_screenshot_15.07.2026.png'
@@ -29,6 +31,7 @@ class TestGrayMarkerDetector(unittest.TestCase):
         self.assertAlmostEqual(marker.center[0], 917.0, delta=25.0)
         self.assertAlmostEqual(marker.center[1], 761.5, delta=25.0)
 
+    @pytest.mark.field_data
     def test_detects_dark_saved_sample_center(self):
         image = cv2.imread(str(SAMPLE_ROOT / 'mission_vision_343598988361.png'))
         self.assertIsNotNone(image)

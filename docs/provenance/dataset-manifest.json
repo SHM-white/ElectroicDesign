@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "policy": {
+    "approved_dataset_imports": "none",
+    "model_weight_downloads": "prohibited",
+    "future_dataset_requirements": [
+      "immutable source URL or repository revision",
+      "license identifier or source license reference",
+      "SHA-256 for every imported artifact",
+      "immutable train/validation/test split assignment"
+    ]
+  },
+  "datasets": [],
+  "model_weights": [],
+  "reference_archives": [
+    {
+      "id": "nuedc-topic-locator",
+      "local_path": "往年赛题/收集.txt",
+      "local_sha256": "cb1e3cc955d93aafb99bd556e66118534982b7458430a19d2f84ee526eb75e7b",
+      "upstream_url": "https://github.com/CCBP/NUEDC_Topic.git",
+      "reviewed_revision": "7e6a24a56f4b30b3fbcc1fd0743ee7a2c254c37f",
+      "license_status": "reference-only; licensing and citation review is owned by task 5"
+    }
+  ]
+}

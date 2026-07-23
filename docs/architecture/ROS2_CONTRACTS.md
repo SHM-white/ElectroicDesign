@@ -1,0 +1,108 @@
+# ROS 2 Contract Freeze
+
+Status: frozen for the code/offline milestone on 2026-07-22. This document and
+`ros2_ws/src/ed_uav_interfaces/contracts/ros2_contract_manifest.json` are the
+source of truth for ROS graph names, frames, timing, QoS, and ownership.
+
+## Baseline Mapping
+
+The following maps the current in-process boundary before any ROS interface is
+defined. It is a characterization of legacy behavior, not a claim that legacy
+coordinates already satisfy REP-103.
+
+| Legacy value | Type and unit | Current convention | ROS boundary rule |
+| --- | --- | --- | --- |
+| `VisionResult.green_ratio` | `float`, ratio `[0, 1]` | image-result scalar | Publish only with acquisition time and camera frame provenance. |
+| `home_cross_center`, `start_marker_center`, `gray_marker_center` | pixel `(u, v)` | camera image pixels | Never treat as a world pose; use `sensor_msgs/Image`/standard detections or a partial observation. |
+| `gray_marker_box` | pixel `(u, v, width, height)` | camera image pixels | Standard detection bounding boxes retain this representation. |
+| vision confidence fields | `float`, ratio `[0, 1]` | detector score | Not a position covariance. |
+| `MCUSerial._of_pos_x`, `_of_pos_y`, `_of_dx`, `_of_dy` | `float`, cm | V7 position relative to takeoff; legacy X forward, Y right | `ed_uav_fcu_bridge` alone converts to meters and ROS ENU. `0x08` is the continuous source. |
+| `MCUSerial._altitude` | signed integer, cm | V7 altitude | `ed_uav_fcu_bridge` alone converts to meters. |
+| `MCUSerial._voltage_mv` | integer, mV | battery electrical value | Publish standard `sensor_msgs/BatteryState` in volts. |
+| `MCUSerial._mode`, `_locked`, `_aux6` | integer/bit/pulse us | V7 mode; `locked=1` means unlocked | Normalize to typed FCU state; preserve source sequence and acquisition time. |
+| `cmd_move(distance_cm, speed_cmps, direction_deg)` | cm, cm/s, degrees | body-relative: 0 is nose-forward, clockwise positive | Only `ed_uav_fcu_bridge` converts an approved SI/ENU command to V7. |
+
+Legacy `DroneStateMachine` is the current actuator arbiter. ROS replaces that
+ownership with exactly one action-server owner, `ed_uav_fcu_bridge`; mission and
+safety clients never open the FCU endpoint. V7 `0x41` is excluded.
+
+## Graph Contract
+
+The checked manifest lists the complete approved graph. No other topic, service,
+action, TF edge, or hardware owner is approved by this freeze.
+
+| Topic | Type | Owner | Frame | QoS and freshness |
+| --- | --- | --- | --- | --- |
+| `/fcu/state` | `FcuState` | FCU bridge | `base_link` | `state_reliable`, 0.50 s |
+| `/fcu/battery` | `BatteryState` | FCU bridge | `base_link` | `state_reliable`, 1.00 s |
+| `/fcu/optical_flow/odom` | `Odometry` | FCU bridge | `odom` | `state_reliable`, 0.20 s |
+| `/fcu/diagnostics` | `DiagnosticArray` | FCU bridge | `base_link` | `state_reliable`, 0.50 s |
+| `/rangefinder/range` | `Range` | FCU bridge | `rangefinder_link` | sensor best-effort, 0.20 s |
+| `/camera/narrow/image_raw`, `/camera/narrow/camera_info` | `Image`, `CameraInfo` | narrow camera | narrow optical | sensor best-effort, 0.20 s; latched reliable |
+| `/camera/wide/image_raw`, `/camera/wide/camera_info` | `Image`, `CameraInfo` | wide camera | wide optical | sensor best-effort, 0.20 s; latched reliable |
+| `/lidar/points`, `/lidar/imu` | `PointCloud2`, `Imu` | lidar | `lidar_link` | sensor best-effort, 0.15 s |
+| `/localization/lio/odom` | `Odometry` | LIO adapter | `odom` | `state_reliable`, 0.15 s |
+| `/localization/boundary_observation` | `BoundaryObservation` | boundary perception | wide optical | `state_reliable`, 0.20 s |
+| `/localization/status`, `/localization/odom` | `LocalizationStatus`, `Odometry` | localization supervisor, EKF | `map`, `odom` | `state_reliable`, 0.20/0.15 s |
+| `/perception/narrow/detections` | `Detection2DArray` | narrow perception | narrow optical | `state_reliable`, 0.20 s |
+| `/diagnostics` | `DiagnosticArray` | bringup aggregator | `base_link` | `state_reliable`, 1.00 s |
+
+`/localization/start_map_session` is owned only by the map archive and uses
+`StartMapSession`; saved-map loading/relocalization is excluded. `/fcu/flight_command`
+is owned only by the FCU bridge and uses `FlightCommand`. `/mission/execute` is
+owned only by the mission package and uses `ExecuteMission`.
+
+All names are absolute and occupy the fixed `/fcu`, `/rangefinder`,
+`/camera/narrow`, `/camera/wide`, `/lidar`, `/localization`, `/perception`,
+`/mission`, and `/diagnostics` namespaces. `/tf` and `/tf_static` carry only
+the authorities named below; they are not alternative data interfaces.
+
+All physical quantities are SI and all world/body coordinates are ENU under
+REP-103. Image values remain pixels in their optical frames. Header/acquisition
+timestamps use ROS time from the device/source. Freshness is always measured
+with a local steady clock, never by subtracting potentially regressed ROS time.
+
+QoS profiles are fixed: `sensor_data_best_effort` means keep-last 5,
+best-effort, volatile; `state_reliable` means keep-last 10, reliable, volatile;
+`latched_reliable` means keep-last 1, reliable, transient-local; and
+`command_reliable` means keep-last 10, reliable, volatile. The exact profile
+name, acquisition clock, and freshness deadline are mandatory manifest fields.
+
+`map -> odom` has exactly one publisher, `ed_uav_localization.field_anchor`.
+`odom -> base_link` has exactly one publisher, `ed_uav_localization.ekf`.
+`ed_uav_description.robot_state_publisher` publishes the static `base_link`
+edges to `fcu_link`, `lidar_link`, `camera_narrow_optical_frame`,
+`camera_wide_optical_frame`, and `rangefinder_link`. No other component may
+publish those edges.
+
+Lifecycle activation is ordered by the manifest: bridges and sensors acquire
+exclusive hardware ownership first; localization waits for fresh eligible input;
+mission waits for valid calibration/profile, active localization, a fresh start
+event, and FCU control authority. On total localization loss the later safety
+owner commands hover then controlled land; it never automatically locks motors
+in air.
+
+## Interface Rules
+
+`FcuState` carries source, state, acquisition time, sequence, normalized FCU
+mode/arming, and SI telemetry. `LocalizationStatus` carries source, state, and
+bounded reason text. `BoundaryObservation` has `observable_dof_mask`; unset
+DOFs in its pose are unspecified. `FlightCommand` and `ExecuteMission` use
+bounded correlation/identity/reason fields. `StartMapSession` uses bounded IDs
+and paths. Custom interfaces must not use unbounded strings or sequences.
+
+Enum values are frozen in the `.msg` and `.action` sources: FCU source is V7 or
+simulator; FCU mode is stabilize (0), altitude hold (1), position hold (2), or
+program (3). Localization source is none, LIO, visual boundary, or fused and
+state is uninitialized, active, degraded, or lost. Boundary mask bits are X=1,
+Y=2, Z=4, roll=8, pitch=16, and yaw=32. Flight commands are arm, disarm, mode,
+takeoff, move, hover, and land, with succeeded/rejected/timeout/FCU-error
+results. Mission results are succeeded, rejected, aborted, or timeout. No enum
+maps to V7 `0x41`.
+
+Run the standalone surface with:
+
+```bash
+./.venv/bin/python ros2_ws/src/ed_uav_interfaces/tools/check_contract.py \
+  ros2_ws/src/ed_uav_interfaces/contracts/ros2_contract_manifest.json
+```

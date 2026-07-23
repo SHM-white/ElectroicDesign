@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "fixture_root": "../../..",
+  "fixtures": [
+    {
+      "path": "mission_vision_156657515933.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["find A marker"]
+    },
+    {
+      "path": "mission_vision_159211884392.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["find A marker near (362, 588)"]
+    },
+    {
+      "path": "mission_vision_194047772428.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["expected_digit=21 rejects low-light noise OCR"]
+    },
+    {
+      "path": "mission_vision_216786120831.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["OCR label 19"]
+    },
+    {
+      "path": "mission_vision_294206335845.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["OCR label 20"]
+    },
+    {
+      "path": "mission_vision_295544256805.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["OCR label 22"]
+    },
+    {
+      "path": "mission_vision_343598988361.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["OCR label 25", "dark-scene gray marker near (753, 525)"]
+    },
+    {
+      "path": "mission_vision_402151711011.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_402741364456.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_402853639001.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_402964927359.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_403072737295.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_403712551477.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_403827566089.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_403925567301.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_404026620771.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_404645304801.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_404775083782.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_404865113743.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_404963121431.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_414888071266.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_415038856974.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_415124878070.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_415212646144.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_415312878597.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross confidence >= 0.58", "home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_415416002860.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_416010570452.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_416123816725.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    },
+    {
+      "path": "mission_vision_416235453123.png",
+      "state": "absent",
+      "sha256": null,
+      "expectations": ["home-cross sequence confidence >= 0.45"]
+    }
+  ]
+}

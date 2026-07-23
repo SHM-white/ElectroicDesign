@@ -1,0 +1,8 @@
+# A new session only; saved-map loading and relocalization are not contracts.
+string<=64 session_id
+string<=128 archive_root
+bool record_pointcloud
+---
+bool accepted
+string<=96 reason
+string<=128 staging_uri

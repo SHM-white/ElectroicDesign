@@ -1,0 +1,51 @@
+ARG ROS_HUMBLE_BASE=ros:humble-ros-base-jammy@sha256:5c793b92e0b12d6babb438cb20eed7766495fde6419a21e3d2e918464f09dc17
+FROM --platform=linux/amd64 ${ROS_HUMBLE_BASE}
+
+ARG ROS_HUMBLE_BASE
+
+LABEL io.ed.humble.base-ref="${ROS_HUMBLE_BASE}"
+LABEL io.ed.humble.platform="linux/amd64"
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV ROS_HOME=/opt/ed-ros-home
+
+# The pinned ROS base already contains Humble, colcon, rosdep, and vcstool.
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes \
+        python3-pip \
+        python3-venv \
+        python3-opencv \
+        ros-humble-vision-msgs \
+        ros-humble-cv-bridge \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dev tooling. Uses the system pip (22.0.2) directly to avoid
+# hash verification issues that occur when upgrading pip to 24.x in this base.
+# Pydantic is installed with deps to ensure version compatibility.
+RUN python3 -m pip install --no-cache-dir \
+        "pytest>=8.3,<9.0" \
+        "ruff>=0.8" \
+        "basedpyright>=1.23" \
+        "pydantic>=2.0" \
+        "typing-extensions>=4.6"
+
+# Retain the rosdep index baked into the pinned base so regular runs do not update it.
+RUN test -d /root/.ros/rosdep/sources.cache \
+    && mkdir -p "${ROS_HOME}" \
+    && cp -a /root/.ros/rosdep "${ROS_HOME}/" \
+    && chmod -R a+rwx "${ROS_HOME}"
+
+RUN { \
+        printf 'base=%s\n' "${ROS_HUMBLE_BASE}"; \
+        printf 'platform=linux/amd64\n'; \
+        python3 --version; \
+        ros2 --version; \
+        dpkg-query --showformat='${Package}=${Version}\n' --show \
+            python3 python3-pip python3-venv python3-colcon-common-extensions python3-rosdep; \
+        python3 -m pip freeze --all; \
+    } > /usr/local/share/ed-humble-toolchain-versions.txt
+
+WORKDIR /workspace
+CMD ["bash"]

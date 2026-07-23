@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "hardware_status": "candidate_only_p25_enumeration_required",
+  "controller_payload_budget_mbit_s": 384.0,
+  "profiles": [
+    {
+      "name": "full_calibration",
+      "role": "both",
+      "candidates": [
+        {
+          "fourcc": "MJPG",
+          "width": 2592,
+          "height": 1944,
+          "frames_per_second": 2,
+          "compression": "mjpeg",
+          "declared_peak_mbit_s": 72.0
+        },
+        {
+          "fourcc": "YUYV",
+          "width": 2592,
+          "height": 1944,
+          "frames_per_second": 1,
+          "compression": "uncompressed",
+          "bits_per_pixel": 16
+        }
+      ]
+    },
+    {
+      "name": "wide_live",
+      "role": "wide",
+      "candidates": [
+        {
+          "fourcc": "MJPG",
+          "width": 1280,
+          "height": 720,
+          "frames_per_second": 15,
+          "compression": "mjpeg",
+          "declared_peak_mbit_s": 48.0
+        },
+        {
+          "fourcc": "YUYV",
+          "width": 640,
+          "height": 480,
+          "frames_per_second": 15,
+          "compression": "uncompressed",
+          "bits_per_pixel": 16
+        }
+      ]
+    },
+    {
+      "name": "narrow_live",
+      "role": "narrow",
+      "candidates": [
+        {
+          "fourcc": "MJPG",
+          "width": 1280,
+          "height": 720,
+          "frames_per_second": 20,
+          "compression": "mjpeg",
+          "declared_peak_mbit_s": 64.0
+        },
+        {
+          "fourcc": "YUYV",
+          "width": 640,
+          "height": 480,
+          "frames_per_second": 20,
+          "compression": "uncompressed",
+          "bits_per_pixel": 16
+        }
+      ]
+    }
+  ]
+}

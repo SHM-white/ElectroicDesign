@@ -1,0 +1,57 @@
+{
+  "synthetic_test_only": true,
+  "not_hardware_enumeration": "P25 owns physical discovery and measured calibration",
+  "controller_budget_mbit_s": 384.0,
+  "cameras": [
+    {
+      "role": "narrow",
+      "serial": "FAKE-NARROW-001",
+      "by_id": "/dev/v4l/by-id/fake-narrow",
+      "observed_serial": "FAKE-NARROW-001",
+      "controller_id": "fake-usb-controller",
+      "profile": "narrow_live",
+      "frame_id": "camera_narrow_optical_frame",
+      "mode": {
+        "fourcc": "MJPG",
+        "width": 1280,
+        "height": 720,
+        "frames_per_second": 20,
+        "compression": "mjpeg",
+        "declared_peak_mbit_s": 64.0
+      },
+      "calibration": {
+        "serial": "FAKE-NARROW-001",
+        "width": 1280,
+        "height": 720,
+        "captured_at_ns": 0,
+        "valid_for_ns": 9000000000000000000,
+        "camera_info_url": "file:///synthetic/fake-narrow.yaml"
+      }
+    },
+    {
+      "role": "wide",
+      "serial": "FAKE-WIDE-001",
+      "by_id": "/dev/v4l/by-id/fake-wide",
+      "observed_serial": "FAKE-WIDE-001",
+      "controller_id": "fake-usb-controller",
+      "profile": "wide_live",
+      "frame_id": "camera_wide_optical_frame",
+      "mode": {
+        "fourcc": "MJPG",
+        "width": 1280,
+        "height": 720,
+        "frames_per_second": 15,
+        "compression": "mjpeg",
+        "declared_peak_mbit_s": 48.0
+      },
+      "calibration": {
+        "serial": "FAKE-WIDE-001",
+        "width": 1280,
+        "height": 720,
+        "captured_at_ns": 0,
+        "valid_for_ns": 9000000000000000000,
+        "camera_info_url": "file:///synthetic/fake-wide.yaml"
+      }
+    }
+  ]
+}

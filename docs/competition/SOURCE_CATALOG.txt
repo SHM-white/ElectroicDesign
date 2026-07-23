@@ -1,0 +1,27 @@
+P05 source metadata cache. This records locators, digests, and the local official 2026 equipment notice; it is not a substitute for a released task rule.
+Retrieved: 2026-07-23
+
+Pinned archive: https://github.com/CCBP/NUEDC_Topic.git
+Reviewed revision: 7e6a24a56f4b30b3fbcc1fd0743ee7a2c254c37f
+Local locator: 往年赛题/收集.txt
+Local locator SHA-256: cb1e3cc955d93aafb99bd556e66118534982b7458430a19d2f84ee526eb75e7b
+Archive inventory gap: no UAV-labelled task file was found for 2016 or 2019 in this reviewed revision.
+
+2013/B_四旋翼自主飞行器.pdf SHA-256: c534d10d421d8bd92a0348d1cab39a3954c3d7e27f73fbcaac285d29a7133671
+2014/A_四旋翼飞行器.doc git blob SHA-1: 098beb935edc6e24797b105bac31f1a3d45851a5
+2015/C_多旋翼自主飞行器.pdf SHA-256: cd151f6f90c971e1e0edf667601c4f715239350561dc0fe1c7bc941b33b37764
+2017/C_四旋翼自主飞行器探测跟踪系统.pdf SHA-256: 6d836475b21e6dd439a5ed2a6793f78ed17741ba4d3b065989b0c7f3d2a57993
+2018/B_灭火飞行器.docx git blob SHA-1: 4f3dd101c7e031729844baf33253e54eaf40c7e3
+2020/D_绕障飞行器.pdf SHA-256: ce8351c0590b1e1bf1bd23bf4a537aec47df8ef27687c390c8d0d20c1b14c987
+2021/G_植保飞行器.pdf local SHA-256: ea87f130601e9c86913636d818af3cc0f2ccea16238835bd493ac0c4a6044553
+2022/7月/B_送货无人机.pdf SHA-256: 4b215adc7425a2296fd9a32eddb74d45ca8e42b7e4236d709b29aa7be419b32c
+2023/G_空地协同智能消防系统.pdf SHA-256: 0c27147275b05aa09f6ef3df4de1cbfadaa439e261aa498786ef61b9f3d3de13
+2024/D题_立体货架盘点无人机系统.pdf SHA-256: d4e9eeb3e0b4f59e898e048b217b1c541b93f2eb07a8d6d67cd851c410f152f8
+2025/H题_野生动物巡查系统.pdf SHA-256: f17233ba31dfd7ed4ae4ea63fe2d9e642318bf2ad357360b92db6e6f3fe7bd4b
+
+2026 official equipment notice dated 2026-07-21: 往年赛题/file202607217923.pdf
+2026 official equipment notice local SHA-256: ab9b8b4199fffe3aac782b470f8e97de34b739fd8e0a08879e5eae29ed07567b
+2026 official equipment notice pages 1-2: camera, short-range wireless communication module, and wireless image transmission module are listed.
+2026 official equipment notice limitation: it is an equipment list, not a task rule; it does not state lidar permission or a required sensing modality.
+2026 lidar context source: .omo/drafts/ros2-uav-refactor.md SHA-256: 468f1a99674c71b01e47bd372e49f0b126d80ac209b390b44c5b4ab6d15295a0
+2026 local guess: 往年赛题/2026电赛控制类猜题.pdf SHA-256: 7d7a03a20b233fbbb1c2a9cb551a2758fe3e9da1a6a53f602fcc799194d8013f

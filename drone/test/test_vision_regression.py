@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import cv2
 import numpy as np
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -49,6 +50,7 @@ class TestMvsSampleRecognition(unittest.TestCase):
         self.assertIsNotNone(frame, f"Missing MVS sample: {path}")
         return frame
 
+    @pytest.mark.field_data
     def test_recognizes_block_28_from_mvs_sample(self) -> None:
         frame = self._read(SAMPLE_28)
 
@@ -56,6 +58,7 @@ class TestMvsSampleRecognition(unittest.TestCase):
 
         self.assertEqual(digit, 28, f"Expected block 28, got {digit}")
 
+    @pytest.mark.field_data
     def test_recognizes_block_21_from_both_mvs_samples(self) -> None:
         for path in (SAMPLE_21, SAMPLE_21_2):
             with self.subTest(path=path.name):
@@ -65,6 +68,7 @@ class TestMvsSampleRecognition(unittest.TestCase):
 
                 self.assertEqual(digit, 21, f"Expected block 21, got {digit}")
 
+    @pytest.mark.field_data
     def test_finds_a_marker_in_both_block_21_samples(self) -> None:
         for path in (SAMPLE_21, SAMPLE_21_2):
             with self.subTest(path=path.name):
@@ -74,6 +78,7 @@ class TestMvsSampleRecognition(unittest.TestCase):
 
                 self.assertIsNotNone(marker, f"A marker missing in {path.name}")
 
+    @pytest.mark.field_data
     def test_recognizes_phone_sample_block_21_and_a_marker(self) -> None:
         frame = self._read(PHONE_SAMPLE_21)
 
@@ -82,6 +87,7 @@ class TestMvsSampleRecognition(unittest.TestCase):
         )
         self.assertIsNotNone(self.reader.find_a_marker(frame))
 
+    @pytest.mark.field_data
     def test_finds_a_marker_in_low_light_start_samples(self) -> None:
         for path in (LOW_LIGHT_START_SAMPLE, LOW_LIGHT_START_SAMPLE_2):
             with self.subTest(path=path.name):
@@ -93,6 +99,7 @@ class TestMvsSampleRecognition(unittest.TestCase):
                     self.assertLess(abs(marker[0] - 362), 30)
                     self.assertLess(abs(marker[1] - 588), 40)
 
+    @pytest.mark.field_data
     def test_expected_digit_rejects_low_light_noise_ocr(self) -> None:
         frame = self._read(LOW_LIGHT_FALSE_DIGIT_SAMPLE)
 
@@ -102,6 +109,7 @@ class TestMvsSampleRecognition(unittest.TestCase):
             )
         )
 
+    @pytest.mark.field_data
     def test_recognizes_saved_low_light_two_digit_samples(self) -> None:
         for expected, path in LOW_LIGHT_DIGIT_SAMPLES.items():
             with self.subTest(path=path.name):
@@ -114,6 +122,7 @@ class TestMvsSampleRecognition(unittest.TestCase):
                     expected,
                 )
 
+    @pytest.mark.field_data
     def test_recognizes_brightness_reduced_mvs_samples(self) -> None:
         for path, expected in ((SAMPLE_21, 21), (SAMPLE_28, 28)):
             with self.subTest(path=path.name):
@@ -159,6 +168,7 @@ class TestMvsSampleRecognition(unittest.TestCase):
             set(np.unique(candidates[-2])).issubset({0, 255}),
         )
 
+    @pytest.mark.field_data
     def test_all_saved_field_frames_are_readable(self) -> None:
         samples = sorted(SAMPLE_ROOT.glob("mission_vision_*.png"))
         self.assertGreater(len(samples), 0, "No saved field frames found")

@@ -1,0 +1,49 @@
+# Historical example only. It is blocked from activation and is not a measured 2026 arena.
+version: 1
+profile_type: field
+profile_id: historical-2021-example
+units:
+  length: m
+  angle: rad
+frame:
+  id: map
+  convention: ENU
+provenance:
+  classification: historical_example
+  activation: blocked
+takeoff:
+  origin: {x_m: 0.0, y_m: -0.5}
+  commanded_heading_rad: 0.0
+colors:
+  - id: boundary-dark
+    label: black
+boundary_segments:
+  - id: south
+    start: {x_m: 0.0, y_m: 0.0}
+    end: {x_m: 4.0, y_m: 0.0}
+    color_id: boundary-dark
+  - id: east
+    start: {x_m: 4.0, y_m: 0.0}
+    end: {x_m: 4.0, y_m: 5.0}
+    color_id: boundary-dark
+  - id: north
+    start: {x_m: 4.0, y_m: 5.0}
+    end: {x_m: 0.0, y_m: 5.0}
+    color_id: boundary-dark
+  - id: west
+    start: {x_m: 0.0, y_m: 5.0}
+    end: {x_m: 0.0, y_m: 0.0}
+    color_id: boundary-dark
+allowed_zone:
+  id: historical-flyable
+  vertices:
+    - {x_m: 0.0, y_m: 0.0}
+    - {x_m: 4.0, y_m: 0.0}
+    - {x_m: 4.0, y_m: 5.0}
+    - {x_m: 0.0, y_m: 5.0}
+no_fly_zones: []
+altitude:
+  minimum_m: 0.3
+  maximum_m: 3.0
+  takeoff_m: 1.2
+landmarks: []

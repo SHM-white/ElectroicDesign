@@ -1,0 +1,17 @@
+name: ed-humble
+
+services:
+  humble:
+    build:
+      context: .
+      dockerfile: Dockerfile.humble
+    image: ed-humble-toolchain:jammy-humble
+    platform: linux/amd64
+    working_dir: /workspace
+    environment:
+      ROS_HOME: /opt/ed-ros-home
+    volumes:
+      - type: bind
+        source: ..
+        target: /workspace
+    init: true

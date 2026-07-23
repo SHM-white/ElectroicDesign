@@ -7,6 +7,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -73,6 +74,7 @@ class TestHomeCrossDetector(unittest.TestCase):
 
         self.assertIsNone(center)
 
+    @pytest.mark.field_data
     def test_detects_complete_saved_home_sample(self):
         image = cv2.imread(str(SAMPLE_ROOT / 'mission_vision_415312878597.png'))
         self.assertIsNotNone(image)
@@ -82,6 +84,7 @@ class TestHomeCrossDetector(unittest.TestCase):
         self.assertIsNotNone(center)
         self.assertGreaterEqual(confidence, 0.58)
 
+    @pytest.mark.field_data
     def test_detects_saved_home_sequence(self):
         detector = HomeCrossDetector()
         detected = 0

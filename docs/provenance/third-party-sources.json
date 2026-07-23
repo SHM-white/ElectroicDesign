@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "id": "livox_ros_driver2",
+      "repository_url": "https://github.com/Livox-SDK/livox_ros_driver2.git",
+      "checkout_directory": "livox_ros_driver2",
+      "revision": "13eb05e4e6dd7a765b934d0c5fd6236676a57b49",
+      "license": {
+        "spdx": "MIT",
+        "repository_path": "LICENSE.txt",
+        "source_url": "https://github.com/Livox-SDK/livox_ros_driver2/blob/13eb05e4e6dd7a765b934d0c5fd6236676a57b49/LICENSE.txt",
+        "cache_path": "docs/provenance/licenses/livox_ros_driver2-LICENSE.txt",
+        "sha256": "5d965fd1439196751d5ccad8064a51dafdb2d88548174bb5516d393c7a4c0717",
+        "retrieved_at": "2026-07-22"
+      },
+      "corresponding_source": {
+        "repository_url": "https://github.com/Livox-SDK/livox_ros_driver2.git",
+        "revision": "13eb05e4e6dd7a765b934d0c5fd6236676a57b49",
+        "availability": "upstream-pinned",
+        "archive_url": "https://github.com/Livox-SDK/livox_ros_driver2/archive/13eb05e4e6dd7a765b934d0c5fd6236676a57b49.tar.gz"
+      },
+      "invocation_boundary": {
+        "kind": "separate-process",
+        "description": "The Livox ROS 2 driver is launched from ros2_ws/src/third_party and exchanges ROS messages with ed_* packages; its source is not copied into ed_* packages."
+      },
+      "forbidden_copy_markers": [
+        "livox_ros_driver2",
+        "livox_sdk2"
+      ]
+    },
+    {
+      "id": "fast_lio_ros2",
+      "repository_url": "https://github.com/hku-mars/FAST_LIO.git",
+      "checkout_directory": "fast_lio_ros2",
+      "revision": "2fffc570a25d0df172720bac034fbdb6a13d2162",
+      "license": {
+        "spdx": "GPL-2.0-only",
+        "repository_path": "LICENSE",
+        "source_url": "https://github.com/hku-mars/FAST_LIO/blob/2fffc570a25d0df172720bac034fbdb6a13d2162/LICENSE",
+        "cache_path": "docs/provenance/licenses/fast_lio_ros2-LICENSE.txt",
+        "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+        "retrieved_at": "2026-07-22"
+      },
+      "corresponding_source": {
+        "repository_url": "https://github.com/hku-mars/FAST_LIO.git",
+        "revision": "2fffc570a25d0df172720bac034fbdb6a13d2162",
+        "availability": "upstream-pinned",
+        "archive_url": "https://github.com/hku-mars/FAST_LIO/archive/2fffc570a25d0df172720bac034fbdb6a13d2162.tar.gz"
+      },
+      "invocation_boundary": {
+        "kind": "separate-process",
+        "description": "FAST-LIO is launched from ros2_ws/src/third_party as its own ROS 2 process; ed_* packages use declared ROS topics and do not copy FAST-LIO source."
+      },
+      "forbidden_copy_markers": [
+        "fast_lio",
+        "fastlio"
+      ]
+    },
+    {
+      "id": "ultralytics",
+      "repository_url": "https://github.com/ultralytics/ultralytics.git",
+      "checkout_directory": "ultralytics",
+      "revision": "7a159ea24ec94c47cf25c75785e0a56e47ba4e7b",
+      "license": {
+        "spdx": "AGPL-3.0-only",
+        "repository_path": "LICENSE",
+        "source_url": "https://github.com/ultralytics/ultralytics/blob/7a159ea24ec94c47cf25c75785e0a56e47ba4e7b/LICENSE",
+        "cache_path": "docs/provenance/licenses/ultralytics-LICENSE.txt",
+        "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
+        "retrieved_at": "2026-07-22"
+      },
+      "corresponding_source": {
+        "repository_url": "https://github.com/ultralytics/ultralytics.git",
+        "revision": "7a159ea24ec94c47cf25c75785e0a56e47ba4e7b",
+        "availability": "upstream-pinned",
+        "archive_url": "https://github.com/ultralytics/ultralytics/archive/7a159ea24ec94c47cf25c75785e0a56e47ba4e7b.tar.gz"
+      },
+      "invocation_boundary": {
+        "kind": "separate-process",
+        "description": "Future training or export runs in the isolated ml/yolo environment; ROS nodes consume provider-neutral outputs and do not import or copy Ultralytics source."
+      },
+      "forbidden_copy_markers": [
+        "ultralytics"
+      ]
+    }
+  ]
+}

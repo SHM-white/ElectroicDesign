@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "interfaces": [],
+  "services": [],
+  "actions": [],
+  "topics": [
+    {
+      "name": "/fcu/state",
+      "type": "ed_uav_interfaces/msg/FcuState",
+      "owner": "ed_uav_fcu_bridge",
+      "qos": "state_reliable",
+      "units": "SI",
+      "frame": "base_link",
+      "clock": "acquisition_ros_time",
+      "freshness": "0.50 s"
+    }
+  ],
+  "tf_edges": [
+    {"parent": "map", "child": "odom", "publisher": "ed_uav_localization.field_anchor"},
+    {"parent": "odom", "child": "base_link", "publisher": "ed_uav_localization.ekf"}
+  ],
+  "static_frames": [],
+  "lifecycle": []
+}

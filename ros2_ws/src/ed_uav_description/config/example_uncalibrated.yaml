@@ -1,0 +1,15 @@
+# EXAMPLE ONLY: UNCALIBRATED and non-motion. Do not use for hardware activation.
+schema_version: 1
+calibration_id: EXAMPLE-UNCALIBRATED-NON-MOTION
+calibration_status: UNCALIBRATED
+calibration_hash: 758d99f759065fd620627b478fa5e4beeabd5f68bef30b9293ada085ba7a72ab
+sensor_serials:
+  camera_narrow: UNSET
+  camera_wide: UNSET
+  lidar: UNSET
+transforms:
+  fcu_link: {xyz_m: [0.0, 0.0, 0.0], rpy_rad: [0.0, 0.0, 0.0]}
+  lidar_link: {xyz_m: [0.0, 0.0, 0.0], rpy_rad: [0.0, 0.0, 0.0]}
+  camera_narrow_optical_frame: {xyz_m: [0.0, 0.0, 0.0], rpy_rad: [0.0, 0.0, 0.0]}
+  camera_wide_optical_frame: {xyz_m: [0.0, 0.0, 0.0], rpy_rad: [0.0, 0.0, 0.0]}
+  rangefinder_link: {xyz_m: [0.0, 0.0, 0.0], rpy_rad: [0.0, 0.0, 0.0]}

@@ -1,0 +1,22 @@
+[project]
+name = "ed-yolo-contract"
+version = "0.1.0"
+description = "Isolated immutable YOLO data and runtime contracts"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "ultralytics @ git+https://github.com/ultralytics/ultralytics.git@7a159ea24ec94c47cf25c75785e0a56e47ba4e7b",
+]
+
+[project.scripts]
+ed-yolo = "yolo_contract.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

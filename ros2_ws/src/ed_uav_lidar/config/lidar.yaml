@@ -1,0 +1,12 @@
+/lidar_transport:
+  ros__parameters:
+    lidar_enabled: false
+    transport: disabled
+    serial_number: UNSET
+    sensor_ip: 0.0.0.0
+    firmware_version: UNSET
+    time_authority: host
+    monitoring_topic: /lidar/points
+    imu_topic: /lidar/imu
+    generic_input_topic: /lidar/input/points
+    fastlio_custom_topic: /livox/lidar

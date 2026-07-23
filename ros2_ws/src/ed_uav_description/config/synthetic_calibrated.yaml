@@ -1,0 +1,15 @@
+# SYNTHETIC TEST MODEL ONLY: values are not a physical measurement and cannot activate competition.
+schema_version: 1
+calibration_id: SYNTHETIC-STATIC-MODEL
+calibration_status: SYNTHETIC
+calibration_hash: e1ec326500451dc318cc55568cbc4f4f1247fe24fd9fb619577c36455310b37c
+sensor_serials:
+  camera_narrow: SYNTHETIC-NARROW-001
+  camera_wide: SYNTHETIC-WIDE-001
+  lidar: SYNTHETIC-LIDAR-001
+transforms:
+  fcu_link: {xyz_m: [0.0, 0.0, 0.0], rpy_rad: [0.0, 0.0, 0.0]}
+  lidar_link: {xyz_m: [0.12, 0.0, 0.08], rpy_rad: [0.0, 0.0, 0.0]}
+  camera_narrow_optical_frame: {xyz_m: [0.08, 0.04, -0.02], rpy_rad: [0.0, 0.0, 0.0]}
+  camera_wide_optical_frame: {xyz_m: [0.08, -0.04, -0.02], rpy_rad: [0.0, 0.0, 0.0]}
+  rangefinder_link: {xyz_m: [0.0, 0.0, -0.06], rpy_rad: [0.0, 0.0, 0.0]}

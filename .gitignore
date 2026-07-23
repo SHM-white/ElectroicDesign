@@ -11,3 +11,6 @@ tmp/
 *.png
 飞控程序/
 视觉代码1.0/
+log/
+install/
+build/

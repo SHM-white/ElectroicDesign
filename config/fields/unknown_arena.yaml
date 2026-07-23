@@ -1,0 +1,13 @@
+# Deliberately geometry-free until official arena measurements are entered.
+# This validates as blocked metadata, never as an activation-ready field.
+version: 1
+profile_type: unknown
+profile_id: unknown-arena
+units:
+  length: m
+  angle: rad
+frame:
+  id: map
+  convention: ENU
+activation: blocked
+reason: Official arena geometry, zones, takeoff pose, and landmarks are not yet known.
