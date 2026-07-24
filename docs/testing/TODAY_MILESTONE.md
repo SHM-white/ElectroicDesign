@@ -84,18 +84,18 @@ PYTHONPATH=ml/yolo/src ./.venv/bin/python -m pytest -q \
   --strict-markers
 ```
 
-**Result:** PASS — **313 passed, 13 deselected**
+**Result:** PASS — **365 passed, 13 deselected**
 
-The 13 deselected tests carry the `field_data` marker and depend on absent `mission_vision_*.png` fixtures (see SKIPPED-EXTERNAL-DATA below). All 313 collected and executed tests pass under `--strict-markers` — no unexplained xfail, no unexplained skip.
+The 13 deselected tests carry the `field_data` marker and depend on absent `mission_vision_*.png` fixtures (see SKIPPED-EXTERNAL-DATA below). All 365 collected and executed tests pass under `--strict-markers` — no unexplained xfail, no unexplained skip.
 
 **Test distribution:**
 
 | Source | Passed |
 | --- | --- |
-| drone/test (legacy production) | 237 |
+| drone/test (legacy production) | 241 |
 | ml/yolo/tests (YOLO contract) | 13 |
-| tools (checker tests) | 63 |
-| **Total** | **313** |
+| tools (checker tests) | 111 |
+| **Total** | **365** |
 
 ### 7. Protected File Integrity
 
@@ -253,7 +253,7 @@ Task 21 (`Enforce offline resource budgets and destructive fault cases`) is comp
 - [x] `colcon test-result --all --verbose` — 202/0/0/1
 - [x] `ruff check ros2_ws/src ml tools` — PASS (exit 0)
 - [x] `basedpyright ros2_ws/src ml tools` — PASS (exit 0)
-- [x] `pytest -q drone/test ml tools -m "not field_data and not hardware and not flight" --strict-markers` — 313 passed, 13 deselected
+- [x] `PYTHONPATH=ml/yolo/src ./.venv/bin/python -m pytest -q drone/test ml tools -m "not field_data and not hardware and not flight" --strict-markers` — 365 passed, 13 deselected
 - [x] Protected file hashes match `LEGACY_BASELINE.md`
 - [x] Field image manifest matches current state (29 absent)
 - [x] No unexplained xfail or skip

@@ -166,7 +166,7 @@ PYTHONPATH=ml/yolo/src ./.venv/bin/python -m pytest -q \
   --strict-markers
 ```
 
-**Pass criteria**: Exit 0, 313 passed, 13 deselected (field_data).
+**Pass criteria**: Exit 0, 365 passed, 13 deselected (field_data).
 
 ### 4.6 Protected Hash Gate
 
@@ -246,6 +246,14 @@ python3 tools/check_field_fixtures.py --manifest drone/test/fixtures/field-image
 | Hover throttle | ≤50% | Flight controller |
 | Endurance | ≥1.5× mission duration | Battery test |
 | Thermal stability | No throttling | Temperature log |
+
+Offline preparation checker command:
+
+```bash
+tools/check_flight_readiness.py --bom docs/hardware/BOM.json --measurements <dated-dir> --strict
+```
+
+This checker validates readiness evidence format, traceability, hashes, and thresholds, but does not substitute for the required physical measurements.
 
 ### 5.4 FCU HIL (Task 27)
 
