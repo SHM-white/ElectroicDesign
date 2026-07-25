@@ -238,7 +238,41 @@ ros2 launch ed_uav_verification verification_harness.launch.py \
   seed:=7 duration_seconds:=60 rate_hz:=20
 ```
 
-### 3.6 FCU Bridge (Standalone)
+### 3.6 One-Click Offline Integration
+
+Run these commands from the repository root. Each script creates a timestamped
+directory below `.omo/evidence/offline-integration/scripts/` and writes a
+stage-specific `SUCCESS` marker there. A failed run writes `FAILED` with the
+exit code. Retain the directories as debugging evidence.
+
+| Stage | Exact command | Pass marker and evidence | Debugging phase |
+|---|---|---|---|
+| Static contract surface | `bash tools/run_offline_static.sh` | `STATIC_OFFLINE_GREEN` in `SUCCESS`; focused pytest, launch-surface, replay-profile, interface-contract, parity, and runner logs | First check for environment, launch, interface, and legacy-parity regressions before starting processes |
+| Live simulation | `bash tools/run_offline_sim.sh` | `SIM_OFFLINE_GREEN` in `SUCCESS`; build, simulation, colcon, and runner logs | Check the live offline graph and deterministic synthetic sensor flow |
+| WSLg visualization | `bash tools/run_offline_rviz.sh` | `RVIZ_OFFLINE_GREEN` in `SUCCESS`; packaged config, RViz, build, and runner logs | Check WSLg display startup, visualization topics, and RViz process lifetime |
+| FCU bridge dry run | `bash tools/run_offline_fcu_dry_run.sh` | `FCU_DRY_RUN_GREEN` in `SUCCESS`; FCU, build, and runner logs | Check bridge framing, telemetry, command plumbing, PTY cleanup, and shutdown |
+| Event replay | `bash tools/run_offline_full_replay.sh` | `FULL_REPLAY_GREEN` in `SUCCESS`; event creation, bag info, replay, test, build, and runner logs | Check event artifact creation, event-only rosbag shape, and replay lifecycle |
+
+The live deterministic simulation is wall-time only. It does not publish
+`/clock`, so `use_sim_time=true` is rejected for this surface. The one-click
+simulation and visualization commands use `use_sim_time:=false`.
+
+The RViz stage uses WSLg through `HUMBLE_GUI=1`. It displays synthetic,
+visualization-only robot geometry, TF, lidar points, and two images. Odometry
+displays are intentionally absent until an authorized TF owner exists.
+
+The rosbag stage is event-only. Its approved topic is `/verification/events`;
+it is not a sensor replay and it is not a flight replay. The FCU dry-run uses a
+fake PTY with the real bridge. It does not open `/dev/ttyUSB*` and makes no HIL,
+hardware, or flight claim.
+
+The current offline integration receipt is recorded under
+`.omo/evidence/offline-integration/`. This receipt supplements, and does not
+replace, the original milestone results in `docs/testing/TODAY_MILESTONE.md`.
+The stored stage evidence includes `wall-time/`, `rviz/`, `rviz-visual/`,
+`rosbag/`, `fcu-final/`, and timestamped runs under `scripts/`.
+
+### 3.7 FCU Bridge (Standalone)
 
 ```bash
 # Requires physical FCU on /dev/ttyUSB0

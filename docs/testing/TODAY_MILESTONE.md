@@ -173,18 +173,52 @@ Restore the original images and re-run the strict field-data gate to close this 
 
 ---
 
+## OFFLINE INTEGRATION RECEIPT - Completed Offline Iteration
+
+The five one-click offline integration stages are available from the repository
+root. Each command creates a timestamped evidence directory below
+`.omo/evidence/offline-integration/scripts/` and writes its stage marker to
+`SUCCESS`; failures write `FAILED` with the exit code.
+
+| Stage | Exact command | Pass marker | Evidence and intended debugging phase |
+|---|---|---|---|
+| Static | `bash tools/run_offline_static.sh` | `STATIC_OFFLINE_GREEN` | Focused tests, launch/profile checks, interface contract, parity, and runner logs. Start here for static and environment failures. |
+| Simulation | `bash tools/run_offline_sim.sh` | `SIM_OFFLINE_GREEN` | Build and live simulation logs. Checks deterministic synthetic sensor flow in wall time. |
+| RViz | `bash tools/run_offline_rviz.sh` | `RVIZ_OFFLINE_GREEN` | Packaged RViz config, process, build, and runner logs. Checks WSLg visualization startup. |
+| FCU dry run | `bash tools/run_offline_fcu_dry_run.sh` | `FCU_DRY_RUN_GREEN` | Fake PTY, real bridge, build, and runner logs. Checks bridge framing, telemetry, commands, and cleanup. |
+| Full replay | `bash tools/run_offline_full_replay.sh` | `FULL_REPLAY_GREEN` | Event creation, bag info, replay, build, and test logs. Checks event-only replay lifecycle. |
+
+The live deterministic simulation is wall-time only. There is no `/clock`, so
+`use_sim_time=true` is rejected. The RViz stage uses WSLg via `HUMBLE_GUI=1`
+and displays synthetic visualization-only robot geometry, TF, lidar points, and
+two images. Odometry displays are intentionally absent until an authorized TF
+owner exists.
+
+The rosbag stage contains only `/verification/events`. It is event-only, not a
+sensor replay or flight replay. The FCU dry-run uses a fake PTY plus the real
+bridge, does not use `/dev/ttyUSB*`, and does not claim HIL, hardware, or flight
+acceptance.
+
+Current offline integration evidence is recorded under
+`.omo/evidence/offline-integration/`. This receipt is additive. The original
+202-test colcon result and 365-test pytest result above remain unchanged. Stored
+stage evidence includes `wall-time/`, `rviz/`, `rviz-visual/`, `rosbag/`,
+`fcu-final/`, and timestamped runs under `scripts/`.
+
+---
+
 ## PENDING-HARDWARE — Tasks 24-29
 
 The following Wave 5 tasks require dated target-hardware evidence on the Jammy/i5 machine with Mid-360, USB 2.0 cameras, Lingxiao FCU, and replacement propulsion. They are intentionally deferred until the owner returns to school.
 
-| Task | Description | Depends On |
-| --- | --- | --- |
-| 24 | Mid-360 mount, network, time, LIO bring-up | 23 |
-| 25 | USB 2.0 UVC camera enumeration, bandwidth, calibration | 23 |
-| 26 | Replacement propulsion, power, thermal, mechanical BOM | 5, 22, 23 |
-| 27 | Real FCU high-level commands, bounded 0x32/0x33 experiment | 23-26 |
-| 28 | Staged first-flight and localization-failover acceptance | 24-27 |
-| 29 | Unknown-arena adaptation and competition-ready rehearsal | 5, 22, 28 |
+| Task | Description | Depends On | Status |
+| --- | --- | --- | --- |
+| 24 | Mid-360 mount, network, time, LIO bring-up | 23 | PENDING-HARDWARE |
+| 25 | USB 2.0 UVC camera enumeration, bandwidth, calibration | 23 | PENDING-HARDWARE |
+| 26 | Replacement propulsion, power, thermal, mechanical BOM | 5, 22, 23 | PENDING-HARDWARE |
+| 27 | Real FCU high-level commands, bounded 0x32/0x33 experiment | 23-26 | PENDING-HARDWARE |
+| 28 | Staged first-flight and localization-failover acceptance | 24-27 | PENDING-HARDWARE |
+| 29 | Unknown-arena adaptation and competition-ready rehearsal | 5, 22, 28 | PENDING-HARDWARE |
 
 **No bench, HIL, calibration, thrust, or flight pass is claimed in this milestone.**
 

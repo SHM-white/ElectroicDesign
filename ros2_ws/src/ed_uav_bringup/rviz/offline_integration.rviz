@@ -1,0 +1,128 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /TF1
+        - /TF1/Frames1
+        - /TF1/Tree1
+        - /RobotModel1
+        - /Lidar Points1
+        - /Narrow Camera1
+        - /Wide Camera1
+      Splitter Ratio: 0.6
+    Tree Height: 780
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+      Frame Timeout: 15
+      Frames:
+        All Enabled: true
+        base_link:
+          Value: true
+        fcu_link:
+          Value: true
+        lidar_link:
+          Value: true
+        camera_narrow_optical_frame:
+          Value: true
+        camera_wide_optical_frame:
+          Value: true
+        rangefinder_link:
+          Value: true
+        illustrative_forward_link:
+          Value: true
+        illustrative_up_link:
+          Value: true
+      Marker Scale: 0.65
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
+      Tree:
+        base_link:
+          fcu_link: {}
+          lidar_link: {}
+          camera_narrow_optical_frame: {}
+          camera_wide_optical_frame: {}
+          rangefinder_link: {}
+          illustrative_forward_link: {}
+          illustrative_up_link: {}
+      Update Interval: 0
+      Value: true
+    - Class: rviz_default_plugins/RobotModel
+      Enabled: true
+      Name: RobotModel
+      Alpha: 1
+      Collision Enabled: false
+      Description File: ""
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /robot_description
+      TF Prefix: ""
+      Update Interval: 0
+      Value: true
+      Visual Enabled: true
+    - Class: rviz_default_plugins/PointCloud2
+      Enabled: true
+      Name: Lidar Points
+      Alpha: 1
+      Color: 255; 255; 255
+      Color Transformer: FlatColor
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /lidar/points
+      Size (Pixels): 8
+      Size (m): 0.04
+      Style: Spheres
+      Use Fixed Frame: true
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Narrow Camera
+      Topic:
+        Reliability Policy: Best Effort
+        Value: /camera/narrow/image_raw
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Wide Camera
+      Topic:
+        Reliability Policy: Best Effort
+        Value: /camera/wide/image_raw
+      Value: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: base_link
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 3
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Pitch: 1.0
+      Target Frame: base_link
+      Yaw: 0.8
+Window Geometry:
+  Height: 1100
+  Width: 1400

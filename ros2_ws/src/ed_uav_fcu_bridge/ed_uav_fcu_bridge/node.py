@@ -263,7 +263,9 @@ def main() -> None:
     executor.add_node(node)
     try:
         executor.spin()
+    except KeyboardInterrupt:
+        return
     finally:
         executor.remove_node(node)
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()

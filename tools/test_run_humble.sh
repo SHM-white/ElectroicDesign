@@ -76,7 +76,19 @@ case "${1:-}" in
         if [[ "${2:-}" == inspect ]]; then
             case "${FAKE_IMAGE_STATE:-missing}" in
                 matching)
-                    printf '%s\n' "$FAKE_EXPECTED_BASE_REF"
+                    if [[ "$*" == *toolchain-fingerprint* ]]; then
+                        printf '%s\n' "$FAKE_EXPECTED_TOOLCHAIN_FINGERPRINT"
+                    else
+                        printf '%s\n' "$FAKE_EXPECTED_BASE_REF"
+                    fi
+                    exit 0
+                    ;;
+                old-toolchain)
+                    if [[ "$*" == *toolchain-fingerprint* ]]; then
+                        printf '%s\n' '0000000000000000000000000000000000000000000000000000000000000000'
+                    else
+                        printf '%s\n' "$FAKE_EXPECTED_BASE_REF"
+                    fi
                     exit 0
                     ;;
                 stale)
@@ -112,8 +124,9 @@ EOF
 chmod +x "$tmpdir/bin/docker"
 
 expected_base_ref="$(sed -n 's/^ARG ROS_HUMBLE_BASE=//p' "$repo_root/docker/Dockerfile.humble" 2>/dev/null || true)"
+expected_toolchain_fingerprint="$(sha256sum "$repo_root/docker/Dockerfile.humble" 2>/dev/null | awk '{print $1}' || true)"
 
-if [[ -z "$expected_base_ref" ]]; then
+if [[ -z "$expected_base_ref" || -z "$expected_toolchain_fingerprint" ]]; then
     expect_failure 'runner selection tests must be RED before the runner exists' \
         "$runner" bash -lc true
     printf 'RED: runner and pinned Dockerfile are absent as expected\n'
@@ -122,6 +135,7 @@ fi
 
 export PATH="$tmpdir/bin:$PATH"
 export FAKE_EXPECTED_BASE_REF="$expected_base_ref"
+export FAKE_EXPECTED_TOOLCHAIN_FINGERPRINT="$expected_toolchain_fingerprint"
 export FAKE_DOCKER_LOG="$tmpdir/docker.log"
 
 expect_success 'Jammy with Humble setup must select native' \
@@ -131,6 +145,15 @@ expect_success 'Jammy with Humble setup must select native' \
         "$runner" bash -lc 'test "$HUMBLE_SELECTION" = native'
 
 : >"$FAKE_DOCKER_LOG"
+expect_success 'native Jammy behavior remains direct with GUI opt-in set' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/jammy.os-release" \
+        HUMBLE_NATIVE_SETUP="$tmpdir/native-setup.bash" \
+        HUMBLE_GUI=1 \
+        "$runner" bash -lc 'test "$HUMBLE_SELECTION" = native'
+assert_not_contains 'docker ' "$FAKE_DOCKER_LOG"
+
+: >"$FAKE_DOCKER_LOG"
 expect_success 'non-Jammy host must select the container' \
     env HUMBLE_TESTING=1 \
         HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
@@ -138,6 +161,15 @@ expect_success 'non-Jammy host must select the container' \
         FAKE_IMAGE_STATE=missing \
         "$runner" bash -lc true >"$tmpdir/container.out"
 assert_contains 'container-selected' "$tmpdir/container.out"
+assert_contains 'build ' "$FAKE_DOCKER_LOG"
+
+: >"$FAKE_DOCKER_LOG"
+expect_success 'old image with matching base must rebuild after toolchain changes' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
+        HUMBLE_CONTAINER_RUNTIME=docker \
+        FAKE_IMAGE_STATE=old-toolchain \
+        "$runner" bash -lc true >"$tmpdir/old-toolchain.out"
 assert_contains 'build ' "$FAKE_DOCKER_LOG"
 assert_contains 'run --rm' "$FAKE_DOCKER_LOG"
 
@@ -202,6 +234,54 @@ expect_failure 'malformed OS-release test override must fail' \
     env HUMBLE_TESTING=1 \
         HUMBLE_OS_RELEASE_FILE="$tmpdir/malformed.os-release" \
         "$runner" bash -lc true
+
+gui_env=(
+    DISPLAY=:0
+    WAYLAND_DISPLAY=wayland-0
+    XDG_RUNTIME_DIR=/run/user/1000
+)
+expect_success 'GUI container mode must forward the WSLg runtime' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
+        HUMBLE_CONTAINER_RUNTIME=docker \
+        FAKE_IMAGE_STATE=matching \
+        HUMBLE_GUI=1 \
+        "${gui_env[@]}" \
+        "$runner" bash -lc true >"$tmpdir/gui.out"
+assert_contains '--env DISPLAY=:0' "$FAKE_DOCKER_LOG"
+assert_contains '--env WAYLAND_DISPLAY=wayland-0' "$FAKE_DOCKER_LOG"
+assert_contains '--env XDG_RUNTIME_DIR=/tmp/xdg-runtime' "$FAKE_DOCKER_LOG"
+assert_contains '--volume /tmp/.X11-unix:/tmp/.X11-unix:rw' "$FAKE_DOCKER_LOG"
+assert_contains '--volume /mnt/wslg:/mnt/wslg:ro' "$FAKE_DOCKER_LOG"
+assert_contains '--volume /run/user/1000:/tmp/xdg-runtime:ro' "$FAKE_DOCKER_LOG"
+assert_contains '--env QT_X11_NO_MITSHM=1' "$FAKE_DOCKER_LOG"
+assert_contains '--env LIBGL_ALWAYS_SOFTWARE=1' "$FAKE_DOCKER_LOG"
+assert_contains '--env MESA_LOADER_DRIVER_OVERRIDE=llvmpipe' "$FAKE_DOCKER_LOG"
+
+expect_failure 'GUI mode without DISPLAY must fail clearly' \
+    env HUMBLE_TESTING=1 \
+        DISPLAY= \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
+        HUMBLE_CONTAINER_RUNTIME=docker \
+        HUMBLE_GUI=1 \
+        WAYLAND_DISPLAY=wayland-0 \
+        XDG_RUNTIME_DIR=/run/user/1000 \
+        "$runner" bash -lc true >"$tmpdir/gui-missing-display.out" 2>&1
+assert_contains 'HUMBLE_GUI requires DISPLAY=:0' "$tmpdir/gui-missing-display.out"
+
+expect_failure 'GUI mode with a missing WSLg mount must fail clearly' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
+        HUMBLE_CONTAINER_RUNTIME=docker \
+        HUMBLE_GUI=1 \
+        DISPLAY=:0 \
+        WAYLAND_DISPLAY=wayland-0 \
+        XDG_RUNTIME_DIR="$tmpdir/missing-runtime" \
+        "$runner" bash -lc true >"$tmpdir/gui-missing-runtime.out" 2>&1
+assert_contains 'HUMBLE_GUI requires XDG_RUNTIME_DIR directory' "$tmpdir/gui-missing-runtime.out"
+
+expect_failure 'invalid GUI override must fail' \
+    env HUMBLE_GUI=yes "$runner" bash -lc true
 
 touch "$repo_root/.run-humble-test-dirty"
 : >"$FAKE_DOCKER_LOG"

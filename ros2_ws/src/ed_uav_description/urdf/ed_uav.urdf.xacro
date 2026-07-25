@@ -11,7 +11,51 @@
   <xacro:arg name="rangefinder_xyz" default="0 0 0"/>
   <xacro:arg name="rangefinder_rpy" default="0 0 0"/>
 
-  <link name="base_link"/>
+  <!-- Illustrative visuals only; dimensions are synthetic, not measured hardware data. -->
+  <link name="base_link">
+    <visual name="illustrative_base_body">
+      <geometry>
+        <box size="0.8 0.6 0.18"/>
+      </geometry>
+      <material name="inline_body_blue">
+        <color rgba="0.18 0.35 0.58 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Orientation aids are illustrative geometry, not sensors or measured calibration. -->
+  <link name="illustrative_forward_link">
+    <visual name="illustrative_forward_marker">
+      <geometry>
+        <box size="0.24 0.18 0.12"/>
+      </geometry>
+      <material name="inline_forward_orange">
+        <color rgba="0.95 0.45 0.12 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="base_to_illustrative_forward" type="fixed">
+    <parent link="base_link"/>
+    <child link="illustrative_forward_link"/>
+    <origin xyz="0.52 0 0.06" rpy="0 0 0"/>
+  </joint>
+
+  <link name="illustrative_up_link">
+    <visual name="illustrative_up_marker">
+      <geometry>
+        <cylinder radius="0.08" length="0.28"/>
+      </geometry>
+      <material name="inline_up_green">
+        <color rgba="0.20 0.75 0.45 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="base_to_illustrative_up" type="fixed">
+    <parent link="base_link"/>
+    <child link="illustrative_up_link"/>
+    <origin xyz="-0.24 0 0.26" rpy="0 0 0"/>
+  </joint>
+
   <link name="fcu_link"/>
   <joint name="base_to_fcu" type="fixed">
     <parent link="base_link"/>

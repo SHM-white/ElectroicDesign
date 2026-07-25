@@ -44,7 +44,38 @@ container. No hardware, no flight, no calibration claims.
 | Field fixtures | `python3 tools/check_field_fixtures.py --expect-current-state` | Exit 0 |
 | Milestone | `python3 tools/verify_today_milestone.py --strict` | Exit 0 |
 
-### 2.2 HARDWARE (Tasks 24-27) — Deferred
+### 2.1.1 Offline Integration Iteration
+
+The completed offline integration iteration has five operator-facing entry
+points. Run each command from the repository root. Each script records a
+timestamped run directory under `.omo/evidence/offline-integration/scripts/`
+with a `SUCCESS` marker or a `FAILED` marker and exit code.
+
+| Stage | Command | Green marker | Evidence and debugging purpose |
+|---|---|---|---|
+| Static surface | `bash tools/run_offline_static.sh` | `STATIC_OFFLINE_GREEN` | Contract, launch profile, interface, focused test, and legacy parity logs. Use first to isolate static and environment failures. |
+| Wall-time simulation | `bash tools/run_offline_sim.sh` | `SIM_OFFLINE_GREEN` | Build and live simulation logs. Checks the deterministic synthetic graph in wall time. |
+| WSLg RViz | `bash tools/run_offline_rviz.sh` | `RVIZ_OFFLINE_GREEN` | Packaged config, RViz process, and launch logs. Checks visualization startup and display wiring. |
+| FCU dry run | `bash tools/run_offline_fcu_dry_run.sh` | `FCU_DRY_RUN_GREEN` | Fake PTY and real bridge logs. Checks framing, telemetry, command plumbing, and cleanup. |
+| Full event replay | `bash tools/run_offline_full_replay.sh` | `FULL_REPLAY_GREEN` | Event creation, bag info, replay, build, and test logs. Checks `/verification/events` replay lifecycle. |
+
+The live deterministic simulation is wall-time only because this surface has no
+`/clock`. `use_sim_time=true` is rejected. The RViz stage uses WSLg through
+`HUMBLE_GUI=1` and shows synthetic visualization-only robot geometry, TF, lidar
+points, and two images. Odometry displays remain absent until an authorized TF
+owner exists.
+
+The rosbag output contains only `/verification/events`. It is event-only, not a
+sensor replay or flight replay. The FCU dry-run uses a fake PTY and the real
+bridge, does not use `/dev/ttyUSB*`, and does not establish HIL, hardware, or
+flight acceptance.
+
+The current receipt is under `.omo/evidence/offline-integration/`. It supplements
+the original milestone results below. It does not replace or renumber the
+historical test totals. Stored stage evidence includes `wall-time/`, `rviz/`,
+`rviz-visual/`, `rosbag/`, `fcu-final/`, and timestamped runs under `scripts/`.
+
+### 2.2 HARDWARE (Tasks 24-27) — PENDING-HARDWARE
 
 These gates require the target i5 hardware, Mid-360, cameras, and FCU.
 
@@ -55,7 +86,7 @@ These gates require the target i5 hardware, Mid-360, cameras, and FCU.
 | Propulsion BOM | 26 | Thrust/weight ≥2.0, hover ≤50%, endurance ≥1.5x mission |
 | FCU HIL | 27 | 20 consecutive command cycles, 0 unexpected mode changes |
 
-### 2.3 FLIGHT (Tasks 28-29) — Deferred
+### 2.3 FLIGHT (Tasks 28-29) — PENDING-HARDWARE
 
 These gates require indoor flight area, safety net, trained pilot.
 

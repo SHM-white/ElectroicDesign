@@ -24,6 +24,7 @@ setup(
     license="Apache-2.0",
     entry_points={
         "console_scripts": [
+            "ed-uav-fake-fcu = ed_uav_verification.fake_fcu:main",
             "ed-uav-verify = ed_uav_verification.cli:main",
             "ed-uav-verify-ros = ed_uav_verification.ros_node:main",
         ],

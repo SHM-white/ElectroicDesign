@@ -5,6 +5,7 @@ readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly dockerfile="$repo_root/docker/Dockerfile.humble"
 readonly image_name="ed-humble-toolchain:jammy-humble"
 readonly image_label="io.ed.humble.base-ref"
+readonly toolchain_image_label="io.ed.humble.toolchain-fingerprint"
 
 die() {
     printf 'run_humble: %s\n' "$*" >&2
@@ -64,6 +65,17 @@ base_image_ref() {
     printf '%s\n' "$base_ref"
 }
 
+toolchain_fingerprint() {
+    local fingerprint
+
+    command -v sha256sum >/dev/null 2>&1 \
+        || die "sha256sum is required to identify the Dockerfile toolchain"
+    fingerprint="$(sha256sum "$dockerfile" | awk '{print $1}')"
+    [[ "$fingerprint" =~ ^[0-9a-f]{64}$ ]] \
+        || die "could not calculate a valid Dockerfile toolchain fingerprint"
+    printf '%s\n' "$fingerprint"
+}
+
 container_runtime() {
     local requested_runtime="${HUMBLE_CONTAINER_RUNTIME:-}"
     local candidate
@@ -110,11 +122,23 @@ image_matches_base() {
     [[ "$actual_ref" == "$base_ref" ]]
 }
 
+image_matches_toolchain() {
+    local runtime="$1"
+    local expected_fingerprint="$2"
+    local actual_fingerprint
+
+    actual_fingerprint="$($runtime image inspect --format "{{ index .Config.Labels \"$toolchain_image_label\" }}" "$image_name" 2>/dev/null)" \
+        || return 1
+    [[ "$actual_fingerprint" == "$expected_fingerprint" ]]
+}
+
 ensure_image() {
     local runtime="$1"
     local base_ref="$2"
+    local fingerprint="$3"
 
-    if image_matches_base "$runtime" "$base_ref"; then
+    if image_matches_base "$runtime" "$base_ref" \
+        && image_matches_toolchain "$runtime" "$fingerprint"; then
         printf 'run_humble: using cached %s\n' "$image_name" >&2
         return
     fi
@@ -123,15 +147,36 @@ ensure_image() {
     bounded "$runtime" build \
         --platform linux/amd64 \
         --build-arg "ROS_HUMBLE_BASE=$base_ref" \
+        --build-arg "TOOLCHAIN_FINGERPRINT=$fingerprint" \
         --file "$dockerfile" \
         --tag "$image_name" \
         "$repo_root/docker"
+}
+
+gui_args() {
+    [[ "${HUMBLE_GUI:-}" == 1 ]] || {
+        [[ -z "${HUMBLE_GUI:-}" ]] \
+            || die "HUMBLE_GUI must be 1 when GUI forwarding is enabled"
+        return
+    }
+
+    [[ "${DISPLAY:-}" == :0 ]] || die "HUMBLE_GUI requires DISPLAY=:0"
+    [[ -n "${WAYLAND_DISPLAY:-}" ]] \
+        || die "HUMBLE_GUI requires WAYLAND_DISPLAY"
+    [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" ]] \
+        || die "HUMBLE_GUI requires XDG_RUNTIME_DIR directory"
+    [[ -d /tmp/.X11-unix ]] \
+        || die "HUMBLE_GUI requires /tmp/.X11-unix"
+    [[ -d /mnt/wslg ]] \
+        || die "HUMBLE_GUI requires /mnt/wslg"
 }
 
 main() {
     local native_setup="/opt/ros/humble/setup.bash"
     local base_ref
     local runtime
+    local fingerprint
+    local -a gui_run_args=()
 
     if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
         usage
@@ -164,13 +209,29 @@ main() {
     fi
 
     base_ref="$(base_image_ref)"
+    fingerprint="$(toolchain_fingerprint)"
     runtime="$(container_runtime)"
-    ensure_image "$runtime" "$base_ref"
+    gui_args
+    if [[ "${HUMBLE_GUI:-}" == 1 ]]; then
+        gui_run_args=(
+            --env "DISPLAY=$DISPLAY"
+            --env "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
+            --env XDG_RUNTIME_DIR=/tmp/xdg-runtime
+            --env QT_X11_NO_MITSHM=1
+            --env LIBGL_ALWAYS_SOFTWARE=1
+            --env MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+            --volume /tmp/.X11-unix:/tmp/.X11-unix:rw
+            --volume /mnt/wslg:/mnt/wslg:ro
+            --volume "$XDG_RUNTIME_DIR:/tmp/xdg-runtime:ro"
+        )
+    fi
+    ensure_image "$runtime" "$base_ref" "$fingerprint"
     exec timeout --foreground "${HUMBLE_TIMEOUT_SECONDS:-900}s" "$runtime" run \
         --rm \
         --init \
         --platform linux/amd64 \
         --env ROS_HOME=/opt/ed-ros-home \
+        "${gui_run_args[@]}" \
         --volume "$repo_root:/workspace" \
         --workdir /workspace \
         "$image_name" \

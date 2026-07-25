@@ -2,9 +2,11 @@ ARG ROS_HUMBLE_BASE=ros:humble-ros-base-jammy@sha256:5c793b92e0b12d6babb438cb20e
 FROM --platform=linux/amd64 ${ROS_HUMBLE_BASE}
 
 ARG ROS_HUMBLE_BASE
+ARG TOOLCHAIN_FINGERPRINT
 
 LABEL io.ed.humble.base-ref="${ROS_HUMBLE_BASE}"
 LABEL io.ed.humble.platform="linux/amd64"
+LABEL io.ed.humble.toolchain-fingerprint="${TOOLCHAIN_FINGERPRINT}"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
@@ -19,6 +21,11 @@ RUN apt-get update \
         python3-opencv \
         ros-humble-vision-msgs \
         ros-humble-cv-bridge \
+        ros-humble-xacro \
+        ros-humble-robot-state-publisher \
+        ros-humble-rviz2 \
+        mesa-utils \
+        libgl1-mesa-dri \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dev tooling. Uses the system pip (22.0.2) directly to avoid
@@ -39,6 +46,7 @@ RUN test -d /root/.ros/rosdep/sources.cache \
 
 RUN { \
         printf 'base=%s\n' "${ROS_HUMBLE_BASE}"; \
+        printf 'toolchain-fingerprint=%s\n' "${TOOLCHAIN_FINGERPRINT}"; \
         printf 'platform=linux/amd64\n'; \
         python3 --version; \
         ros2 --version; \
