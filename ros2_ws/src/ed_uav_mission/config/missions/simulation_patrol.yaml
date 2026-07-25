@@ -1,0 +1,20 @@
+# Synthetic smoke mission for the simulation arena only; never use for flight.
+version: 1
+mission_id: simulation-patrol
+mission_type: patrol
+field_profile_id: simulation-arena
+timeout_sec: 90.0
+patrol:
+  altitude_m: 1.5
+  speed_m_s: 0.6
+  loiter_sec: 1.0
+  loop_count: 1
+  waypoints:
+    - {x_m: -1.0, y_m: -1.0, label: south-west}
+    - {x_m: 1.0, y_m: -1.0, label: south-east}
+    - {x_m: 1.0, y_m: 1.0, label: north-east}
+    - {x_m: -1.0, y_m: 1.0, label: north-west}
+terminal_landing:
+  land_altitude_m: 0.0
+  descent_speed_m_s: 0.5
+  disarm_after_sec: 1.0

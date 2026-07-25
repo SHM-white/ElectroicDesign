@@ -21,4 +21,5 @@ setup(
     maintainer_email="maintainers@example.invalid",
     description="Core ED UAV description bringup and activation gate.",
     license="Apache-2.0",
+    tests_require=["pytest"],
 )

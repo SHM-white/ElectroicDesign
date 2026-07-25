@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Protocol
 
 import rclpy
-from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from ed_uav_interfaces.action import FlightCommand
 from ed_uav_interfaces.msg import FcuState
 from nav_msgs.msg import Odometry
@@ -18,10 +17,13 @@ from rclpy.action import ActionServer, CancelResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from diagnostic_msgs.msg import DiagnosticArray
 from sensor_msgs.msg import BatteryState
 
 from .actions import CommandKind, CommandRejectedError, CommandRequest, ResultCode
 from .authority import FlightCommandAuthorityError, require_flight_command_authority
+from .command_validation import goal_rejection_reason
+from .ros_messages import battery_message, diagnostic_message, odom_message, state_message
 from .serial_port import ExclusiveSerialPort
 from .session import BridgeConfig, NativeV7Bridge
 from .telemetry import FreshnessPolicy, TelemetrySnapshot
@@ -54,6 +56,10 @@ class FcuBridgeNode(Node):
         self.declare_parameter("move_speed_cmps", 30)
         self.declare_parameter("enable_experimental_0x32_0x33", False)
         self.declare_parameter("enable_flight_commands", False)
+        commands_enabled = require_flight_command_authority(
+            bool(self.get_parameter("enable_flight_commands").value),
+            os.environ,
+        )
         policy = FreshnessPolicy(
             float(self.get_parameter("position_max_age_s").value),
             float(self.get_parameter("aux_status_max_age_s").value),
@@ -73,7 +79,7 @@ class FcuBridgeNode(Node):
         self._odom_publisher = self.create_publisher(Odometry, "/fcu/optical_flow/odom", 10)
         self._diagnostic_publisher = self.create_publisher(DiagnosticArray, "/fcu/diagnostics", 10)
         self._timer = self.create_timer(0.02, self._poll, callback_group=group)
-        if require_flight_command_authority(bool(self.get_parameter("enable_flight_commands").value), os.environ):
+        if commands_enabled:
             self._action_server = ActionServer(
                 self,
                 FlightCommand,
@@ -100,80 +106,32 @@ class FcuBridgeNode(Node):
         self._publish(self._bridge.snapshot(steady_now))
 
     def _publish(self, snapshot: TelemetrySnapshot) -> None:
-        self._publish_state(snapshot)
-        self._publish_battery(snapshot)
-        self._publish_odom(snapshot)
-        self._publish_diagnostic(snapshot)
-
-    def _publish_state(self, snapshot: TelemetrySnapshot) -> None:
-        message = FcuState()
-        message.acquisition_stamp = self.get_clock().now().to_msg()
-        message.source = FcuState.SOURCE_V7
-        message.frame_id = "base_link"
-        message.communication_ok = snapshot.link.valid
-        message.altitude_m = snapshot.altitude_m or 0.0
-        message.battery_voltage_v = snapshot.battery_voltage_v or 0.0
-        if snapshot.position is not None:
-            message.source_sequence = snapshot.position.source_sequence
-            message.optical_flow_position_m.x = snapshot.position.right_m
-            message.optical_flow_position_m.y = snapshot.position.forward_m
-        else:
-            message.source_sequence = snapshot.link.source_sequence
-        if snapshot.status is not None:
-            message.mode = snapshot.status.mode
-            message.motors_armed = snapshot.status.motors_armed
-        self._state_publisher.publish(message)
-
-    def _publish_battery(self, snapshot: TelemetrySnapshot) -> None:
-        if snapshot.battery_voltage_v is None:
-            return
-        message = BatteryState()
-        message.header.stamp = self.get_clock().now().to_msg()
-        message.header.frame_id = "base_link"
-        message.voltage = snapshot.battery_voltage_v
-        self._battery_publisher.publish(message)
-
-    def _publish_odom(self, snapshot: TelemetrySnapshot) -> None:
-        position = snapshot.position
-        if position is None or not position.valid:
-            return
-        message = Odometry()
-        message.header.stamp = self.get_clock().now().to_msg()
-        message.header.frame_id = "odom"
-        message.child_frame_id = "base_link"
-        message.pose.pose.position.x = position.right_m
-        message.pose.pose.position.y = position.forward_m
-        message.pose.pose.orientation.w = 1.0
-        self._odom_publisher.publish(message)
-
-    def _publish_diagnostic(self, snapshot: TelemetrySnapshot) -> None:
-        diagnostic = snapshot.flow_diagnostic
-        if diagnostic is None:
-            return
-        message = DiagnosticArray()
-        message.header.stamp = self.get_clock().now().to_msg()
-        status = DiagnosticStatus()
-        status.name = "ed_uav_fcu_bridge/v7_0x51"
-        status.hardware_id = "lingxiao-v7"
-        status.level = DiagnosticStatus.OK
-        status.message = "separate optical-flow diagnostic"
-        status.values = [
-            KeyValue(key="source", value="V7_0x51"),
-            KeyValue(key="source_sequence", value=str(diagnostic.source_sequence)),
-            KeyValue(key="mode", value=str(diagnostic.mode)),
-            KeyValue(key="state", value=str(diagnostic.state)),
-        ]
-        message.status.append(status)
-        self._diagnostic_publisher.publish(message)
+        stamp = self.get_clock().now().to_msg()
+        self._state_publisher.publish(state_message(snapshot, stamp))
+        battery = battery_message(snapshot, stamp)
+        if battery is not None:
+            self._battery_publisher.publish(battery)
+        odom = odom_message(snapshot, stamp)
+        if odom is not None:
+            self._odom_publisher.publish(odom)
+        diagnostic = diagnostic_message(snapshot, stamp)
+        if diagnostic is not None:
+            self._diagnostic_publisher.publish(diagnostic)
 
     def _execute(self, goal_handle: FlightGoalHandle) -> FlightCommand.Result:
-        request = self._request_for_goal(goal_handle.request)
-        result = FlightCommand.Result()
+        rejection_reason = goal_rejection_reason(goal_handle.request)
+        if rejection_reason is not None:
+            return self._reject_goal(goal_handle, rejection_reason)
+        try:
+            request = self._request_for_goal(goal_handle.request)
+        except ValueError as error:
+            return self._reject_goal(goal_handle, str(error))
         if request is None:
-            result.result_code = FlightCommand.Result.RESULT_REJECTED
-            result.reason = "goal does not map to a supported high-level V7 command"
-            goal_handle.abort()
-            return result
+            return self._reject_goal(
+                goal_handle,
+                "goal does not map to a supported high-level V7 command",
+            )
+        result = FlightCommand.Result()
         self._command_result.clear()
         try:
             pending = self._bridge.start(request, self._steady_now(), self._goal_timeout(goal_handle.request))
@@ -250,6 +208,14 @@ class FcuBridgeNode(Node):
                 return FlightCommand.Result.RESULT_FCU_ERROR, reason
             case _:
                 raise RuntimeError(f"unknown result code: {code}")
+
+    @staticmethod
+    def _reject_goal(goal_handle: FlightGoalHandle, reason: str) -> FlightCommand.Result:
+        result = FlightCommand.Result()
+        result.result_code = FlightCommand.Result.RESULT_REJECTED
+        result.reason = reason
+        goal_handle.abort()
+        return result
 
     @staticmethod
     def _cancel(goal_handle: FlightGoalHandle) -> CancelResponse:

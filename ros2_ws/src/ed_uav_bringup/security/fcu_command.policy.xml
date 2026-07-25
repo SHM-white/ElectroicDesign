@@ -7,6 +7,10 @@
           <topics publish="ALLOW">
             <topic>rosout</topic>
             <topic>/parameter_events</topic>
+            <topic>/fcu/state</topic>
+            <topic>/fcu/battery</topic>
+            <topic>/fcu/optical_flow/odom</topic>
+            <topic>/fcu/diagnostics</topic>
           </topics>
           <services reply="ALLOW">
             <service>~/describe_parameters</service>
@@ -29,6 +33,10 @@
             <topic>rosout</topic>
             <topic>/parameter_events</topic>
           </topics>
+          <topics subscribe="ALLOW">
+            <topic>/fcu/state</topic>
+            <topic>/localization/status</topic>
+          </topics>
           <services reply="ALLOW">
             <service>~/describe_parameters</service>
             <service>~/get_parameter_types</service>
@@ -39,6 +47,9 @@
           </services>
           <actions call="ALLOW">
             <action>fcu/flight_command</action>
+          </actions>
+          <actions execute="ALLOW">
+            <action>mission/execute</action>
           </actions>
         </profile>
       </profiles>

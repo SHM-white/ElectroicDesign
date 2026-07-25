@@ -1,0 +1,41 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+    - Class: rviz_default_plugins/PointCloud2
+      Enabled: true
+      Name: Lidar
+      Topic: /lidar/points
+      Size (Pixels): 3
+    - Class: rviz_default_plugins/Odometry
+      Enabled: true
+      Name: Ground Truth Odometry
+      Topic: /simulation/ground_truth/odom
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Narrow Camera
+      Topic: /camera/narrow/image_raw
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Wide Camera
+      Topic: /camera/wide/image_raw
+  Global Options:
+    Fixed Frame: odom
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 12
+      Focal Point: 0; 0; 0
+      Pitch: 0.7
+      Yaw: 0.7

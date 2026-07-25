@@ -8,11 +8,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
+from pathlib import Path
 
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.action.server import ServerGoalHandle
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 
 from ed_uav_interfaces.action import ExecuteMission, FlightCommand
@@ -22,6 +24,11 @@ from ed_uav_localization.field_profile.model import KnownFieldProfile
 
 from ed_uav_mission.mission_model import (
     MISSION_SCHEMA, MissionConfig, MissionType, Waypoint,
+)
+from ed_uav_mission.mission_config import (
+    calibration_file_is_valid,
+    load_mission_bundle,
+    parse_mission_config_text,
 )
 from ed_uav_mission.plugins.coverage import GridCoveragePlugin
 from ed_uav_mission.plugins.patrol import WaypointPatrolPlugin
@@ -38,6 +45,7 @@ class PreflightCode(Enum):
     LOCALIZATION_LOST = auto()
     PROFILE_INVALID = auto()
     CALIBRATION_MISSING = auto()
+    FCU_SOURCE_MISMATCH = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,10 +54,19 @@ class PreflightResult:
     reason: str = ""
 
 
+def bounded_failure_reason(error: Exception) -> str:
+    """Format an exception for the fixed-width ExecuteMission result field."""
+    message = str(error)
+    first_line = message.splitlines()[0] if message else type(error).__name__
+    return first_line[:96]
+
+
 def validate_preflight(
     *,
     fcu_communication_ok: bool,
+    fcu_source: int,
     fcu_motors_armed: bool,
+    simulation_only: bool,
     aux_start_active: bool,
     localization_active: bool,
     map_to_odom_valid: bool,
@@ -61,6 +78,12 @@ def validate_preflight(
         return PreflightResult(PreflightCode.STALE_AUX, "AUX start switch is stale or off")
     if not fcu_communication_ok:
         return PreflightResult(PreflightCode.NO_FCU_LINK, "no FCU communication")
+    expected_source = FcuState.SOURCE_SIMULATOR if simulation_only else FcuState.SOURCE_V7
+    if fcu_source != expected_source:
+        return PreflightResult(
+            PreflightCode.FCU_SOURCE_MISMATCH,
+            "FCU source does not match mission execution mode",
+        )
     if not localization_active:
         return PreflightResult(PreflightCode.LOCALIZATION_LOST, "localization not active")
     if not map_to_odom_valid:
@@ -79,6 +102,10 @@ class MissionExecutorNode(Node):
 
     def __init__(self) -> None:
         super().__init__("mission_executor")
+        self.declare_parameter("profile_path", "")
+        self.declare_parameter("mission_config_path", "")
+        self.declare_parameter("calibration_file", "")
+        self.declare_parameter("simulation_only", False)
         self._fsm = MissionFSM()
         self._goal_handle: ServerGoalHandle | None = None
         self._cancel_requested = False
@@ -86,6 +113,25 @@ class MissionExecutorNode(Node):
         self._latest_localization: LocalizationStatus | None = None
         self._profile: KnownFieldProfile | None = None
         self._mission_config: MissionConfig | None = None
+
+        profile_path = str(self.get_parameter("profile_path").value)
+        mission_path = str(self.get_parameter("mission_config_path").value)
+        calibration_path = Path(str(self.get_parameter("calibration_file").value))
+        simulation_only = bool(self.get_parameter("simulation_only").value)
+        self._simulation_only = simulation_only
+        if not profile_path or not mission_path:
+            raise ValueError("profile_path and mission_config_path parameters are required")
+        bundle = load_mission_bundle(
+            Path(profile_path),
+            Path(mission_path),
+            allow_blocked_profile=simulation_only,
+        )
+        self._profile = bundle.profile
+        self._mission_config = bundle.mission
+        self._calibration_valid = calibration_file_is_valid(
+            calibration_path,
+            simulation_only=simulation_only,
+        )
 
         cb_group = MutuallyExclusiveCallbackGroup()
         self._action_server = ActionServer(
@@ -111,7 +157,7 @@ class MissionExecutorNode(Node):
         self._profile = profile
 
     def load_mission_config(self, yaml_text: str) -> None:
-        self._mission_config = MISSION_SCHEMA.validate_json(yaml_text)
+        self._mission_config = parse_mission_config_text(yaml_text)
 
     def _on_fcu_state(self, msg: FcuState) -> None:
         self._latest_fcu = msg
@@ -122,6 +168,15 @@ class MissionExecutorNode(Node):
     def _on_goal(self, goal_request: ExecuteMission.Goal) -> GoalResponse:
         if self._fsm.is_active:
             return GoalResponse.REJECT
+        if self._mission_config is None or self._profile is None:
+            return GoalResponse.REJECT
+        if (
+            goal_request.mission_id != self._mission_config.mission_id
+            or goal_request.field_profile_id != self._profile.profile_id
+        ):
+            return GoalResponse.REJECT
+        if self._fsm.is_terminal:
+            self._fsm.transition(MissionState.IDLE, "ready for next goal")
         self.get_logger().info(f"Received mission goal: {goal_request.mission_id}")
         return GoalResponse.ACCEPT
 
@@ -167,6 +222,7 @@ class MissionExecutorNode(Node):
                 goal_handle.publish_feedback(feedback)
 
             self._fsm.transition(MissionState.RETURNING, "mission done")
+            self._fsm.transition(MissionState.LANDING, "landing sequence")
             await self._execute_landing(feedback)
             self._fsm.transition(MissionState.COMPLETE, "landed")
             result.result_code = ExecuteMission.Result.RESULT_SUCCEEDED
@@ -175,9 +231,10 @@ class MissionExecutorNode(Node):
             return result
         except Exception as exc:
             self.get_logger().error(f"Mission error: {exc}")
-            self._fsm.transition(MissionState.ABORTED, str(exc))
+            reason = bounded_failure_reason(exc)
+            self._fsm.transition(MissionState.ABORTED, reason)
             result.result_code = ExecuteMission.Result.RESULT_ABORTED
-            result.reason = str(exc)
+            result.reason = reason
             goal_handle.abort()
             return result
 
@@ -185,12 +242,14 @@ class MissionExecutorNode(Node):
         fcu, loc = self._latest_fcu, self._latest_localization
         return validate_preflight(
             fcu_communication_ok=fcu is not None and fcu.communication_ok,
+            fcu_source=fcu.source if fcu is not None else 0,
             fcu_motors_armed=fcu is not None and fcu.motors_armed,
+            simulation_only=self._simulation_only,
             aux_start_active=True,
             localization_active=loc is not None and loc.state == LocalizationStatus.STATE_ACTIVE,
             map_to_odom_valid=loc is not None and loc.map_to_odom_valid,
             profile_loaded=self._profile is not None,
-            calibration_valid=True,
+            calibration_valid=self._calibration_valid,
         )
 
     def _dispatch_plugin(self) -> list[Waypoint]:
@@ -280,11 +339,14 @@ def main(args: list[str] | None = None) -> None:
     node = MissionExecutorNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except RuntimeError:
+        if rclpy.ok():
+            raise
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == "__main__":

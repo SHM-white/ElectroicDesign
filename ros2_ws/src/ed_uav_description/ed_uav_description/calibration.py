@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-import yaml
+from ed_uav_description.yaml_boundary import StrictYamlError, load_strict_yaml
 
 
 SCHEMA_VERSION: Final = 1
@@ -115,11 +115,13 @@ def calibration_hash(document: dict[str, object]) -> str:
 
 def load_calibration(path: Path) -> Calibration:
     try:
-        document = _mapping(yaml.safe_load(path.read_text(encoding="utf-8")), "calibration")
+        source = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise CalibrationError(f"missing calibration: {path}") from exc
-    except yaml.YAMLError as exc:
-        raise CalibrationError(f"malformed calibration: {exc.problem or 'invalid YAML'}") from exc
+    try:
+        document = _mapping(load_strict_yaml(source, str(path)), "calibration")
+    except StrictYamlError as exc:
+        raise CalibrationError(f"malformed calibration: {exc.reason}") from exc
 
     if set(document) != set(REQUIRED_FIELDS):
         raise CalibrationError("calibration fields do not match schema version 1")

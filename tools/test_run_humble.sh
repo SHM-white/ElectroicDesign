@@ -111,6 +111,9 @@ case "${1:-}" in
         exit "${FAKE_BUILD_STATUS:-0}"
         ;;
     run)
+        if [[ "${FAKE_READ_STDIN:-}" == 1 ]]; then
+            cat >"$FAKE_STDIN_CAPTURE"
+        fi
         if [[ -n "${FAKE_RUN_SLEEP:-}" ]]; then
             trap 'exit 143' TERM INT
             sleep "$FAKE_RUN_SLEEP" &
@@ -162,6 +165,7 @@ expect_success 'non-Jammy host must select the container' \
         "$runner" bash -lc true >"$tmpdir/container.out"
 assert_contains 'container-selected' "$tmpdir/container.out"
 assert_contains 'build ' "$FAKE_DOCKER_LOG"
+assert_contains 'run --interactive --rm' "$FAKE_DOCKER_LOG"
 
 : >"$FAKE_DOCKER_LOG"
 expect_success 'old image with matching base must rebuild after toolchain changes' \
@@ -171,7 +175,7 @@ expect_success 'old image with matching base must rebuild after toolchain change
         FAKE_IMAGE_STATE=old-toolchain \
         "$runner" bash -lc true >"$tmpdir/old-toolchain.out"
 assert_contains 'build ' "$FAKE_DOCKER_LOG"
-assert_contains 'run --rm' "$FAKE_DOCKER_LOG"
+assert_contains 'run --interactive --rm' "$FAKE_DOCKER_LOG"
 
 : >"$FAKE_DOCKER_LOG"
 expect_failure 'non-Jammy host without a usable runtime must fail' \
@@ -226,6 +230,35 @@ expect_failure 'invalid runtime override must fail' \
     env HUMBLE_CONTAINER_RUNTIME='docker --debug' "$runner" bash -lc true
 expect_failure 'invalid timeout override must fail' \
     env HUMBLE_TIMEOUT_SECONDS=forever "$runner" bash -lc true
+expect_failure 'bounded mode must reject a zero timeout' \
+    env HUMBLE_TIMEOUT_SECONDS=0 "$runner" bash -lc true
+expect_failure 'invalid interactive override must fail' \
+    env HUMBLE_INTERACTIVE=maybe "$runner" bash -lc true
+
+: >"$FAKE_DOCKER_LOG"
+expect_success 'interactive mode must omit the outer timeout and attach stdin' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
+        HUMBLE_CONTAINER_RUNTIME=docker \
+        FAKE_IMAGE_STATE=matching \
+        HUMBLE_INTERACTIVE=1 \
+        HUMBLE_TIMEOUT_SECONDS=0 \
+        "$runner" bash -lc true >"$tmpdir/interactive.out"
+assert_contains '--interactive' "$FAKE_DOCKER_LOG"
+
+: >"$FAKE_DOCKER_LOG"
+: >"$tmpdir/interactive.stdin"
+printf 'interactive-stdin\n' | expect_success 'interactive mode must preserve attached stdin' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
+        HUMBLE_CONTAINER_RUNTIME=docker \
+        FAKE_IMAGE_STATE=matching \
+        FAKE_READ_STDIN=1 \
+        FAKE_STDIN_CAPTURE="$tmpdir/interactive.stdin" \
+        HUMBLE_INTERACTIVE=1 \
+        HUMBLE_TIMEOUT_SECONDS=0 \
+        "$runner" bash -s >"$tmpdir/interactive-stdin.out"
+assert_contains 'interactive-stdin' "$tmpdir/interactive.stdin"
 
 cat >"$tmpdir/malformed.os-release" <<'EOF'
 VERSION_ID="22.04"

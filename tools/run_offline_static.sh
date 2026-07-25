@@ -20,6 +20,8 @@ timeout --foreground 120s bash "$repo_root/tools/test_run_humble.sh" \
 
 bash "$repo_root/tools/run_humble.sh" bash -lc '
 source /opt/ros/humble/setup.bash
+export ROS_DOMAIN_ID=42
+export ROS_LOCALHOST_ONLY=1
 set -euo pipefail
 evidence_dir="$1"
 
@@ -33,9 +35,8 @@ trap cleanup_jobs EXIT
 trap "exit 130" INT
 trap "exit 143" TERM
 
-export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}/workspace/ros2_ws/src/ed_uav_verification"
-
     timeout --foreground 120s python3 -m pytest -q \
+    -o pythonpath=ros2_ws/src/ed_uav_verification \
     tools/test_offline_scripts_contract.py \
     ros2_ws/src/ed_uav_verification/test/test_offline_integration_contract.py \
     ros2_ws/src/ed_uav_verification/test/test_fake_fcu_contract.py::test_fake_fcu_creates_requested_pty_emits_fresh_telemetry_and_releases_it \

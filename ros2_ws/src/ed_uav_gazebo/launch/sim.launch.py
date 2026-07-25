@@ -1,0 +1,107 @@
+"""Launch the hardware-free Fortress arena, adapters, static TF, and optional RViz."""
+
+from pathlib import Path
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
+from launch.conditions import IfCondition, UnlessCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+
+def generate_launch_description() -> LaunchDescription:
+    """Create the complete simulator graph with one Gazebo clock source."""
+    package_share = Path(get_package_share_directory("ed_uav_gazebo"))
+    bringup_share = Path(get_package_share_directory("ed_uav_bringup"))
+    description_share = Path(get_package_share_directory("ed_uav_description"))
+    localization_share = Path(get_package_share_directory("ed_uav_localization"))
+    mission_share = Path(get_package_share_directory("ed_uav_mission"))
+    world = package_share / "worlds" / "ed_uav_arena.sdf"
+    bridge = package_share / "config" / "bridge.yaml"
+    rviz = package_share / "rviz" / "sim.rviz"
+    profile = localization_share / "config" / "fields" / "simulation_arena.yaml"
+    mission = mission_share / "config" / "missions" / "simulation_patrol.yaml"
+    calibration = description_share / "config" / "synthetic_calibrated.yaml"
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument("use_sim_time", default_value="true"),
+            DeclareLaunchArgument("gui", default_value="true"),
+            DeclareLaunchArgument("use_rviz", default_value="true"),
+            SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", str(package_share / "models")),
+            SetEnvironmentVariable("IGN_GAZEBO_RESOURCE_PATH", str(package_share / "models")),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(str(Path(get_package_share_directory("ros_gz_sim")) / "launch" / "gz_sim.launch.py")),
+                launch_arguments={"gz_args": f"-r {world}"}.items(),
+                condition=IfCondition(LaunchConfiguration("gui")),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(str(Path(get_package_share_directory("ros_gz_sim")) / "launch" / "gz_sim.launch.py")),
+                launch_arguments={"gz_args": f"-r -s {world}"}.items(),
+                condition=UnlessCondition(LaunchConfiguration("gui")),
+            ),
+            Node(
+                package="ros_gz_bridge",
+                executable="parameter_bridge",
+                name="gazebo_bridge",
+                output="screen",
+                parameters=[{"config_file": str(bridge), "use_sim_time": LaunchConfiguration("use_sim_time")}],
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(str(bringup_share / "launch" / "bringup.launch.py")),
+                launch_arguments={
+                    "profile": "offline",
+                    "calibration_file": str(calibration),
+                    "camera_narrow_serial": "SYNTHETIC-NARROW-001",
+                    "camera_wide_serial": "SYNTHETIC-WIDE-001",
+                    "lidar_serial": "SYNTHETIC-LIDAR-001",
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                }.items(),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    str(localization_share / "launch" / "localization_simulation.launch.py")
+                ),
+                launch_arguments={
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                    "profile_path": str(profile),
+                }.items(),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    str(mission_share / "launch" / "mission_executor.launch.py")
+                ),
+                launch_arguments={
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                    "profile_path": str(profile),
+                    "mission_config_path": str(mission),
+                    "calibration_file": str(calibration),
+                    "simulation_only": "true",
+                }.items(),
+            ),
+            Node(
+                package="ed_uav_gazebo",
+                executable="sim_fcu",
+                name="sim_fcu",
+                output="screen",
+                parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
+            ),
+            Node(
+                package="ed_uav_gazebo",
+                executable="sim_localization",
+                name="sim_localization",
+                output="screen",
+                parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
+            ),
+            Node(
+                package="rviz2",
+                executable="rviz2",
+                name="sim_rviz",
+                output="screen",
+                arguments=["-d", str(rviz)],
+                parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
+                condition=IfCondition(LaunchConfiguration("use_rviz")),
+            ),
+        ]
+    )

@@ -1,0 +1,90 @@
+<?xml version="1.0" ?>
+<sdf version="1.8">
+  <model name="ed_quadrotor">
+    <pose>0 0 0 0 0 0</pose>
+    <link name="base_link">
+      <inertial>
+        <mass>1.5</mass>
+        <inertia>
+          <ixx>0.035</ixx><iyy>0.035</iyy><izz>0.065</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <collision name="body_collision">
+        <geometry><box><size>0.42 0.32 0.12</size></box></geometry>
+      </collision>
+      <visual name="body_visual">
+        <geometry><box><size>0.42 0.32 0.12</size></box></geometry>
+        <material><ambient>0.06 0.18 0.28 1</ambient><diffuse>0.08 0.35 0.55 1</diffuse></material>
+      </visual>
+      <sensor name="narrow_camera" type="camera">
+        <pose>0.22 0 -0.02 0 0 0</pose>
+        <always_on>true</always_on><update_rate>15</update_rate><visualize>true</visualize>
+        <topic>/camera/narrow/image_raw</topic>
+        <camera>
+          <horizontal_fov>1.05</horizontal_fov>
+          <camera_info_topic>/camera/narrow/camera_info</camera_info_topic>
+          <image><width>640</width><height>480</height><format>R8G8B8</format></image>
+          <clip><near>0.05</near><far>80</far></clip>
+        </camera>
+      </sensor>
+      <sensor name="wide_camera" type="camera">
+        <pose>0 0 -0.01 0 0 0</pose>
+        <always_on>true</always_on><update_rate>10</update_rate><visualize>true</visualize>
+        <topic>/camera/wide/image_raw</topic>
+        <camera>
+          <horizontal_fov>1.75</horizontal_fov>
+          <camera_info_topic>/camera/wide/camera_info</camera_info_topic>
+          <image><width>640</width><height>360</height><format>R8G8B8</format></image>
+          <clip><near>0.05</near><far>80</far></clip>
+        </camera>
+      </sensor>
+      <sensor name="lidar" type="gpu_lidar">
+        <pose>0 0 0.08 0 0 0</pose>
+        <always_on>true</always_on><update_rate>10</update_rate><visualize>true</visualize>
+        <topic>/lidar/points</topic>
+        <ray>
+          <scan><horizontal><samples>360</samples><resolution>1</resolution><min_angle>-3.14159</min_angle><max_angle>3.14159</max_angle></horizontal><vertical><samples>4</samples><resolution>1</resolution><min_angle>-0.35</min_angle><max_angle>0.35</max_angle></vertical></scan>
+          <range><min>0.15</min><max>30</max><resolution>0.02</resolution></range>
+        </ray>
+      </sensor>
+      <sensor name="lidar_imu" type="imu">
+        <always_on>true</always_on><update_rate>100</update_rate>
+        <topic>/lidar/imu</topic>
+      </sensor>
+      <sensor name="rangefinder" type="ray">
+        <pose>0 0 -0.08 0 0 0</pose>
+        <always_on>true</always_on><update_rate>20</update_rate>
+        <topic>/rangefinder/range</topic>
+        <ray><scan><horizontal><samples>1</samples><resolution>1</resolution><min_angle>0</min_angle><max_angle>0</max_angle></horizontal></scan><range><min>0.08</min><max>8.0</max><resolution>0.01</resolution></range></ray>
+      </sensor>
+    </link>
+
+    <link name="rotor_0"><pose>0.23 0.19 0.03 0 0 0</pose><inertial><mass>0.02</mass><inertia><ixx>0.00001</ixx><iyy>0.00001</iyy><izz>0.00001</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia></inertial><visual name="rotor_0_visual"><geometry><cylinder><radius>0.085</radius><length>0.012</length></cylinder></geometry><material><diffuse>0.92 0.72 0.12 1</diffuse></material></visual></link>
+    <link name="rotor_1"><pose>-0.23 -0.19 0.03 0 0 0</pose><inertial><mass>0.02</mass><inertia><ixx>0.00001</ixx><iyy>0.00001</iyy><izz>0.00001</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia></inertial><visual name="rotor_1_visual"><geometry><cylinder><radius>0.085</radius><length>0.012</length></cylinder></geometry><material><diffuse>0.92 0.72 0.12 1</diffuse></material></visual></link>
+    <link name="rotor_2"><pose>0.23 -0.19 0.03 0 0 0</pose><inertial><mass>0.02</mass><inertia><ixx>0.00001</ixx><iyy>0.00001</iyy><izz>0.00001</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia></inertial><visual name="rotor_2_visual"><geometry><cylinder><radius>0.085</radius><length>0.012</length></cylinder></geometry><material><diffuse>0.92 0.72 0.12 1</diffuse></material></visual></link>
+    <link name="rotor_3"><pose>-0.23 0.19 0.03 0 0 0</pose><inertial><mass>0.02</mass><inertia><ixx>0.00001</ixx><iyy>0.00001</iyy><izz>0.00001</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia></inertial><visual name="rotor_3_visual"><geometry><cylinder><radius>0.085</radius><length>0.012</length></cylinder></geometry><material><diffuse>0.92 0.72 0.12 1</diffuse></material></visual></link>
+
+    <joint name="rotor_0_joint" type="revolute"><parent>base_link</parent><child>rotor_0</child><axis><xyz>0 0 1</xyz></axis></joint>
+    <joint name="rotor_1_joint" type="revolute"><parent>base_link</parent><child>rotor_1</child><axis><xyz>0 0 1</xyz></axis></joint>
+    <joint name="rotor_2_joint" type="revolute"><parent>base_link</parent><child>rotor_2</child><axis><xyz>0 0 1</xyz></axis></joint>
+    <joint name="rotor_3_joint" type="revolute"><parent>base_link</parent><child>rotor_3</child><axis><xyz>0 0 1</xyz></axis></joint>
+
+    <plugin filename="ignition-gazebo-multicopter-control-system" name="ignition::gazebo::systems::MulticopterVelocityControl">
+      <robotNamespace>ed_quadrotor</robotNamespace><commandSubTopic>simulation/cmd_vel</commandSubTopic><enableSubTopic>simulation/enable</enableSubTopic><comLinkName>base_link</comLinkName>
+      <com>0 0 -0.15</com><velocityGain>6 6 6</velocityGain><attitudeGain>4 4 4</attitudeGain><angularRateGain>0.5 0.5 0.5</angularRateGain>
+      <maximumLinearAcceleration>2 2 2</maximumLinearAcceleration>
+      <rotorConfiguration>
+        <rotor><jointName>rotor_0_joint</jointName><forceConstant>8.54858e-06</forceConstant><momentConstant>0.016</momentConstant><direction>1</direction></rotor>
+        <rotor><jointName>rotor_1_joint</jointName><forceConstant>8.54858e-06</forceConstant><momentConstant>0.016</momentConstant><direction>1</direction></rotor>
+        <rotor><jointName>rotor_2_joint</jointName><forceConstant>8.54858e-06</forceConstant><momentConstant>0.016</momentConstant><direction>-1</direction></rotor>
+        <rotor><jointName>rotor_3_joint</jointName><forceConstant>8.54858e-06</forceConstant><momentConstant>0.016</momentConstant><direction>-1</direction></rotor>
+      </rotorConfiguration>
+    </plugin>
+    <plugin filename="ignition-gazebo-multicopter-motor-model-system" name="ignition::gazebo::systems::MulticopterMotorModel"><robotNamespace>ed_quadrotor</robotNamespace><jointName>rotor_0_joint</jointName><linkName>rotor_0</linkName><turningDirection>ccw</turningDirection><timeConstantUp>0.0125</timeConstantUp><timeConstantDown>0.025</timeConstantDown><motorNumber>0</motorNumber><commandSubTopic>motor_speed</commandSubTopic><maxRotVelocity>800</maxRotVelocity><motorConstant>8.54858e-06</motorConstant><momentConstant>0.016</momentConstant><rotorDragCoefficient>8.06428e-05</rotorDragCoefficient><rollingMomentCoefficient>1e-06</rollingMomentCoefficient><rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim><motorType>velocity</motorType></plugin>
+    <plugin filename="ignition-gazebo-multicopter-motor-model-system" name="ignition::gazebo::systems::MulticopterMotorModel"><robotNamespace>ed_quadrotor</robotNamespace><jointName>rotor_1_joint</jointName><linkName>rotor_1</linkName><turningDirection>ccw</turningDirection><timeConstantUp>0.0125</timeConstantUp><timeConstantDown>0.025</timeConstantDown><motorNumber>1</motorNumber><commandSubTopic>motor_speed</commandSubTopic><maxRotVelocity>800</maxRotVelocity><motorConstant>8.54858e-06</motorConstant><momentConstant>0.016</momentConstant><rotorDragCoefficient>8.06428e-05</rotorDragCoefficient><rollingMomentCoefficient>1e-06</rollingMomentCoefficient><rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim><motorType>velocity</motorType></plugin>
+    <plugin filename="ignition-gazebo-multicopter-motor-model-system" name="ignition::gazebo::systems::MulticopterMotorModel"><robotNamespace>ed_quadrotor</robotNamespace><jointName>rotor_2_joint</jointName><linkName>rotor_2</linkName><turningDirection>cw</turningDirection><timeConstantUp>0.0125</timeConstantUp><timeConstantDown>0.025</timeConstantDown><motorNumber>2</motorNumber><commandSubTopic>motor_speed</commandSubTopic><maxRotVelocity>800</maxRotVelocity><motorConstant>8.54858e-06</motorConstant><momentConstant>0.016</momentConstant><rotorDragCoefficient>8.06428e-05</rotorDragCoefficient><rollingMomentCoefficient>1e-06</rollingMomentCoefficient><rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim><motorType>velocity</motorType></plugin>
+    <plugin filename="ignition-gazebo-multicopter-motor-model-system" name="ignition::gazebo::systems::MulticopterMotorModel"><robotNamespace>ed_quadrotor</robotNamespace><jointName>rotor_3_joint</jointName><linkName>rotor_3</linkName><turningDirection>cw</turningDirection><timeConstantUp>0.0125</timeConstantUp><timeConstantDown>0.025</timeConstantDown><motorNumber>3</motorNumber><commandSubTopic>motor_speed</commandSubTopic><maxRotVelocity>800</maxRotVelocity><motorConstant>8.54858e-06</motorConstant><momentConstant>0.016</momentConstant><rotorDragCoefficient>8.06428e-05</rotorDragCoefficient><rollingMomentCoefficient>1e-06</rollingMomentCoefficient><rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim><motorType>velocity</motorType></plugin>
+    <plugin filename="ignition-gazebo-odometry-publisher-system" name="ignition::gazebo::systems::OdometryPublisher"><odom_topic>/simulation/ground_truth/odom</odom_topic><odom_frame>odom</odom_frame><robot_base_frame>base_link</robot_base_frame><dimensions>3</dimensions></plugin>
+  </model>
+</sdf>

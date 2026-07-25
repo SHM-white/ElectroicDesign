@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.time import Time
 
@@ -191,3 +192,16 @@ def _to_transform_stamped(
         x=0.0, y=0.0, z=math.sin(half), w=math.cos(half),
     )
     return msg
+
+
+def main(args: list[str] | None = None) -> None:
+    """Run the field-anchor ROS node."""
+    rclpy.init(args=args)
+    node = FieldAnchor()
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()

@@ -68,12 +68,12 @@ def test_disabled_flight_commands_require_no_sros2_configuration() -> None:
     assert enabled is False
 
 
-def test_enabled_flight_commands_require_sros2_enforce() -> None:
+def test_enabled_flight_commands_require_sros2_enforce(tmp_path: Path) -> None:
     # Given: all caller-authorization preconditions are explicitly enforced.
     environment: Mapping[str, str] = {
         "ROS_SECURITY_ENABLE": "true",
         "ROS_SECURITY_STRATEGY": "Enforce",
-        "ROS_SECURITY_KEYSTORE": "/tmp/nonexistent-test-keystore",
+        "ROS_SECURITY_KEYSTORE": str(tmp_path),
     }
 
     # When: startup evaluates whether to expose the action.
@@ -121,6 +121,38 @@ def test_enabled_flight_commands_reject_incomplete_or_permissive_sros2(
     # Then: the typed runtime error prevents action-server creation.
 
 
+def test_enabled_flight_commands_reject_nonexistent_keystore_directory() -> None:
+    # Given: security is enabled but the keystore path is only a string.
+    environment: Mapping[str, str] = {
+        "ROS_SECURITY_ENABLE": "true",
+        "ROS_SECURITY_STRATEGY": "Enforce",
+        "ROS_SECURITY_KEYSTORE": "/tmp/nonexistent-test-keystore",
+    }
+
+    # When: startup checks the action authority boundary.
+    with pytest.raises(bridge_node.FlightCommandAuthorityError):
+        _authority_guard()(True, environment)
+
+    # Then: command serving cannot start without a real SROS2 keystore directory.
+
+
+def test_enabled_flight_commands_reject_keystore_file(tmp_path: Path) -> None:
+    # Given: security is enabled but the keystore path is a file, not a directory.
+    keystore_file = tmp_path / "keystore-file"
+    keystore_file.write_text("not a directory", encoding="utf-8")
+    environment: Mapping[str, str] = {
+        "ROS_SECURITY_ENABLE": "true",
+        "ROS_SECURITY_STRATEGY": "Enforce",
+        "ROS_SECURITY_KEYSTORE": str(keystore_file),
+    }
+
+    # When: startup checks the action authority boundary.
+    with pytest.raises(bridge_node.FlightCommandAuthorityError):
+        _authority_guard()(True, environment)
+
+    # Then: command serving cannot mistake an arbitrary file for a keystore.
+
+
 def test_node_parameter_defaults_flight_commands_to_disabled() -> None:
     # Given: the bridge node source tree.
     tree = ast.parse(NODE_SOURCE.read_text(encoding="utf-8"))
@@ -145,17 +177,54 @@ def test_action_server_creation_is_conditional_on_authority_guard() -> None:
     # Given: the bridge node source tree.
     tree = ast.parse(NODE_SOURCE.read_text(encoding="utf-8"))
 
-    # When: conditionals containing ActionServer construction are inspected.
+    # When: the authority result assignment and action-server conditional are inspected.
+    authority_assignments = [
+        statement
+        for statement in ast.walk(tree)
+        if isinstance(statement, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "commands_enabled"
+            for target in statement.targets
+        )
+        and _contains_call(statement.value, AUTHORITY_GUARD_NAME)
+    ]
     guarded_servers = [
         conditional
         for conditional in ast.walk(tree)
         if isinstance(conditional, ast.If)
-        and _contains_call(conditional.test, AUTHORITY_GUARD_NAME)
+        and isinstance(conditional.test, ast.Name)
+        and conditional.test.id == "commands_enabled"
         and any(_contains_call(statement, "ActionServer") for statement in conditional.body)
     ]
 
     # Then: the authority guard directly controls action exposure.
+    assert authority_assignments
     assert guarded_servers
+
+
+def test_authority_guard_runs_before_serial_open() -> None:
+    # Given: the bridge node constructor source tree.
+    tree = ast.parse(NODE_SOURCE.read_text(encoding="utf-8"))
+    constructor = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+    )
+
+    # When: startup side effects are ordered by source position.
+    guard_line = next(
+        call.lineno
+        for call in ast.walk(constructor)
+        if _is_call_named(call, AUTHORITY_GUARD_NAME)
+    )
+    open_line = next(
+        call.lineno
+        for call in ast.walk(constructor)
+        if _is_call_named(call, "open")
+    )
+
+    # Then: insecure command-enabled startup fails before the serial endpoint is touched.
+    assert guard_line < open_line
 
 
 def test_bringup_launch_files_do_not_declare_static_authority_tokens() -> None:

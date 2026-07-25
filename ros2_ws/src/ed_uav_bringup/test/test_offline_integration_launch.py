@@ -12,8 +12,8 @@ from types import ModuleType
 
 import pytest
 
-launch = pytest.importorskip("launch")
-LaunchContext = launch.LaunchContext
+pytest.importorskip("launch")
+from launch import LaunchContext
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]

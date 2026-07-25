@@ -59,6 +59,7 @@ def _build_actions(context: LaunchContext) -> list[Action]:
         executable="ed_uav_fcu_bridge",
         name="ed_uav_fcu_bridge",
         output="screen",
+        arguments=["--ros-args", "--enclave", "/ed_uav_fcu_bridge"],
         parameters=[
             {
                 "serial_port": pty_device,

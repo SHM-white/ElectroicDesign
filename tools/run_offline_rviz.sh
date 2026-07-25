@@ -17,6 +17,8 @@ trap 'record_failure "$?"' EXIT
 
 HUMBLE_GUI=1 bash "$repo_root/tools/run_humble.sh" bash -lc '
 source /opt/ros/humble/setup.bash
+export ROS_DOMAIN_ID=42
+export ROS_LOCALHOST_ONLY=1
 set -euo pipefail
 evidence_dir="$1"
 

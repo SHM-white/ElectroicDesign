@@ -13,6 +13,10 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Optional
 
+import rclpy
+from rclpy.executors import ExternalShutdownException
+from rclpy.node import Node
+
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -242,7 +246,7 @@ def _ros_time_float(stamp: "builtin_interfaces.msg.Time") -> float:  # type: ign
     return float(stamp.sec) + float(stamp.nanosec) * 1e-9
 
 
-class SourceSupervisor:  # becomes Node via deferred import
+class SourceSupervisor(Node):
     """Localization source supervisor with no-jump switching.
 
     The ``__init__`` method performs deferred ROS imports so that the pure
@@ -277,29 +281,25 @@ class SourceSupervisor:  # becomes Node via deferred import
     """
 
     # Deferred ROS imports — set during __init__.
-    _Node: type = None  # type: ignore[assignment]
     _Odometry: type = None  # type: ignore[assignment]
     _BoundaryObservation: type = None  # type: ignore[assignment]
     _LocalizationStatus: type = None  # type: ignore[assignment]
 
     def __init__(self) -> None:
         # --- Deferred ROS imports ---
-        import rclpy  # noqa: F811
         from rclpy.duration import Duration
-        from rclpy.node import Node
         from rclpy.time import Time
 
         from ed_uav_interfaces.msg import BoundaryObservation as _BO
         from ed_uav_interfaces.msg import LocalizationStatus as _LS
         from nav_msgs.msg import Odometry as _Odom
 
-        SourceSupervisor._Node = Node
         SourceSupervisor._Odometry = _Odom
         SourceSupervisor._BoundaryObservation = _BO
         SourceSupervisor._LocalizationStatus = _LS
 
         # --- Init the actual ROS node ---
-        Node.__init__(self, "source_supervisor")  # type: ignore[arg-type]
+        super().__init__("source_supervisor")
 
         # --- Parameters ---
         self.declare_parameter("lio_max_age_active", 0.15)  # type: ignore[attr-defined]
@@ -639,3 +639,16 @@ class SourceSupervisor:  # becomes Node via deferred import
         msg.map_to_odom_valid = True
         msg.reason = self._override_reason[:96]
         self._status_pub.publish(msg)  # type: ignore[attr-defined]
+
+
+def main(args: list[str] | None = None) -> None:
+    """Run the source supervisor ROS node."""
+    rclpy.init(args=args)
+    node = SourceSupervisor()
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()

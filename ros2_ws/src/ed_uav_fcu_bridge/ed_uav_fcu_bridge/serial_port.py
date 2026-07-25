@@ -7,7 +7,6 @@ import os
 import stat
 import termios
 import tty
-import typing
 from pathlib import Path
 from types import TracebackType
 
@@ -30,7 +29,7 @@ class ExclusiveSerialPort:
         self._lock_fd: int | None = None
         self._serial_fd: int | None = None
 
-    def __enter__(self) -> typing.Self:
+    def __enter__(self) -> ExclusiveSerialPort:
         self.open()
         return self
 

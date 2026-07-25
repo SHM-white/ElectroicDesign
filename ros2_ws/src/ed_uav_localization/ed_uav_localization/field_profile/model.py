@@ -111,7 +111,7 @@ class Landmark(StrictProfileModel):
 
 
 class Provenance(StrictProfileModel):
-    classification: Literal["current_field", "historical_example"]
+    classification: Literal["current_field", "historical_example", "synthetic_simulation"]
     activation: Literal["eligible", "blocked"]
 
     @model_validator(mode="after")
@@ -121,8 +121,12 @@ class Provenance(StrictProfileModel):
                 return self
             case ("historical_example", "blocked"):
                 return self
+            case ("synthetic_simulation", "blocked"):
+                return self
             case ("historical_example", "eligible"):
                 raise ValueError("historical_example profiles must have blocked activation")
+            case ("synthetic_simulation", "eligible"):
+                raise ValueError("synthetic_simulation profiles must have blocked activation")
             case unreachable:
                 assert_never(unreachable)
 

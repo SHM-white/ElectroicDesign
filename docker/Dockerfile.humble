@@ -14,14 +14,39 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 ENV ROS_HOME=/opt/ed-ros-home
 
 # The pinned ROS base already contains Humble, colcon, rosdep, and vcstool.
+# ros-humble-ros-gz-point-cloud is not released for Humble/Jammy; PointCloud2
+# support uses ros-humble-ros-gz-bridge in this toolchain.
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes ca-certificates curl gnupg \
+    && curl --fail --silent --show-error --location \
+        https://packages.osrfoundation.org/gazebo.gpg \
+        --output /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg \
+    && printf '%s\n' \
+        'deb [arch=amd64 signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] https://packages.osrfoundation.org/gazebo/ubuntu-stable jammy main' \
+        > /etc/apt/sources.list.d/gazebo-stable.list \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN apt-get update \
     && apt-get install --no-install-recommends --yes \
         python3-pip \
-        python3-venv \
-        python3-opencv \
-        ros-humble-vision-msgs \
-        ros-humble-cv-bridge \
-        ros-humble-xacro \
+         python3-venv \
+         python3-opencv \
+         ignition-fortress \
+         libignition-gazebo6-plugins \
+         ros-humble-ros-gz-sim \
+         ros-humble-ros-gz-bridge \
+         ros-humble-ros-gz-interfaces \
+         ros-humble-ros-gz-image \
+         ros-humble-laser-geometry \
+         ros-humble-sensor-msgs \
+         ros-humble-geometry-msgs \
+         ros-humble-tf2-ros \
+         ros-humble-tf2-geometry-msgs \
+         ros-humble-image-transport \
+         ros-humble-camera-info-manager \
+         ros-humble-vision-msgs \
+         ros-humble-cv-bridge \
+         ros-humble-xacro \
         ros-humble-robot-state-publisher \
         ros-humble-rviz2 \
         mesa-utils \

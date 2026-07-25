@@ -18,6 +18,10 @@ Usage: ./tools/run_humble.sh <command> [arguments...]
 
 Runs a command in ROS 2 Humble. Native `/opt/ros/humble` is used only on
 Ubuntu 22.04 (Jammy); every other host uses the pinned linux/amd64 container.
+
+Container mode is bounded by HUMBLE_TIMEOUT_SECONDS (default: 900). Set
+HUMBLE_INTERACTIVE=1 for an attached, unbounded container session; in that
+mode HUMBLE_TIMEOUT_SECONDS may be 0 because no outer timeout is used.
 EOF
 }
 
@@ -27,11 +31,12 @@ require_test_hook() {
     fi
 }
 
+source "$repo_root/tools/run_humble_support.sh"
+
 os_value() {
     local key="$1"
     local source_file="$2"
     local value
-
     value="$(sed -n "s/^${key}=//p" "$source_file" | head -n 1)"
     value="${value#\"}"
     value="${value%\"}"
@@ -42,12 +47,10 @@ is_jammy() {
     local source_file="/etc/os-release"
     local os_id
     local version_id
-
     if [[ -n "${HUMBLE_OS_RELEASE_FILE:-}" ]]; then
         require_test_hook HUMBLE_OS_RELEASE_FILE
         source_file="$HUMBLE_OS_RELEASE_FILE"
     fi
-
     [[ -r "$source_file" ]] || die "cannot read OS release data at '$source_file'"
     os_id="$(os_value ID "$source_file")"
     version_id="$(os_value VERSION_ID "$source_file")"
@@ -57,118 +60,18 @@ is_jammy() {
 
 base_image_ref() {
     local base_ref
-
     [[ -r "$dockerfile" ]] || die "missing '$dockerfile'"
     base_ref="$(sed -n 's/^ARG ROS_HUMBLE_BASE=//p' "$dockerfile" | head -n 1)"
-    [[ "$base_ref" =~ ^ros:humble-ros-base-jammy@sha256:[0-9a-f]{64}$ ]] \
-        || die "Dockerfile does not contain a pinned Humble amd64 base image"
+    [[ "$base_ref" =~ ^ros:humble-ros-base-jammy@sha256:[0-9a-f]{64}$ ]] || die "Dockerfile does not contain a pinned Humble amd64 base image"
     printf '%s\n' "$base_ref"
 }
 
 toolchain_fingerprint() {
     local fingerprint
-
-    command -v sha256sum >/dev/null 2>&1 \
-        || die "sha256sum is required to identify the Dockerfile toolchain"
+    command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required to identify the Dockerfile toolchain"
     fingerprint="$(sha256sum "$dockerfile" | awk '{print $1}')"
-    [[ "$fingerprint" =~ ^[0-9a-f]{64}$ ]] \
-        || die "could not calculate a valid Dockerfile toolchain fingerprint"
+    [[ "$fingerprint" =~ ^[0-9a-f]{64}$ ]] || die "could not calculate a valid Dockerfile toolchain fingerprint"
     printf '%s\n' "$fingerprint"
-}
-
-container_runtime() {
-    local requested_runtime="${HUMBLE_CONTAINER_RUNTIME:-}"
-    local candidate
-
-    if [[ -n "$requested_runtime" ]]; then
-        case "$requested_runtime" in
-            docker|podman)
-                candidate="$requested_runtime"
-                ;;
-            *)
-                die "HUMBLE_CONTAINER_RUNTIME must be 'docker' or 'podman'"
-                ;;
-        esac
-    else
-        for candidate in docker podman; do
-            if command -v "$candidate" >/dev/null 2>&1; then
-                break
-            fi
-            candidate=""
-        done
-    fi
-
-    [[ -n "${candidate:-}" ]] || die "no Docker or Podman runtime found; install one or run this on Jammy with /opt/ros/humble"
-    command -v "$candidate" >/dev/null 2>&1 \
-        || die "requested container runtime '$candidate' is not installed"
-    "$candidate" info >/dev/null 2>&1 \
-        || die "container runtime '$candidate' is not usable; start its daemon or select a working runtime"
-    printf '%s\n' "$candidate"
-}
-
-bounded() {
-    command -v timeout >/dev/null 2>&1 \
-        || die "GNU timeout is required to bound container pulls and builds"
-    timeout --foreground "${HUMBLE_TIMEOUT_SECONDS:-900}s" "$@"
-}
-
-image_matches_base() {
-    local runtime="$1"
-    local base_ref="$2"
-    local actual_ref
-
-    actual_ref="$("$runtime" image inspect --format "{{ index .Config.Labels \"$image_label\" }}" "$image_name" 2>/dev/null)" \
-        || return 1
-    [[ "$actual_ref" == "$base_ref" ]]
-}
-
-image_matches_toolchain() {
-    local runtime="$1"
-    local expected_fingerprint="$2"
-    local actual_fingerprint
-
-    actual_fingerprint="$($runtime image inspect --format "{{ index .Config.Labels \"$toolchain_image_label\" }}" "$image_name" 2>/dev/null)" \
-        || return 1
-    [[ "$actual_fingerprint" == "$expected_fingerprint" ]]
-}
-
-ensure_image() {
-    local runtime="$1"
-    local base_ref="$2"
-    local fingerprint="$3"
-
-    if image_matches_base "$runtime" "$base_ref" \
-        && image_matches_toolchain "$runtime" "$fingerprint"; then
-        printf 'run_humble: using cached %s\n' "$image_name" >&2
-        return
-    fi
-
-    printf 'run_humble: building %s from %s\n' "$image_name" "$base_ref" >&2
-    bounded "$runtime" build \
-        --platform linux/amd64 \
-        --build-arg "ROS_HUMBLE_BASE=$base_ref" \
-        --build-arg "TOOLCHAIN_FINGERPRINT=$fingerprint" \
-        --file "$dockerfile" \
-        --tag "$image_name" \
-        "$repo_root/docker"
-}
-
-gui_args() {
-    [[ "${HUMBLE_GUI:-}" == 1 ]] || {
-        [[ -z "${HUMBLE_GUI:-}" ]] \
-            || die "HUMBLE_GUI must be 1 when GUI forwarding is enabled"
-        return
-    }
-
-    [[ "${DISPLAY:-}" == :0 ]] || die "HUMBLE_GUI requires DISPLAY=:0"
-    [[ -n "${WAYLAND_DISPLAY:-}" ]] \
-        || die "HUMBLE_GUI requires WAYLAND_DISPLAY"
-    [[ -n "${XDG_RUNTIME_DIR:-}" && -d "$XDG_RUNTIME_DIR" ]] \
-        || die "HUMBLE_GUI requires XDG_RUNTIME_DIR directory"
-    [[ -d /tmp/.X11-unix ]] \
-        || die "HUMBLE_GUI requires /tmp/.X11-unix"
-    [[ -d /mnt/wslg ]] \
-        || die "HUMBLE_GUI requires /mnt/wslg"
 }
 
 main() {
@@ -176,19 +79,20 @@ main() {
     local base_ref
     local runtime
     local fingerprint
+    local container_name="ed-humble-run-$$"
+    local container_pid=""
+    local interactive_mode=0
+    local exit_code
     local -a gui_run_args=()
+    local -a container_run_args=()
 
     if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
         usage
         return
     fi
-    (($# > 0)) || {
-        usage >&2
-        exit 64
-    }
-
-    [[ "${HUMBLE_TIMEOUT_SECONDS:-900}" =~ ^[1-9][0-9]*$ ]] \
-        || die "HUMBLE_TIMEOUT_SECONDS must be a positive number of seconds"
+    (($# > 0)) || { usage >&2; exit 64; }
+    validate_mode_and_timeout
+    [[ "${HUMBLE_INTERACTIVE:-0}" == 1 ]] && interactive_mode=1
 
     if [[ -n "${HUMBLE_CONTAINER_RUNTIME:-}" ]]; then
         case "$HUMBLE_CONTAINER_RUNTIME" in
@@ -196,12 +100,10 @@ main() {
             *) die "HUMBLE_CONTAINER_RUNTIME must be 'docker' or 'podman'" ;;
         esac
     fi
-
     if [[ -n "${HUMBLE_NATIVE_SETUP:-}" ]]; then
         require_test_hook HUMBLE_NATIVE_SETUP
         native_setup="$HUMBLE_NATIVE_SETUP"
     fi
-
     if is_jammy && [[ -r "$native_setup" ]]; then
         # shellcheck disable=SC1090
         source "$native_setup"
@@ -220,22 +122,44 @@ main() {
             --env QT_X11_NO_MITSHM=1
             --env LIBGL_ALWAYS_SOFTWARE=1
             --env MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+            --env PULSE_SERVER=unix:/mnt/wslg/PulseServer
             --volume /tmp/.X11-unix:/tmp/.X11-unix:rw
             --volume /mnt/wslg:/mnt/wslg:ro
             --volume "$XDG_RUNTIME_DIR:/tmp/xdg-runtime:ro"
         )
     fi
     ensure_image "$runtime" "$base_ref" "$fingerprint"
-    exec timeout --foreground "${HUMBLE_TIMEOUT_SECONDS:-900}s" "$runtime" run \
-        --rm \
-        --init \
-        --platform linux/amd64 \
-        --env ROS_HOME=/opt/ed-ros-home \
-        "${gui_run_args[@]}" \
-        --volume "$repo_root:/workspace" \
-        --workdir /workspace \
-        "$image_name" \
-        "$@"
+    container_run_args=(
+        run --interactive --rm --init --platform linux/amd64
+        --env ROS_HOME=/opt/ed-ros-home
+        "${gui_run_args[@]}"
+        --volume "$repo_root:/workspace"
+        --workdir /workspace
+        "$image_name"
+    )
+
+    if ((interactive_mode)); then
+        container_run_args=(run --name "$container_name" "${container_run_args[@]:1}")
+        cleanup_interactive() {
+            exit_code="$?"
+            trap - EXIT INT TERM
+            if [[ -n "$container_pid" ]] && kill -0 "$container_pid" 2>/dev/null; then
+                "$runtime" rm --force "$container_name" >/dev/null 2>&1 || true
+                wait "$container_pid" 2>/dev/null || true
+            fi
+            exit "$exit_code"
+        }
+        trap cleanup_interactive EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+        "$runtime" "${container_run_args[@]}" "$@" <&0 &
+        container_pid="$!"
+        wait "$container_pid"
+        exit_code="$?"
+        exit "$exit_code"
+    fi
+
+    exec timeout --foreground "${HUMBLE_TIMEOUT_SECONDS:-900}s" "$runtime" "${container_run_args[@]}" "$@"
 }
 
 main "$@"

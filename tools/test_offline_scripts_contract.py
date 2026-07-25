@@ -33,6 +33,8 @@ def test_offline_scripts_call_run_humble_and_preserve_protected_paths() -> None:
         assert 'bash "$repo_root/tools/run_humble.sh"' in source, f"{script_path.name} bypasses bash tools/run_humble.sh"
         assert required_surface in source, f"{script_path.name} does not invoke {required_surface}"
         assert ".omo/evidence/offline-integration/scripts" in source, f"{script_path.name} does not write script evidence"
+        assert "export ROS_DOMAIN_ID=42" in source, f"{script_path.name} does not isolate its DDS domain"
+        assert "export ROS_LOCALHOST_ONLY=1" in source, f"{script_path.name} permits non-local DDS discovery"
         for protected_path in PROTECTED_HASHES:
             assert protected_path not in source, f"{script_path.name} invokes protected path {protected_path}"
 
@@ -72,3 +74,6 @@ def test_run_offline_static_preserves_inherited_pythonpath() -> None:
 
     # And: pytest must still be invoked from the wrapped heredoc command.
     assert "python3 -m pytest -q" in source, "run_offline_static.sh must still invoke pytest in offline mode"
+    assert "-o pythonpath=ros2_ws/src/ed_uav_verification" in source, (
+        "run_offline_static.sh must expose the unbuilt verification source package to pytest"
+    )

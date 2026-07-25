@@ -41,7 +41,7 @@ class Waypoint(BaseModel):
 
     x_m: FiniteFloat
     y_m: FiniteFloat
-    altitude_m: FiniteFloat = Field(default=2.0, gt=0.0)
+    altitude_m: FiniteFloat = Field(default=2.0, ge=0.0)
     heading_rad: FiniteFloat = Field(default=0.0, ge=-3.15, le=3.15)
     hover_sec: FiniteFloat = Field(default=0.0, ge=0.0)
     label: str = Field(default="", max_length=64)
