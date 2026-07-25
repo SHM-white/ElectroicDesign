@@ -63,6 +63,7 @@ def _build_actions(context: LaunchContext) -> list[Action]:
             {
                 "serial_port": pty_device,
                 "enable_experimental_0x32_0x33": False,
+                "enable_flight_commands": False,
             }
         ],
     )
@@ -123,11 +124,6 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("lidar_serial", default_value="UNSET"),
             DeclareLaunchArgument("namespace", default_value=""),
             DeclareLaunchArgument("use_sim_time", default_value="false"),
-            DeclareLaunchArgument(
-                "authority_token",
-                default_value="ed-uav-fcu-dry-run",
-                description="Single control-authority token for this profile.",
-            ),
             OpaqueFunction(function=_build_actions),
         ]
     )

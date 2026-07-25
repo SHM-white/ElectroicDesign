@@ -81,11 +81,6 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("lidar_serial", default_value="UNSET"),
             DeclareLaunchArgument("namespace", default_value=""),
             DeclareLaunchArgument("use_sim_time", default_value="true"),
-            DeclareLaunchArgument(
-                "authority_token",
-                default_value="ed-uav-offline-replay",
-                description="Single control-authority token for this profile.",
-            ),
             OpaqueFunction(function=_build_actions),
         ]
     )

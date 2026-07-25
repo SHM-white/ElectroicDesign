@@ -250,7 +250,7 @@ exit code. Retain the directories as debugging evidence.
 | Static contract surface | `bash tools/run_offline_static.sh` | `STATIC_OFFLINE_GREEN` in `SUCCESS`; focused pytest, launch-surface, replay-profile, interface-contract, parity, and runner logs | First check for environment, launch, interface, and legacy-parity regressions before starting processes |
 | Live simulation | `bash tools/run_offline_sim.sh` | `SIM_OFFLINE_GREEN` in `SUCCESS`; build, simulation, colcon, and runner logs | Check the live offline graph and deterministic synthetic sensor flow |
 | WSLg visualization | `bash tools/run_offline_rviz.sh` | `RVIZ_OFFLINE_GREEN` in `SUCCESS`; packaged config, RViz, build, and runner logs | Check WSLg display startup, visualization topics, and RViz process lifetime |
-| FCU bridge dry run | `bash tools/run_offline_fcu_dry_run.sh` | `FCU_DRY_RUN_GREEN` in `SUCCESS`; FCU, build, and runner logs | Check bridge framing, telemetry, command plumbing, PTY cleanup, and shutdown |
+| FCU bridge dry run | `bash tools/run_offline_fcu_dry_run.sh` | `FCU_DRY_RUN_GREEN` in `SUCCESS`; FCU, build, and runner logs | Check telemetry, bridge framing, PTY cleanup, and shutdown |
 | Event replay | `bash tools/run_offline_full_replay.sh` | `FULL_REPLAY_GREEN` in `SUCCESS`; event creation, bag info, replay, test, build, and runner logs | Check event artifact creation, event-only rosbag shape, and replay lifecycle |
 
 The live deterministic simulation is wall-time only. It does not publish
@@ -265,6 +265,8 @@ The rosbag stage is event-only. Its approved topic is `/verification/events`;
 it is not a sensor replay and it is not a flight replay. The FCU dry-run uses a
 fake PTY with the real bridge. It does not open `/dev/ttyUSB*` and makes no HIL,
 hardware, or flight claim.
+Standalone CLI command tests remain offline-only and do not authorize FCU
+hardware commands.
 
 The current offline integration receipt is recorded under
 `.omo/evidence/offline-integration/`. This receipt supplements, and does not
@@ -283,8 +285,28 @@ ros2 run ed_uav_fcu_bridge ed_uav_fcu_bridge \
 
 **Prerequisites**:
 - FCU connected via USB-TTL at 500000 baud
-- No other process holding `/dev/ttyUSB0` (TIOCEXCL enforced)
+- Cooperative serial ownership preflight or broker confirms that no other process
+  owns `/dev/ttyUSB0`
+- `TIOCEXCL` and the canonical device-number lock are enabled for cooperating
+  opens; an already-open legacy file descriptor can remain writable after
+  `TIOCEXCL`, so the preflight remains required
 - User in `dialout` group (or run as root)
+
+### 3.8 Flight Command Authority
+
+The `/fcu/flight_command` action is disabled by default. Explicit enablement
+requires all of the following:
+
+- `ROS_SECURITY_ENABLE=true`
+- `ROS_SECURITY_STRATEGY=Enforce`
+- `ROS_SECURITY_KEYSTORE` points to the configured keystore
+- Signed permissions are generated from the installed template at
+  `share/ed_uav_bringup/security/fcu_command.policy.xml`
+
+The bridge enclave has `execute` permission and the mission executor has
+`call` permission. Default deny is enforced by the ROS 2 middleware policy. The
+policy template contains no credentials. The offline PTY dry run remains
+credential-free and keeps flight commands disabled.
 
 ---
 
@@ -341,14 +363,17 @@ cd drone
 python main.py --profile competition --serial-port /dev/ttyUSB0
 ```
 
-### 5.3 Mutual Exclusion Guarantee
+### 5.3 Serial Ownership Boundary
 
-The `ExclusiveSerialPort` in `ed_uav_fcu_bridge/serial_port.py` uses:
-- `TIOCEXCL` ioctl — kernel-level exclusive device access
-- `flock(LOCK_EX|LOCK_NB)` — POSIX file lock
+The `ExclusiveSerialPort` in `ed_uav_fcu_bridge/serial_port.py` uses a
+canonical character-device major/minor identity lock, `TIOCEXCL`, and
+`flock(LOCK_EX|LOCK_NB)`. Together these stop cooperating new opens from
+claiming the same endpoint.
 
-This prevents both stacks from accidentally sharing the FCU serial port. If the
-legacy system holds the port, the ROS bridge will fail to open it (and vice versa).
+These mechanisms cannot evict a descriptor that was opened before the boundary
+was established. An external owner preflight or serial broker is required
+before connecting hardware, especially when a legacy process may already hold
+the FCU.
 
 ### 5.4 Protected Files
 

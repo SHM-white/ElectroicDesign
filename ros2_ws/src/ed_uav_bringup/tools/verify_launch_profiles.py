@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Static verification for ED UAV launch profiles — no ROS runtime needed."""
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ PROFILE_CONTRACTS: dict[str, dict] = {
             "lidar_serial",
             "namespace",
             "use_sim_time",
-            "authority_token",
         },
         "forbidden_args": set(),
         "profile_value": "offline",
@@ -35,7 +33,6 @@ PROFILE_CONTRACTS: dict[str, dict] = {
             "camera_wide_serial",
             "namespace",
             "use_sim_time",
-            "authority_token",
         },
         "forbidden_args": {"lidar_serial"},
         "profile_value": "camera_only",
@@ -50,7 +47,6 @@ PROFILE_CONTRACTS: dict[str, dict] = {
             "lidar_serial",
             "namespace",
             "use_sim_time",
-            "authority_token",
         },
         "forbidden_args": set(),
         "profile_value": "lidar",
@@ -65,7 +61,6 @@ PROFILE_CONTRACTS: dict[str, dict] = {
             "lidar_serial",
             "namespace",
             "use_sim_time",
-            "authority_token",
         },
         "forbidden_args": set(),
         "profile_value": "competition",
@@ -81,11 +76,10 @@ PROFILE_CONTRACTS: dict[str, dict] = {
             "lidar_serial",
             "namespace",
             "use_sim_time",
-            "authority_token",
         },
         "forbidden_args": set(),
         "profile_value": "offline",
-        "lifecycle_stages": ("calibration_gate", "robot_state_publisher", "fcu_dry"),
+        "lifecycle_stages": ("calibration_gate", "fake_fcu_ready", "fcu_bridge", "bounded_shutdown"),
         "must_have": {"validate_for_profile", "load_calibration"},
     },
     "legacy_rollback": {
@@ -96,7 +90,6 @@ PROFILE_CONTRACTS: dict[str, dict] = {
             "lidar_serial",
             "namespace",
             "use_sim_time",
-            "authority_token",
         },
         "forbidden_args": set(),
         "profile_value": "offline",
@@ -167,13 +160,16 @@ def verify_launch_file(file_path: Path, profile_name: str) -> int:
                     profile_literal = _string_constant(node.value)
             # Check LIFECYCLE_ORDER tuple
             for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "LIFECYCLE_ORDER":
-                    if isinstance(node.value, ast.Tuple):
-                        lifecycle_stage_values = {
-                            elt.value
-                            for elt in node.value.elts
-                            if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
-                        }
+                if (
+                    isinstance(target, ast.Name)
+                    and target.id == "LIFECYCLE_ORDER"
+                    and isinstance(node.value, ast.Tuple)
+                ):
+                    lifecycle_stage_values = {
+                        elt.value
+                        for elt in node.value.elts
+                        if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                    }
 
     # Check required arguments
     missing = contract["required_args"] - arguments_found
@@ -224,11 +220,20 @@ def verify_launch_file(file_path: Path, profile_name: str) -> int:
     # For competition profile, ensure serial defaults are empty (not UNSET)
     if profile_name == "competition":
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and _call_name(node) == "DeclareLaunchArgument":
-                if len(node.args) >= 2 and _string_constant(node.args[0]) in {"camera_narrow_serial", "camera_wide_serial", "lidar_serial"}:
-                    if isinstance(node.args[1], ast.Constant) and node.args[1].value == "UNSET":
-                        print(f"PROFILE {profile_name}: RED: competition serial defaults must be empty, not 'UNSET'", file=sys.stderr)
-                        return 1
+            if (
+                isinstance(node, ast.Call)
+                and _call_name(node) == "DeclareLaunchArgument"
+                and len(node.args) >= 2
+                and _string_constant(node.args[0])
+                in {"camera_narrow_serial", "camera_wide_serial", "lidar_serial"}
+                and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value == "UNSET"
+            ):
+                print(
+                    f"PROFILE {profile_name}: RED: competition serial defaults must be empty, not 'UNSET'",
+                    file=sys.stderr,
+                )
+                return 1
 
     # No forbidden TF authority
     if "static_transform_publisher" in source or "map -> odom" in source:

@@ -185,7 +185,7 @@ root. Each command creates a timestamped evidence directory below
 | Static | `bash tools/run_offline_static.sh` | `STATIC_OFFLINE_GREEN` | Focused tests, launch/profile checks, interface contract, parity, and runner logs. Start here for static and environment failures. |
 | Simulation | `bash tools/run_offline_sim.sh` | `SIM_OFFLINE_GREEN` | Build and live simulation logs. Checks deterministic synthetic sensor flow in wall time. |
 | RViz | `bash tools/run_offline_rviz.sh` | `RVIZ_OFFLINE_GREEN` | Packaged RViz config, process, build, and runner logs. Checks WSLg visualization startup. |
-| FCU dry run | `bash tools/run_offline_fcu_dry_run.sh` | `FCU_DRY_RUN_GREEN` | Fake PTY, real bridge, build, and runner logs. Checks bridge framing, telemetry, commands, and cleanup. |
+| FCU dry run | `bash tools/run_offline_fcu_dry_run.sh` | `FCU_DRY_RUN_GREEN` | Fake PTY, real bridge, build, and runner logs. Checks telemetry, framing, PTY cleanup, and shutdown. |
 | Full replay | `bash tools/run_offline_full_replay.sh` | `FULL_REPLAY_GREEN` | Event creation, bag info, replay, build, and test logs. Checks event-only replay lifecycle. |
 
 The live deterministic simulation is wall-time only. There is no `/clock`, so
@@ -204,6 +204,23 @@ Current offline integration evidence is recorded under
 202-test colcon result and 365-test pytest result above remain unchanged. Stored
 stage evidence includes `wall-time/`, `rviz/`, `rviz-visual/`, `rosbag/`,
 `fcu-final/`, and timestamped runs under `scripts/`.
+
+### Offline Security Boundary Notes
+
+The installed policy template is
+`share/ed_uav_bringup/security/fcu_command.policy.xml`. The
+`/fcu/flight_command` action is default-disabled. Enabling it requires
+`ROS_SECURITY_ENABLE=true`, `ROS_SECURITY_STRATEGY=Enforce`,
+`ROS_SECURITY_KEYSTORE`, and signed permissions generated from the template.
+The bridge enclave uses `execute`; the mission executor uses `call`; middleware
+policy default-denies other callers. The template has no credentials. The
+offline PTY dry run remains credential-free and command-disabled.
+
+Serial ownership uses canonical device-number identity locking, `TIOCEXCL`, and
+`flock` to stop cooperating new opens. These controls cannot evict an existing
+descriptor, so owner preflight or a broker remains required before hardware.
+This milestone records the boundary only. It claims no signed-keystore runtime,
+hardware, HIL, or flight execution.
 
 ---
 

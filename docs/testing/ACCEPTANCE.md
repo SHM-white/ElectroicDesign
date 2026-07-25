@@ -56,7 +56,7 @@ with a `SUCCESS` marker or a `FAILED` marker and exit code.
 | Static surface | `bash tools/run_offline_static.sh` | `STATIC_OFFLINE_GREEN` | Contract, launch profile, interface, focused test, and legacy parity logs. Use first to isolate static and environment failures. |
 | Wall-time simulation | `bash tools/run_offline_sim.sh` | `SIM_OFFLINE_GREEN` | Build and live simulation logs. Checks the deterministic synthetic graph in wall time. |
 | WSLg RViz | `bash tools/run_offline_rviz.sh` | `RVIZ_OFFLINE_GREEN` | Packaged config, RViz process, and launch logs. Checks visualization startup and display wiring. |
-| FCU dry run | `bash tools/run_offline_fcu_dry_run.sh` | `FCU_DRY_RUN_GREEN` | Fake PTY and real bridge logs. Checks framing, telemetry, command plumbing, and cleanup. |
+| FCU dry run | `bash tools/run_offline_fcu_dry_run.sh` | `FCU_DRY_RUN_GREEN` | Fake PTY and real bridge logs. Checks telemetry, framing, PTY cleanup, and shutdown. |
 | Full event replay | `bash tools/run_offline_full_replay.sh` | `FULL_REPLAY_GREEN` | Event creation, bag info, replay, build, and test logs. Checks `/verification/events` replay lifecycle. |
 
 The live deterministic simulation is wall-time only because this surface has no
@@ -74,6 +74,23 @@ The current receipt is under `.omo/evidence/offline-integration/`. It supplement
 the original milestone results below. It does not replace or renumber the
 historical test totals. Stored stage evidence includes `wall-time/`, `rviz/`,
 `rviz-visual/`, `rosbag/`, `fcu-final/`, and timestamped runs under `scripts/`.
+
+### 2.1.2 Serial and Flight Command Security Boundary
+
+Acceptance includes the installed policy template at
+`share/ed_uav_bringup/security/fcu_command.policy.xml`. The
+`/fcu/flight_command` action is default-disabled. An explicitly enabled runtime
+requires `ROS_SECURITY_ENABLE=true`, `ROS_SECURITY_STRATEGY=Enforce`,
+`ROS_SECURITY_KEYSTORE`, and signed permissions generated from that template.
+The bridge enclave is granted `execute`; the mission executor is granted
+`call`; all other callers remain denied by middleware policy. The template has
+no credentials. Offline PTY checks remain credential-free and command-disabled.
+
+Serial acceptance requires canonical device-number identity locking together
+with `TIOCEXCL` and `flock` for cooperating new opens. These controls do not
+evict a descriptor opened earlier, so an owner preflight or broker is required
+before hardware validation. This boundary is documented and accepted offline;
+no signed-keystore runtime, hardware, HIL, or flight authorization is claimed.
 
 ### 2.2 HARDWARE (Tasks 24-27) — PENDING-HARDWARE
 

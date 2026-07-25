@@ -33,7 +33,8 @@ trap cleanup_jobs EXIT
 trap "exit 130" INT
 trap "exit 143" TERM
 
-PYTHONPATH=/workspace/ros2_ws/src/ed_uav_verification \
+export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}/workspace/ros2_ws/src/ed_uav_verification"
+
     timeout --foreground 120s python3 -m pytest -q \
     tools/test_offline_scripts_contract.py \
     ros2_ws/src/ed_uav_verification/test/test_offline_integration_contract.py \

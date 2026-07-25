@@ -17,6 +17,8 @@ if(BUILD_TESTING)
   ament_add_pytest_test(telemetry_cache test/test_telemetry_cache.py)
   ament_add_pytest_test(actions test/test_actions.py)
   ament_add_pytest_test(pty_surface test/test_pty_surface.py)
+  ament_add_pytest_test(flight_command_authority test/test_flight_command_authority.py)
+  ament_add_pytest_test(serial_ownership_security test/test_serial_ownership_security.py)
 endif()
 
 ament_package()

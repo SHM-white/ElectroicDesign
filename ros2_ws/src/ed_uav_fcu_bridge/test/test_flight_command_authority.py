@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 import ast
-import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
+from ed_uav_fcu_bridge import node as bridge_node
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 NODE_SOURCE = PACKAGE_ROOT / "ed_uav_fcu_bridge" / "node.py"
 BRINGUP_LAUNCH_DIR = PACKAGE_ROOT.parent / "ed_uav_bringup" / "launch"
 AUTHORITY_GUARD_NAME = "require_flight_command_authority"
-sys.path.insert(0, str(PACKAGE_ROOT))
-
-from ed_uav_fcu_bridge import node as bridge_node  # noqa: E402
 
 
 AuthorityGuard = Callable[[bool, Mapping[str, str]], bool]

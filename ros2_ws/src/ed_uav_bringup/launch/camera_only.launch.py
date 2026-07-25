@@ -61,11 +61,6 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("camera_wide_serial", default_value="UNSET"),
             DeclareLaunchArgument("namespace", default_value=""),
             DeclareLaunchArgument("use_sim_time", default_value="false"),
-            DeclareLaunchArgument(
-                "authority_token",
-                default_value="ed-uav-camera-only",
-                description="Single control-authority token for this profile.",
-            ),
             OpaqueFunction(function=_build_actions),
         ]
     )

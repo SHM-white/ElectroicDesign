@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<policy version="0.2.0">
+  <enclaves>
+    <enclave path="/ed_uav_fcu_bridge">
+      <profiles>
+        <profile ns="/" node="ed_uav_fcu_bridge">
+          <topics publish="ALLOW">
+            <topic>rosout</topic>
+            <topic>/parameter_events</topic>
+          </topics>
+          <services reply="ALLOW">
+            <service>~/describe_parameters</service>
+            <service>~/get_parameter_types</service>
+            <service>~/get_parameters</service>
+            <service>~/list_parameters</service>
+            <service>~/set_parameters</service>
+            <service>~/set_parameters_atomically</service>
+          </services>
+          <actions execute="ALLOW">
+            <action>fcu/flight_command</action>
+          </actions>
+        </profile>
+      </profiles>
+    </enclave>
+    <enclave path="/ed_uav_mission_executor">
+      <profiles>
+        <profile ns="/" node="mission_executor">
+          <topics publish="ALLOW">
+            <topic>rosout</topic>
+            <topic>/parameter_events</topic>
+          </topics>
+          <services reply="ALLOW">
+            <service>~/describe_parameters</service>
+            <service>~/get_parameter_types</service>
+            <service>~/get_parameters</service>
+            <service>~/list_parameters</service>
+            <service>~/set_parameters</service>
+            <service>~/set_parameters_atomically</service>
+          </services>
+          <actions call="ALLOW">
+            <action>fcu/flight_command</action>
+          </actions>
+        </profile>
+      </profiles>
+    </enclave>
+  </enclaves>
+</policy>

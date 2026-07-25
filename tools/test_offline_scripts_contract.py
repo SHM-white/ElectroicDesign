@@ -4,7 +4,6 @@ import hashlib
 import re
 from pathlib import Path
 
-
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 OFFLINE_SCRIPTS = {
     "run_offline_static.sh": "parity_check.py",

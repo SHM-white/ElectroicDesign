@@ -79,11 +79,6 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument("namespace", default_value=""),
             DeclareLaunchArgument("use_sim_time", default_value="false"),
-            DeclareLaunchArgument(
-                "authority_token",
-                default_value="ed-uav-competition",
-                description="Single control-authority token for this profile.",
-            ),
             OpaqueFunction(function=_build_actions),
         ]
     )

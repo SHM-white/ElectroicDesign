@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import fcntl
-import hashlib
 import os
+import stat
 import termios
 import tty
+import typing
 from pathlib import Path
 from types import TracebackType
 
@@ -29,7 +30,7 @@ class ExclusiveSerialPort:
         self._lock_fd: int | None = None
         self._serial_fd: int | None = None
 
-    def __enter__(self) -> ExclusiveSerialPort:
+    def __enter__(self) -> typing.Self:
         self.open()
         return self
 
@@ -57,25 +58,39 @@ class ExclusiveSerialPort:
         """Acquire lock-file and TTY exclusivity before exposing the endpoint."""
         if self.is_open:
             return
-        self._acquire_lock()
+        canonical_path, identity = self._resolve_endpoint()
+        self._acquire_lock(identity)
+        serial_fd: int | None = None
         try:
-            serial_fd = os.open(self.device, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK | os.O_CLOEXEC)
-            tty.setraw(serial_fd)
-            attributes = termios.tcgetattr(serial_fd)
-            speed = getattr(termios, f"B{self.baudrate}", None)
-            if speed is None:
-                raise SerialOpenError(f"unsupported baudrate: {self.baudrate}")
-            attributes[4] = speed
-            attributes[5] = speed
-            termios.tcsetattr(serial_fd, termios.TCSANOW, attributes)
-            fcntl.ioctl(serial_fd, termios.TIOCEXCL)
+            try:
+                serial_fd = os.open(
+                    canonical_path,
+                    os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK | os.O_CLOEXEC | os.O_NOFOLLOW,
+                )
+                opened_stat = os.fstat(serial_fd)
+                opened_identity = (os.major(opened_stat.st_rdev), os.minor(opened_stat.st_rdev))
+                if not stat.S_ISCHR(opened_stat.st_mode) or opened_identity != identity:
+                    raise SerialOpenError(f"serial endpoint identity changed: {self.device}")
+                tty.setraw(serial_fd)
+                attributes = termios.tcgetattr(serial_fd)
+                speed = getattr(termios, f"B{self.baudrate}", None)
+                if speed is None:
+                    raise SerialOpenError(f"unsupported baudrate: {self.baudrate}")
+                attributes[4] = speed
+                attributes[5] = speed
+                termios.tcsetattr(serial_fd, termios.TCSANOW, attributes)
+                fcntl.ioctl(serial_fd, termios.TIOCEXCL)
+            except OSError as error:
+                raise SerialOpenError(f"cannot exclusively open {self.device}: {error}") from error
             self._serial_fd = serial_fd
-        except OSError as error:
-            self._release_lock()
-            raise SerialOpenError(f"cannot exclusively open {self.device}: {error}") from error
-        except SerialOpenError:
-            self._release_lock()
-            raise
+            serial_fd = None
+        finally:
+            try:
+                if serial_fd is not None:
+                    os.close(serial_fd)
+            finally:
+                if self._serial_fd is None:
+                    self._release_lock()
 
     def read(self, maximum_bytes: int = 4096) -> bytes:
         """Read currently available endpoint bytes without waiting."""
@@ -95,29 +110,52 @@ class ExclusiveSerialPort:
         """Release the TTY claim and lock file even during interrupted shutdown."""
         serial_fd = self._serial_fd
         self._serial_fd = None
-        if serial_fd is not None:
-            try:
-                fcntl.ioctl(serial_fd, termios.TIOCNXCL)
-            except OSError:
-                pass
-            os.close(serial_fd)
-        self._release_lock()
+        try:
+            if serial_fd is not None:
+                try:
+                    fcntl.ioctl(serial_fd, termios.TIOCNXCL)
+                except OSError:
+                    pass
+                finally:
+                    os.close(serial_fd)
+        finally:
+            self._release_lock()
 
-    def _acquire_lock(self) -> None:
+    def _resolve_endpoint(self) -> tuple[Path, tuple[int, int]]:
+        try:
+            canonical_path = Path(self.device).resolve(strict=True)
+            endpoint_stat = canonical_path.stat(follow_symlinks=False)
+        except (OSError, RuntimeError) as error:
+            raise SerialOpenError(f"cannot resolve serial endpoint {self.device}: {error}") from error
+        if not stat.S_ISCHR(endpoint_stat.st_mode):
+            raise SerialOpenError(f"serial endpoint is not a character device: {self.device}")
+        identity = (os.major(endpoint_stat.st_rdev), os.minor(endpoint_stat.st_rdev))
+        return canonical_path, identity
+
+    def _acquire_lock(self, identity: tuple[int, int]) -> None:
         self.lock_dir.mkdir(parents=True, exist_ok=True)
-        digest = hashlib.sha256(self.device.encode("utf-8")).hexdigest()
-        lock_path = self.lock_dir / f"ed-uav-fcu-{digest}.lock"
-        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
+        major, minor = identity
+        lock_path = self.lock_dir / f"ed-uav-fcu-{major}-{minor}.lock"
+        lock_fd = os.open(
+            lock_path,
+            os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW,
+            0o600,
+        )
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
             os.close(lock_fd)
             raise SerialOwnershipError(f"FCU serial endpoint is already owned: {self.device}") from error
+        except OSError:
+            os.close(lock_fd)
+            raise
         self._lock_fd = lock_fd
 
     def _release_lock(self) -> None:
         lock_fd = self._lock_fd
         self._lock_fd = None
         if lock_fd is not None:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            os.close(lock_fd)
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            finally:
+                os.close(lock_fd)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import threading
 import time
 from pathlib import Path
@@ -10,6 +11,8 @@ from typing import Protocol
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
+from ed_uav_interfaces.action import FlightCommand
+from ed_uav_interfaces.msg import FcuState
 from nav_msgs.msg import Odometry
 from rclpy.action import ActionServer, CancelResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -17,13 +20,13 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import BatteryState
 
-from ed_uav_interfaces.action import FlightCommand
-from ed_uav_interfaces.msg import FcuState
-
 from .actions import CommandKind, CommandRejectedError, CommandRequest, ResultCode
+from .authority import FlightCommandAuthorityError, require_flight_command_authority
 from .serial_port import ExclusiveSerialPort
 from .session import BridgeConfig, NativeV7Bridge
 from .telemetry import FreshnessPolicy, TelemetrySnapshot
+
+__all__ = ("FcuBridgeNode", "FlightCommandAuthorityError", "require_flight_command_authority")
 
 
 class FlightGoalHandle(Protocol):
@@ -50,6 +53,7 @@ class FcuBridgeNode(Node):
         self.declare_parameter("command_ack_timeout_s", 0.50)
         self.declare_parameter("move_speed_cmps", 30)
         self.declare_parameter("enable_experimental_0x32_0x33", False)
+        self.declare_parameter("enable_flight_commands", False)
         policy = FreshnessPolicy(
             float(self.get_parameter("position_max_age_s").value),
             float(self.get_parameter("aux_status_max_age_s").value),
@@ -69,14 +73,15 @@ class FcuBridgeNode(Node):
         self._odom_publisher = self.create_publisher(Odometry, "/fcu/optical_flow/odom", 10)
         self._diagnostic_publisher = self.create_publisher(DiagnosticArray, "/fcu/diagnostics", 10)
         self._timer = self.create_timer(0.02, self._poll, callback_group=group)
-        self._action_server = ActionServer(
-            self,
-            FlightCommand,
-            "/fcu/flight_command",
-            execute_callback=self._execute,
-            cancel_callback=self._cancel,
-            callback_group=group,
-        )
+        if require_flight_command_authority(bool(self.get_parameter("enable_flight_commands").value), os.environ):
+            self._action_server = ActionServer(
+                self,
+                FlightCommand,
+                "/fcu/flight_command",
+                execute_callback=self._execute,
+                cancel_callback=self._cancel,
+                callback_group=group,
+            )
 
     def destroy_node(self) -> bool:
         self._port.close()

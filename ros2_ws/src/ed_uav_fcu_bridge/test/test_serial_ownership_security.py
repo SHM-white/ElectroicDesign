@@ -11,32 +11,27 @@ from typing import Final
 
 import pytest
 
-
 PACKAGE_ROOT: Final = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from ed_uav_fcu_bridge.serial_port import ExclusiveSerialPort  # noqa: E402
+from ed_uav_fcu_bridge.serial_port import ExclusiveSerialPort
 
-
-OWNERSHIP_PROBE: Final = "\n".join(
-    (
-        "from pathlib import Path",
-        "import sys",
-        "from ed_uav_fcu_bridge.serial_port import ExclusiveSerialPort, SerialOpenError, SerialOwnershipError",
-        "port = ExclusiveSerialPort(sys.argv[1], lock_dir=Path(sys.argv[2]))",
-        "try:",
-        "    port.open()",
-        "except SerialOwnershipError:",
-        "    print('SerialOwnershipError')",
-        "    raise SystemExit(3)",
-        "except SerialOpenError:",
-        "    print('SerialOpenError', file=sys.stderr)",
-        "    raise SystemExit(4)",
-        "else:",
-        "    port.close()",
-        "    raise SystemExit(0)",
-    )
-)
+OWNERSHIP_PROBE: Final = """\
+from pathlib import Path
+import sys
+from ed_uav_fcu_bridge.serial_port import ExclusiveSerialPort, SerialOpenError, SerialOwnershipError
+port = ExclusiveSerialPort(sys.argv[1], lock_dir=Path(sys.argv[2]))
+try:
+    port.open()
+except SerialOwnershipError:
+    print('SerialOwnershipError')
+    raise SystemExit(3)
+except SerialOpenError:
+    print('SerialOpenError', file=sys.stderr)
+    raise SystemExit(4)
+else:
+    port.close()
+    raise SystemExit(0)"""
 
 
 @pytest.mark.parametrize(

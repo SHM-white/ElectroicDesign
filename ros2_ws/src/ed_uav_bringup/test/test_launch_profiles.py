@@ -129,8 +129,10 @@ def test_legacy_rollback_launch() -> None:
     assert "GREEN" in result.stdout
 
 
-def test_all_profiles_declare_authority_token() -> None:
-    """Every profile declares a unique authority_token for single control-authority."""
+def test_all_profiles_omit_dead_authority_token() -> None:
+    """No profile advertises a static token that does not authorize callers."""
     for profile_name in ("offline_replay", "camera_only", "lidar", "competition", "fcu_dry_run", "legacy_rollback"):
         result = _run_checker(profile_name)
         assert result.returncode == 0, f"{profile_name} authority check failed: {result.stderr}"
+        launch_source = (BRINGUP_ROOT / "launch" / f"{profile_name}.launch.py").read_text(encoding="utf-8")
+        assert "authority_token" not in launch_source
