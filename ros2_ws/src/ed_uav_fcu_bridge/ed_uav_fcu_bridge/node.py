@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Protocol
 
 import rclpy
+from diagnostic_msgs.msg import DiagnosticArray
 from ed_uav_interfaces.action import FlightCommand
 from ed_uav_interfaces.msg import FcuState
 from nav_msgs.msg import Odometry
@@ -17,13 +18,17 @@ from rclpy.action import ActionServer, CancelResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from diagnostic_msgs.msg import DiagnosticArray
 from sensor_msgs.msg import BatteryState
 
 from .actions import CommandKind, CommandRejectedError, CommandRequest, ResultCode
 from .authority import FlightCommandAuthorityError, require_flight_command_authority
 from .command_validation import goal_rejection_reason
-from .ros_messages import battery_message, diagnostic_message, odom_message, state_message
+from .ros_messages import (
+    battery_message,
+    diagnostic_message,
+    odom_message,
+    state_message,
+)
 from .serial_port import ExclusiveSerialPort
 from .session import BridgeConfig, NativeV7Bridge
 from .telemetry import FreshnessPolicy, TelemetrySnapshot
@@ -237,6 +242,7 @@ def main() -> None:
     except KeyboardInterrupt:
         return
     finally:
+        executor.shutdown()
         executor.remove_node(node)
         node.destroy_node()
         rclpy.try_shutdown()

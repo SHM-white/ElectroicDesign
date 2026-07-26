@@ -11,15 +11,15 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("ament_index_python")
-from ament_index_python.packages import get_package_prefix  # noqa: E402
+ament_packages = pytest.importorskip("ament_index_python.packages")
+bridge_node = pytest.importorskip("ed_uav_fcu_bridge.node")
 
 
 SOURCE_ENTRYPOINT = Path(__file__).resolve().parents[1] / "scripts" / "ed_uav_fcu_bridge"
 
 
 def _installed_entrypoint() -> Path:
-    prefix = Path(get_package_prefix("ed_uav_fcu_bridge"))
+    prefix = Path(ament_packages.get_package_prefix("ed_uav_fcu_bridge"))
     return prefix / "lib" / "ed_uav_fcu_bridge" / "ed_uav_fcu_bridge"
 
 
@@ -50,6 +50,56 @@ def test_symlink_installed_entrypoint_is_executable() -> None:
     # Then: the real installed executable can be launched by launch_ros.actions.Node.
     assert installed_entrypoint.is_symlink(), f"expected symlink: {installed_entrypoint}"
     assert executable, f"installed entrypoint is not executable: {installed_entrypoint}"
+
+
+def test_main_drains_executor_before_node_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    class FakeNode:
+        def destroy_node(self) -> None:
+            events.append("node.destroy")
+
+    class FakeExecutor:
+        def __init__(self, *, num_threads: int) -> None:
+            assert num_threads == 2
+            events.append("executor.create")
+
+        def add_node(self, node: FakeNode) -> None:
+            events.append("executor.add")
+
+        def spin(self) -> None:
+            events.append("executor.spin")
+            raise KeyboardInterrupt
+
+        def shutdown(self) -> None:
+            events.append("executor.shutdown")
+
+        def remove_node(self, node: FakeNode) -> None:
+            events.append("executor.remove")
+
+    monkeypatch.setattr(bridge_node.rclpy, "init", lambda: events.append("rclpy.init"))
+    monkeypatch.setattr(
+        bridge_node.rclpy,
+        "try_shutdown",
+        lambda: events.append("rclpy.try_shutdown"),
+    )
+    monkeypatch.setattr(bridge_node, "FcuBridgeNode", FakeNode)
+    monkeypatch.setattr(bridge_node, "MultiThreadedExecutor", FakeExecutor)
+
+    bridge_node.main()
+
+    assert events == [
+        "rclpy.init",
+        "executor.create",
+        "executor.add",
+        "executor.spin",
+        "executor.shutdown",
+        "executor.remove",
+        "node.destroy",
+        "rclpy.try_shutdown",
+    ]
 
 
 @pytest.mark.skipif(shutil.which("ros2") is None, reason="requires a sourced ROS 2 Humble environment")
@@ -87,4 +137,6 @@ def test_bounded_dry_run_exits_cleanly_without_bridge_traceback(tmp_path: Path) 
     assert re.search(r"exit code -\d+", output) is None
     assert "rcl_shutdown already called" not in output
     assert "Traceback" not in output
+    assert "exception was never retrieved" not in output
+    assert "publisher's context is invalid" not in output
     assert not pty_device.exists(), output

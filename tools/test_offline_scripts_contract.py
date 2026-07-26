@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import subprocess
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +62,20 @@ def test_offline_scripts_are_executable_and_have_bash_shebang() -> None:
         assert first_line.startswith("#!/usr/bin/env bash"), f"{script_path.name} does not start with a bash shebang"
 
 
+def test_offline_scripts_have_valid_bash_syntax() -> None:
+    for script_name in OFFLINE_SCRIPTS:
+        script_path = REPOSITORY_ROOT / "tools" / script_name
+
+        result = subprocess.run(
+            ["bash", "-n", str(script_path)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+
+
 def test_run_offline_static_preserves_inherited_pythonpath() -> None:
     script_path = REPOSITORY_ROOT / "tools" / "run_offline_static.sh"
     source = script_path.read_text(encoding="utf-8")
@@ -77,3 +92,12 @@ def test_run_offline_static_preserves_inherited_pythonpath() -> None:
     assert "-o pythonpath=ros2_ws/src/ed_uav_verification" in source, (
         "run_offline_static.sh must expose the unbuilt verification source package to pytest"
     )
+
+
+def test_fcu_runner_rejects_async_shutdown_failures() -> None:
+    source = (REPOSITORY_ROOT / "tools" / "run_offline_fcu_dry_run.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "exception was never retrieved" in source
+    assert "publisher.s context is invalid" in source

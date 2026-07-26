@@ -53,7 +53,7 @@ timeout --foreground --signal=INT --kill-after=5s 30s \
 grep -Fq "FAKE FCU READY: $pty_device" "$evidence_dir/fcu.log"
 grep -Fq "ed_uav_fcu_bridge" "$evidence_dir/fcu.log"
 if grep -Eq \
-    "KeyboardInterrupt|Traceback|process has died|exit code -[0-9]+|exit code 1|rcl_shutdown already called" \
+    "KeyboardInterrupt|Traceback|process has died|exit code -[0-9]+|exit code 1|rcl_shutdown already called|exception was never retrieved|publisher.s context is invalid" \
     "$evidence_dir/fcu.log"; then
     printf "FCU dry-run reported an unexpected bridge failure\n" >&2
     exit 1
