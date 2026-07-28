@@ -1,0 +1,5 @@
+cmake-build-*/
+*.bin
+*.elf
+*.map
+*.part
