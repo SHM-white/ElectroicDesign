@@ -3,7 +3,7 @@
 <package format="3">
   <name>ed_uav_localization</name>
   <version>0.1.0</version>
-  <description>Strict field profiles and coordinate anchoring for ED UAV localization.</description>
+  <description>FAST-LIO normalization, fused source supervision, and field coordinate anchoring for ED UAV localization.</description>
   <maintainer email="maintainers@example.invalid">ED UAV maintainers</maintainer>
   <license>Apache-2.0</license>
   <buildtool_depend>ament_python</buildtool_depend>
@@ -16,6 +16,7 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>ed_uav_interfaces</exec_depend>
+  <exec_depend>ed_uav_description</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>builtin_interfaces</exec_depend>

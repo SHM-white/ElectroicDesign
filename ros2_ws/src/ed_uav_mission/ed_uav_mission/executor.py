@@ -6,12 +6,14 @@ This module never imports serial, GPIO, or camera APIs.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
 import rclpy
-from rclpy.action import ActionServer, CancelResponse, GoalResponse
+from action_msgs.msg import GoalStatus
+from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.action.server import ServerGoalHandle
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import ExternalShutdownException
@@ -36,6 +38,14 @@ from ed_uav_mission.plugins.target_visit import TargetVisitPlugin
 from ed_uav_mission.plugins.terminal_landing import LandingStep, TerminalLandingPlugin
 from ed_uav_mission.plugins.payload import PayloadPlugin
 from ed_uav_mission.state_machine import MissionFSM, MissionState
+from ed_uav_mission.competition_runtime import CompetitionCallbacks, CompetitionRuntime
+from ed_uav_mission.action_lifecycle import (
+    MissionCancelled,
+    MissionDeadline,
+    MissionTimeout,
+    steady_now_sec,
+    wait_with_deadline,
+)
 
 
 class PreflightCode(Enum):
@@ -109,6 +119,9 @@ class MissionExecutorNode(Node):
         self._fsm = MissionFSM()
         self._goal_handle: ServerGoalHandle | None = None
         self._cancel_requested = False
+        self._active_flight_goal = None
+        self._mission_deadline: MissionDeadline | None = None
+        self._airborne = False
         self._latest_fcu: FcuState | None = None
         self._latest_localization: LocalizationStatus | None = None
         self._profile: KnownFieldProfile | None = None
@@ -141,8 +154,21 @@ class MissionExecutorNode(Node):
             cancel_callback=self._on_cancel,
             callback_group=cb_group,
         )
-        self._flight_client = rclpy.action.ActionClient(
+        self._flight_client = ActionClient(
             self, FlightCommand, "/fcu/flight_command"
+        )
+        self._competition_runtime = CompetitionRuntime(
+            self,
+            CompetitionCallbacks(
+                execute_takeoff=self._execute_takeoff,
+                send_hover=self._send_hover,
+                send_move=self._send_move,
+                execute_landing=self._execute_landing,
+                send_disarm=self._send_disarm,
+                raise_if_cancelled=self._raise_if_cancelled,
+                deadline_for_timeout=self._deadline_for_timeout,
+                transition=self._fsm.transition,
+            ),
         )
         self._fcu_sub = self.create_subscription(FcuState, "/fcu/state", self._on_fcu_state, 10)
         self._loc_sub = self.create_subscription(
@@ -183,11 +209,21 @@ class MissionExecutorNode(Node):
     def _on_cancel(self, goal_handle: ServerGoalHandle) -> CancelResponse:
         self.get_logger().info("Cancel requested")
         self._cancel_requested = True
+        self._cancel_active_flight()
+        self._competition_runtime.cancel_active()
         return CancelResponse.ACCEPT
 
     async def _execution_loop(self, goal_handle: ServerGoalHandle) -> ExecuteMission.Result:
         self._goal_handle = goal_handle
         self._cancel_requested = False
+        config = self._mission_config
+        self._mission_deadline = MissionDeadline.from_limits(
+            now_sec=steady_now_sec(),
+            limits=(
+                goal_handle.request.timeout_sec,
+                config.timeout_sec if config is not None else 0.0,
+            ),
+        )
         feedback = ExecuteMission.Feedback()
         result = ExecuteMission.Result()
 
@@ -201,36 +237,54 @@ class MissionExecutorNode(Node):
                 goal_handle.abort()
                 return result
 
-            self._fsm.transition(MissionState.TAKEOFF, "preflight passed")
-            await self._execute_takeoff(feedback)
+            self._raise_if_cancelled()
+            if config is None:
+                raise RuntimeError("mission config not loaded")
+            if config.mission_type == MissionType.COMPETITION:
+                await self._competition_runtime.run(config.competition, feedback)
+            else:
+                self._fsm.transition(MissionState.TAKEOFF, "preflight passed")
+                await self._execute_takeoff(feedback)
 
-            self._fsm.transition(MissionState.EXECUTING, "takeoff complete")
-            waypoints = self._dispatch_plugin()
-            for index, wp in enumerate(waypoints):
-                if self._cancel_requested or goal_handle.is_cancel_requested:
-                    self._cancel_requested = True
-                    self._fsm.transition(MissionState.ABORTED, "cancel requested")
-                    result.result_code = ExecuteMission.Result.RESULT_ABORTED
-                    result.reason = "cancelled by user"
-                    goal_handle.abort()
-                    return result
-                await self._send_move(wp)
-                if wp.hover_sec > 0:
-                    await self._send_hover(wp.hover_sec)
-                feedback.state_id = f"waypoint_{index}"
-                feedback.progress = float(index + 1) / float(max(len(waypoints), 1))
-                goal_handle.publish_feedback(feedback)
+                self._fsm.transition(MissionState.EXECUTING, "takeoff complete")
+                waypoints = self._dispatch_plugin()
+                for index, wp in enumerate(waypoints):
+                    self._raise_if_cancelled()
+                    await self._send_move(wp)
+                    if wp.hover_sec > 0:
+                        await self._send_hover(wp.hover_sec)
+                    feedback.state_id = f"waypoint_{index}"
+                    feedback.progress = float(index + 1) / float(max(len(waypoints), 1))
+                    goal_handle.publish_feedback(feedback)
 
-            self._fsm.transition(MissionState.RETURNING, "mission done")
-            self._fsm.transition(MissionState.LANDING, "landing sequence")
-            await self._execute_landing(feedback)
+                self._fsm.transition(MissionState.RETURNING, "mission done")
+                self._fsm.transition(MissionState.LANDING, "landing sequence")
+                await self._execute_landing(feedback)
+            self._raise_if_cancelled()
             self._fsm.transition(MissionState.COMPLETE, "landed")
             result.result_code = ExecuteMission.Result.RESULT_SUCCEEDED
             result.reason = "mission complete"
             goal_handle.succeed()
             return result
+        except MissionCancelled as exc:
+            await self._recover_after_airborne_failure()
+            reason = bounded_failure_reason(exc)
+            self._fsm.transition(MissionState.ABORTED, reason)
+            result.result_code = ExecuteMission.Result.RESULT_ABORTED
+            result.reason = reason
+            goal_handle.canceled()
+            return result
+        except MissionTimeout as exc:
+            await self._recover_after_airborne_failure()
+            reason = bounded_failure_reason(exc)
+            self._fsm.transition(MissionState.ABORTED, reason)
+            result.result_code = ExecuteMission.Result.RESULT_TIMEOUT
+            result.reason = reason
+            goal_handle.abort()
+            return result
         except Exception as exc:
             self.get_logger().error(f"Mission error: {exc}")
+            await self._recover_after_airborne_failure()
             reason = bounded_failure_reason(exc)
             self._fsm.transition(MissionState.ABORTED, reason)
             result.result_code = ExecuteMission.Result.RESULT_ABORTED
@@ -268,51 +322,86 @@ class MissionExecutorNode(Node):
                 return TargetVisitPlugin().generate(config.target_visit)
             case MissionType.PAYLOAD:
                 return []
+            case MissionType.COMPETITION:
+                return []
             case _:
                 raise ValueError(f"unknown mission type: {config.mission_type}")
 
     async def _execute_takeoff(self, feedback: ExecuteMission.Feedback) -> None:
+        config = self._mission_config
+        if config is None:
+            raise RuntimeError("mission config not loaded")
         goal = FlightCommand.Goal()
         goal.command = FlightCommand.Goal.COMMAND_TAKEOFF
+        goal.target_pose.header.frame_id = "map"
+        goal.target_pose.pose.position.z = config.takeoff_altitude_m
         goal.timeout_sec = 30.0
         goal.correlation_id = "mission_takeoff"
         feedback.state_id = "takeoff"
         self._goal_handle.publish_feedback(feedback)
         await self._send_and_wait(goal)
+        self._airborne = True
 
     async def _send_move(self, wp: Waypoint) -> None:
         goal = FlightCommand.Goal()
         goal.command = FlightCommand.Goal.COMMAND_MOVE
+        goal.target_pose.header.frame_id = "map"
         goal.target_pose.pose.position.x = wp.x_m
         goal.target_pose.pose.position.y = wp.y_m
         goal.target_pose.pose.position.z = wp.altitude_m
+        goal.target_pose.pose.orientation.z = math.sin(wp.heading_rad / 2.0)
+        goal.target_pose.pose.orientation.w = math.cos(wp.heading_rad / 2.0)
         goal.timeout_sec = 30.0
         goal.correlation_id = wp.label or "mission_move"
         await self._send_and_wait(goal)
 
-    async def _send_hover(self, duration_sec: float) -> None:
+    async def _send_hover(self, duration_sec: float, *, recovery: bool = False) -> None:
         goal = FlightCommand.Goal()
         goal.command = FlightCommand.Goal.COMMAND_HOVER
         goal.timeout_sec = duration_sec
         goal.correlation_id = "mission_hover"
-        await self._send_and_wait(goal)
+        await self._send_and_wait(
+            goal,
+            respect_mission_deadline=not recovery,
+            respect_cancellation=not recovery,
+        )
 
-    async def _execute_landing(self, feedback: ExecuteMission.Feedback) -> None:
+    async def _send_land(self, *, recovery: bool = False) -> None:
+        goal = FlightCommand.Goal()
+        goal.command = FlightCommand.Goal.COMMAND_LAND
+        goal.timeout_sec = 15.0
+        goal.correlation_id = "recovery_land"
+        await self._send_and_wait(
+            goal,
+            respect_mission_deadline=not recovery,
+            respect_cancellation=not recovery,
+        )
+
+    async def _execute_landing(
+        self,
+        feedback: ExecuteMission.Feedback,
+        current_x_m: float = 0.0,
+        current_y_m: float = 0.0,
+        include_disarm: bool = True,
+    ) -> None:
         config = self._mission_config
         land_params = config.terminal_landing if config else None
-        steps = TerminalLandingPlugin().generate(0.0, 0.0, land_params)
+        steps = TerminalLandingPlugin().generate(current_x_m, current_y_m, land_params)
         _LANDING_COMMANDS = {
             LandingStep.DESCEND: (FlightCommand.Goal.COMMAND_MOVE, "landing_descend"),
             LandingStep.LAND: (FlightCommand.Goal.COMMAND_LAND, "landing_land"),
             LandingStep.DISARM: (FlightCommand.Goal.COMMAND_DISARM, "landing_disarm"),
         }
         for step, wp in steps:
+            if step == LandingStep.DISARM and not include_disarm:
+                continue
             cmd, corr_id = _LANDING_COMMANDS[step]
             goal = FlightCommand.Goal()
             goal.command = cmd
             goal.timeout_sec = 5.0 if step == LandingStep.DISARM else 15.0
             goal.correlation_id = corr_id
             if step == LandingStep.DESCEND and wp is not None:
+                goal.target_pose.header.frame_id = "map"
                 goal.target_pose.pose.position.x = wp.x_m
                 goal.target_pose.pose.position.y = wp.y_m
                 goal.target_pose.pose.position.z = wp.altitude_m
@@ -320,18 +409,108 @@ class MissionExecutorNode(Node):
         feedback.state_id = "landed"
         self._goal_handle.publish_feedback(feedback)
 
-    async def _send_and_wait(self, goal: FlightCommand.Goal) -> FlightCommand.Result:
-        if not self._flight_client.wait_for_server(timeout_sec=5.0):
-            raise RuntimeError("FlightCommand action server not available")
-        goal_handle = await self._flight_client.send_goal_async(goal)
+    async def _send_disarm(self, *, recovery: bool = False) -> None:
+        goal = FlightCommand.Goal()
+        goal.command = FlightCommand.Goal.COMMAND_DISARM
+        goal.timeout_sec = 5.0
+        goal.correlation_id = "landing_disarm"
+        await self._send_and_wait(
+            goal,
+            respect_mission_deadline=not recovery,
+            respect_cancellation=not recovery,
+        )
+
+    def _raise_if_cancelled(self) -> None:
+        if self._mission_deadline is not None:
+            remaining_sec = self._mission_deadline.remaining_sec(steady_now_sec())
+            if remaining_sec is not None and remaining_sec <= 0.0:
+                raise MissionTimeout("mission deadline expired")
+        if self._cancel_requested or (
+            self._goal_handle is not None and self._goal_handle.is_cancel_requested
+        ):
+            raise MissionCancelled("cancelled by user")
+
+    def _cancel_active_flight(self) -> None:
+        if self._active_flight_goal is not None:
+            self._active_flight_goal.cancel_goal_async()
+
+    def _deadline_for_timeout(
+        self,
+        timeout_sec: float,
+        *,
+        respect_mission_deadline: bool = True,
+    ) -> MissionDeadline:
+        now_sec = steady_now_sec()
+        limits = [timeout_sec]
+        if respect_mission_deadline and self._mission_deadline is not None:
+            remaining_sec = self._mission_deadline.remaining_sec(now_sec)
+            if remaining_sec is not None:
+                if remaining_sec <= 0.0:
+                    raise MissionTimeout("mission deadline expired")
+                limits.append(remaining_sec)
+        return MissionDeadline.from_limits(now_sec=now_sec, limits=limits)
+
+    async def _send_and_wait(
+        self,
+        goal: FlightCommand.Goal,
+        *,
+        respect_mission_deadline: bool = True,
+        respect_cancellation: bool = True,
+    ) -> FlightCommand.Result:
+        deadline = self._deadline_for_timeout(
+            goal.timeout_sec + 0.5,
+            respect_mission_deadline=respect_mission_deadline,
+        )
+        remaining_sec = deadline.remaining_sec(steady_now_sec())
+        if remaining_sec is None or not self._flight_client.wait_for_server(timeout_sec=remaining_sec):
+            raise MissionTimeout("FlightCommand action server not available before deadline")
+        if respect_cancellation:
+            self._raise_if_cancelled()
+        goal_handle = await wait_with_deadline(
+            self,
+            self._flight_client.send_goal_async(goal),
+            deadline,
+            self._cancel_active_flight,
+        )
         if not goal_handle.accepted:
             raise RuntimeError(f"FlightCommand rejected: {goal.correlation_id}")
-        result = await goal_handle.get_result_async()
+        self._active_flight_goal = goal_handle
+        try:
+            if respect_cancellation and self._cancel_requested:
+                self._cancel_active_flight()
+                raise MissionCancelled("cancelled by user")
+            result = await wait_with_deadline(
+                self,
+                goal_handle.get_result_async(),
+                deadline,
+                self._cancel_active_flight,
+            )
+        finally:
+            self._active_flight_goal = None
+        if (respect_cancellation and self._cancel_requested) or result.status == GoalStatus.STATUS_CANCELED:
+            raise MissionCancelled("cancelled by user")
+        if result.status != GoalStatus.STATUS_SUCCEEDED:
+            raise RuntimeError(f"FlightCommand action status {result.status}")
         if result.result.result_code != FlightCommand.Result.RESULT_SUCCEEDED:
             raise RuntimeError(
                 f"FlightCommand failed [{goal.correlation_id}]: {result.result.reason}"
             )
+        if goal.command == FlightCommand.Goal.COMMAND_DISARM:
+            self._airborne = False
         return result.result
+
+    async def _recover_after_airborne_failure(self) -> None:
+        if not self._airborne:
+            return
+        for recovery in (
+            lambda: self._send_hover(1.0, recovery=True),
+            lambda: self._send_land(recovery=True),
+            lambda: self._send_disarm(recovery=True),
+        ):
+            try:
+                await recovery()
+            except Exception as exc:
+                self.get_logger().error(f"Recovery command failed: {exc}")
 
 
 def main(args: list[str] | None = None) -> None:

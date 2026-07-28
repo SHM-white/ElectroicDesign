@@ -30,6 +30,7 @@ setup(
         "console_scripts": [
             "sim_fcu = ed_uav_gazebo.sim_fcu:main",
             "sim_localization = ed_uav_gazebo.sim_localization:main",
+            "gazebo_pointcloud_normalizer = ed_uav_gazebo.gazebo_pointcloud_normalizer:main",
         ],
     },
 )

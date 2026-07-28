@@ -62,6 +62,11 @@ cat >"$tmpdir/native-setup.bash" <<'EOF'
 export HUMBLE_SELECTION=native
 EOF
 
+cat >"$tmpdir/native-setup-nounset.bash" <<'EOF'
+printf '%s\n' "$AMENT_TRACE_SETUP_FILES" >"${HUMBLE_NATIVE_TRACE:?}"
+export HUMBLE_SELECTION=native
+EOF
+
 cat >"$tmpdir/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -146,6 +151,16 @@ expect_success 'Jammy with Humble setup must select native' \
         HUMBLE_OS_RELEASE_FILE="$tmpdir/jammy.os-release" \
         HUMBLE_NATIVE_SETUP="$tmpdir/native-setup.bash" \
         "$runner" bash -lc 'test "$HUMBLE_SELECTION" = native'
+
+expect_success 'native setup may dereference optional AMENT trace state' \
+    env -u AMENT_TRACE_SETUP_FILES \
+        HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/jammy.os-release" \
+        HUMBLE_NATIVE_SETUP="$tmpdir/native-setup-nounset.bash" \
+        HUMBLE_NATIVE_TRACE="$tmpdir/native-trace.out" \
+        "$runner" bash -lc 'test "$HUMBLE_SELECTION" = native'
+[[ -f "$tmpdir/native-trace.out" ]] || fail 'native setup did not run with nounset temporarily disabled'
+assert_contains $'set +u\n        source "$native_setup"\n        set -u' "$runner"
 
 : >"$FAKE_DOCKER_LOG"
 expect_success 'native Jammy behavior remains direct with GUI opt-in set' \

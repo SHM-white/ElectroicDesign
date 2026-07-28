@@ -17,6 +17,8 @@
   <depend>ed_uav_interfaces</depend>
   <depend>ed_uav_localization</depend>
   <depend>ed_uav_mission</depend>
+  <depend>ed_uav_navigation</depend>
+  <depend>fast_lio</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>rclpy</depend>

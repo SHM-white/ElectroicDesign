@@ -5,10 +5,15 @@
       "url": "https://github.com/Livox-SDK/livox_ros_driver2.git",
       "version": "13eb05e4e6dd7a765b934d0c5fd6236676a57b49"
     },
+    "livox_sdk2": {
+      "type": "git",
+      "url": "https://github.com/Livox-SDK/Livox-SDK2.git",
+      "version": "f5d9375f84efe2b15bc0a052d3e18482ed13adf4"
+    },
     "fast_lio_ros2": {
       "type": "git",
       "url": "https://github.com/hku-mars/FAST_LIO.git",
-      "version": "2fffc570a25d0df172720bac034fbdb6a13d2162"
+      "version": "a4743b095409588842a5b30ddfa27e29d2f99164"
     },
     "ultralytics": {
       "type": "git",

@@ -39,6 +39,26 @@ def test_localization_launch_has_single_topic_and_tf_owners() -> None:
     assert '"odom"' in anchor_text
 
 
+def test_fast_lio_simulation_launch_forwards_calibration_to_the_normalizing_adapter() -> None:
+    # Given: the Gazebo composition drives the canonical LIO supervisor path.
+    gazebo_root = PACKAGE_ROOT.parent / "ed_uav_gazebo"
+    launch_path = gazebo_root / "launch" / "fast_lio_simulation.launch.py"
+
+    # When: the FAST-LIO simulation launch is inspected without starting ROS.
+    assert launch_path.is_file()
+    launch_text = launch_path.read_text(encoding="utf-8")
+    adapter_text = (PACKAGE_ROOT / "ed_uav_localization" / "lio_adapter.py").read_text(
+        encoding="utf-8"
+    )
+
+    # Then: calibration reaches the adapter and only the supervisor owns canonical TF.
+    assert '"calibration_file": calibration_file' in launch_text
+    assert 'executable="lio_adapter"' in launch_text
+    assert '"/tf", "/fast_lio/tf"' in launch_text
+    assert '"/localization/lio/odom"' in adapter_text
+    assert "TransformBroadcaster" not in adapter_text
+
+
 def test_fresh_finite_lio_is_active() -> None:
     from ed_uav_localization.source_supervisor import (
         LocalizationSource,

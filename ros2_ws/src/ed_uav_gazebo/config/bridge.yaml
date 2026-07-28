@@ -27,8 +27,8 @@
   gz_type_name: ignition.msgs.CameraInfo
   direction: GZ_TO_ROS
 
-- ros_topic_name: /lidar/points
-  gz_topic_name: /lidar/points
+- ros_topic_name: /lidar/points_raw
+  gz_topic_name: /lidar/points/points
   ros_type_name: sensor_msgs/msg/PointCloud2
   gz_type_name: ignition.msgs.PointCloudPacked
   direction: GZ_TO_ROS

@@ -83,5 +83,7 @@ def _validate_altitudes(mission: MissionConfig, profile: KnownFieldProfile) -> N
         altitudes.append(mission.patrol.altitude_m)
     if mission.target_visit is not None:
         altitudes.append(mission.target_visit.target.altitude_m)
+    if mission.competition is not None:
+        altitudes.append(mission.competition.altitude_m)
     if any(not limits.minimum_m <= altitude <= limits.maximum_m for altitude in altitudes):
         raise ValueError("mission altitude is outside field altitude bounds")

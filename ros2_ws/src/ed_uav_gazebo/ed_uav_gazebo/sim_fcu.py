@@ -50,6 +50,7 @@ class SimulatorFcuNode(Node):
         self._latest_odom: Odometry | None = None
         self._lock = threading.Lock()
         self._active_goal = False
+        self.declare_parameter("publish_odom_to_base_link_tf", True)
         self._command_publisher = self.create_publisher(Twist, "/simulation/cmd_vel", 10)
         self._enable_publisher = self.create_publisher(Bool, "/simulation/enable", 10)
         self._state_publisher = self.create_publisher(FcuState, "/fcu/state", 10)
@@ -207,7 +208,8 @@ class SimulatorFcuNode(Node):
         transform.transform.translation.y = odometry.pose.pose.position.y
         transform.transform.translation.z = odometry.pose.pose.position.z
         transform.transform.rotation = odometry.pose.pose.orientation
-        self._tf_broadcaster.sendTransform(transform)
+        if self.get_parameter("publish_odom_to_base_link_tf").value:
+            self._tf_broadcaster.sendTransform(transform)
 
     def _publish_outputs(self) -> None:
         """Publish state, nominal simulator battery, and diagnostics."""

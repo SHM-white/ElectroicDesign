@@ -32,6 +32,7 @@ class MissionType(str, Enum):
     PATROL = "patrol"
     TARGET_VISIT = "target_visit"
     PAYLOAD = "payload"
+    COMPETITION = "competition"
 
 
 class Waypoint(BaseModel):
@@ -98,6 +99,15 @@ class PayloadParams(BaseModel):
     duration_sec: FiniteFloat = Field(default=1.0, ge=0.1, le=60.0)
 
 
+class CompetitionParams(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    altitude_m: FiniteFloat = Field(default=1.5, gt=0.0)
+    forward_distance_m: FiniteFloat = Field(default=2.0, gt=0.0, le=50.0)
+    hover_sec: FiniteFloat = Field(default=1.0, ge=0.0, le=30.0)
+    planner_timeout_sec: FiniteFloat = Field(default=5.0, gt=0.0, le=30.0)
+
+
 class TerminalLandingParams(BaseModel):
     """Parameters for the terminal-landing sequence."""
 
@@ -123,6 +133,7 @@ class MissionConfig(BaseModel):
     patrol: PatrolParams | None = None
     target_visit: TargetVisitParams | None = None
     payload: PayloadParams | None = None
+    competition: CompetitionParams | None = None
     terminal_landing: TerminalLandingParams | None = None
 
     @model_validator(mode="after")
@@ -140,6 +151,9 @@ class MissionConfig(BaseModel):
             case MissionType.PAYLOAD:
                 if self.payload is None:
                     raise ValueError("payload mission requires payload params")
+            case MissionType.COMPETITION:
+                if self.competition is None:
+                    raise ValueError("competition mission requires competition params")
         return self
 
 
@@ -182,6 +196,24 @@ def validate_mission_against_field(
         waypoints.append(mission.target_visit.target)
     if mission.coverage is not None:
         pass
+    if mission.competition is not None:
+        from ed_uav_mission.competition_tree import MapPose, forward_goal
+
+        start = MapPose(
+            x_m=field_profile.takeoff.origin.x_m,
+            y_m=field_profile.takeoff.origin.y_m,
+            yaw_rad=field_profile.takeoff.commanded_heading_rad,
+        )
+        forward = forward_goal(start, mission.competition.forward_distance_m)
+        waypoints.append(
+            Waypoint(
+                x_m=forward.x_m,
+                y_m=forward.y_m,
+                altitude_m=mission.competition.altitude_m,
+                heading_rad=forward.yaw_rad,
+                label="competition_forward",
+            )
+        )
 
     for wp in waypoints:
         if not _point_inside(Point2D(x_m=wp.x_m, y_m=wp.y_m)):

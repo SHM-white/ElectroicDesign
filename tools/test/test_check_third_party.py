@@ -11,7 +11,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CHECKER_PATH = PROJECT_ROOT / "tools" / "check_third_party.py"
 EXAMPLE_REVISION = "a" * 40
 EXAMPLE_LICENSE = "Example upstream license text.\n"
-SOURCE_IDS = ("livox_ros_driver2", "fast_lio_ros2", "ultralytics")
+SOURCE_IDS = ("livox_ros_driver2", "livox_sdk2", "fast_lio_ros2", "ultralytics")
+FAST_LIO_ROS2_REVISION = "a4743b095409588842a5b30ddfa27e29d2f99164"
+LIVOX_ROS_DRIVER2_REVISION = "13eb05e4e6dd7a765b934d0c5fd6236676a57b49"
+LIVOX_SDK2_REVISION = "f5d9375f84efe2b15bc0a052d3e18482ed13adf4"
+ULTRALYTICS_REVISION = "7a159ea24ec94c47cf25c75785e0a56e47ba4e7b"
 
 
 def write_json(path: Path, contents) -> None:
@@ -109,6 +113,40 @@ def combined_output(result: subprocess.CompletedProcess[str]) -> str:
     return result.stdout + result.stderr
 
 
+def test_authoritative_records_pin_the_approved_revisions() -> None:
+    # Given: the repository's immutable dependency and provenance records.
+    repositories = json.loads(
+        (PROJECT_ROOT / "ros2_ws/dependencies.repos").read_text(encoding="utf-8")
+    )["repositories"]
+    sources = json.loads(
+        (PROJECT_ROOT / "docs/provenance/third-party-sources.json").read_text(encoding="utf-8")
+    )["sources"]
+
+    # When: every required upstream record is selected by its stable identifier.
+    assert "livox_sdk2" in repositories
+    fast_lio_repository = repositories["fast_lio_ros2"]
+    livox_driver_repository = repositories["livox_ros_driver2"]
+    livox_sdk2_repository = repositories["livox_sdk2"]
+    ultralytics_repository = repositories["ultralytics"]
+    fast_lio_source = next(source for source in sources if source["id"] == "fast_lio_ros2")
+    livox_sdk2_source = next(source for source in sources if source["id"] == "livox_sdk2")
+
+    # Then: every pin and Livox SDK2 provenance locator uses its approved commit.
+    assert fast_lio_repository["version"] == FAST_LIO_ROS2_REVISION
+    assert livox_driver_repository["version"] == LIVOX_ROS_DRIVER2_REVISION
+    assert livox_sdk2_repository["version"] == LIVOX_SDK2_REVISION
+    assert ultralytics_repository["version"] == ULTRALYTICS_REVISION
+    assert fast_lio_source["revision"] == FAST_LIO_ROS2_REVISION
+    assert FAST_LIO_ROS2_REVISION in fast_lio_source["license"]["source_url"]
+    assert fast_lio_source["corresponding_source"]["revision"] == FAST_LIO_ROS2_REVISION
+    assert FAST_LIO_ROS2_REVISION in fast_lio_source["corresponding_source"]["archive_url"]
+    assert livox_sdk2_source["revision"] == LIVOX_SDK2_REVISION
+    assert LIVOX_SDK2_REVISION in livox_sdk2_source["license"]["source_url"]
+    assert livox_sdk2_source["corresponding_source"]["revision"] == LIVOX_SDK2_REVISION
+    assert LIVOX_SDK2_REVISION in livox_sdk2_source["corresponding_source"]["archive_url"]
+    assert livox_sdk2_source["invocation_boundary"]["kind"] == "separate-library"
+
+
 def test_checker_accepts_complete_immutable_provenance_when_records_match(tmp_path: Path) -> None:
     # Given: a complete workspace with exact source, license, and data records.
     workspace = create_valid_workspace(tmp_path)
@@ -178,6 +216,49 @@ def test_checker_rejects_copied_source_when_marker_appears_under_ed_package(tmp_
     result = run_checker(workspace)
 
     # Then: it rejects the vendored third-party source path.
+    assert result.returncode != 0
+    assert "copied third-party source" in combined_output(result)
+
+
+def test_checker_allows_project_owned_fast_lio_integration_filenames(tmp_path: Path) -> None:
+    # Given: an integration asset whose filename references, but does not copy, FAST-LIO.
+    workspace = create_valid_workspace(tmp_path)
+    source_path = workspace / "docs/provenance/third-party-sources.json"
+    sources = json.loads(source_path.read_text(encoding="utf-8"))
+    fast_lio_source = next(
+        source for source in sources["sources"] if source["id"] == "fast_lio_ros2"
+    )
+    fast_lio_source["forbidden_copy_markers"] = ["fast_lio"]
+    write_json(source_path, sources)
+    integration_path = workspace / "ros2_ws/src/ed_uav_gazebo/launch/fast_lio_simulation.launch.py"
+    integration_path.parent.mkdir(parents=True, exist_ok=True)
+    integration_path.write_text("# launches an external fast_lio package\n", encoding="utf-8")
+
+    # When: the strict checker scans the project-owned integration package.
+    result = run_checker(workspace)
+
+    # Then: it does not mistake a filename reference for copied source.
+    assert result.returncode == 0, combined_output(result)
+
+
+def test_checker_rejects_prefixed_vendored_source_directory(tmp_path: Path) -> None:
+    # Given: copied upstream source hidden below a prefixed vendor directory.
+    workspace = create_valid_workspace(tmp_path)
+    source_path = workspace / "docs/provenance/third-party-sources.json"
+    sources = json.loads(source_path.read_text(encoding="utf-8"))
+    fast_lio_source = next(
+        source for source in sources["sources"] if source["id"] == "fast_lio_ros2"
+    )
+    fast_lio_source["forbidden_copy_markers"] = ["fast_lio"]
+    write_json(source_path, sources)
+    copied_source = workspace / "ros2_ws/src/ed_uav_gazebo/vendor_fast_lio_copy/CMakeLists.txt"
+    copied_source.parent.mkdir(parents=True, exist_ok=True)
+    copied_source.write_text("project(fast_lio)\n", encoding="utf-8")
+
+    # When: the strict checker scans project-owned package directories.
+    result = run_checker(workspace)
+
+    # Then: the prefixed directory cannot bypass copied-source detection.
     assert result.returncode != 0
     assert "copied third-party source" in combined_output(result)
 

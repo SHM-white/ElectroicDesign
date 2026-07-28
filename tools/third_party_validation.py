@@ -12,8 +12,9 @@ from third_party_checkout import validate_checkout
 
 
 REQUIRED_SOURCE_IDS: Final = frozenset(
-    {"livox_ros_driver2", "fast_lio_ros2", "ultralytics"}
+    {"livox_ros_driver2", "livox_sdk2", "fast_lio_ros2", "ultralytics"}
 )
+INVOCATION_BOUNDARY_KINDS: Final = frozenset({"separate-library", "separate-process"})
 SHA1: Final = re.compile(r"[0-9a-f]{40}")
 SHA256: Final = re.compile(r"[0-9a-f]{64}")
 
@@ -212,8 +213,8 @@ def validate(root: Path, strict: bool) -> list[str]:
         boundary = source.get("invocation_boundary")
         if not isinstance(boundary, dict):
             errors.append(f"{source_id} requires invocation boundary metadata")
-        elif boundary.get("kind") != "separate-process":
-            errors.append(f"{source_id} must declare a separate-process boundary")
+        elif boundary.get("kind") not in INVOCATION_BOUNDARY_KINDS:
+            errors.append(f"{source_id} must declare a supported invocation boundary")
         else:
             require_string(boundary, "description", f"{source_id} invocation boundary", errors)
 
@@ -232,6 +233,8 @@ def validate(root: Path, strict: bool) -> list[str]:
                 if not package.is_dir():
                     continue
                 for path in package.rglob("*"):
+                    if not path.is_dir():
+                        continue
                     parts = tuple(part.casefold() for part in path.parts)
                     if any(
                         marker.casefold() in part

@@ -183,7 +183,7 @@ joints. They must be dynamic (see below).
 | Edge | Publisher | Mechanism |
 |---|---|---|
 | `map → odom` | `ed_uav_localization.field_anchor` | `/tf_static` (StaticTransformBroadcaster) |
-| `odom → base_link` | `ed_uav_localization.ekf` | `/tf` (dynamic) — **not yet implemented** |
+| `odom → base_link` | `ed_uav_localization.source_supervisor` | `/tf` (dynamic) |
 
 ### 6.3 Coordinate Convention
 

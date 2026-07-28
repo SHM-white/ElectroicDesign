@@ -1,0 +1,38 @@
+diff --git a/src/IMU_Processing.hpp b/src/IMU_Processing.hpp
+index f35378f..ec81a25 100644
+--- a/src/IMU_Processing.hpp
++++ b/src/IMU_Processing.hpp
+@@ -23,7 +23,7 @@
+ 
+ /// *************Preconfiguration
+ 
+-#define MAX_INI_COUNT (10)
++#define MAX_INI_COUNT (200)
+ 
+ const bool time_list(PointType &x, PointType &y) {return (x.curvature < y.curvature);};
+ 
+@@ -82,7 +82,7 @@ class ImuProcess
+ };
+ 
+ ImuProcess::ImuProcess()
+-    : b_first_frame_(true), imu_need_init_(true), start_timestamp_(-1)
++    : b_first_frame_(true), imu_need_init_(true), start_timestamp_(-1), last_lidar_end_time_(-1.0)
+ {
+   init_iter_num = 1;
+   Q = process_noise_cov();
+@@ -108,6 +108,7 @@ void ImuProcess::Reset()
+   angvel_last       = Zero3d;
+   imu_need_init_    = true;
+   start_timestamp_  = -1;
++  last_lidar_end_time_ = -1.0;
+   init_iter_num     = 1;
+   v_imu_.clear();
+   IMUpose.clear();
+@@ -358,6 +359,7 @@ void ImuProcess::Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom,
+     {
+       cov_acc *= pow(G_m_s2 / mean_acc.norm(), 2);
+       imu_need_init_ = false;
++      last_lidar_end_time_ = meas.lidar_end_time;
+ 
+       cov_acc = cov_acc_scale;
+       cov_gyr = cov_gyr_scale;

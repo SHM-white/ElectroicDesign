@@ -52,6 +52,18 @@ action, TF edge, or hardware owner is approved by this freeze.
 is owned only by the FCU bridge and uses `FlightCommand`. `/mission/execute` is
 owned only by the mission package and uses `ExecuteMission`.
 
+### Simulation-Only Graph
+
+The following entries are approved only for the simulation-only Gazebo FAST-LIO
+and planner-only graph: `/fast_lio/odometry`, `/fast_lio/cloud_registered`,
+`/fast_lio/laser_map`, `/fast_lio/path`, and `/fast_lio/tf`; canonical adapter
+outputs `/localization/lio/cloud_registered`, `/localization/lio/map`, and
+`/localization/lio/path`; the Nav2 `/map` topic; and the
+`/compute_path_to_pose` action. FAST-LIO raw topics remain private to the
+simulation graph. `/fast_lio/tf` is a private `TFMessage` topic, not a global
+TF edge. The adapter relabels the LIO `camera_init` world frame to `odom` for
+the canonical visualization outputs without publishing TF.
+
 All names are absolute and occupy the fixed `/fcu`, `/rangefinder`,
 `/camera/narrow`, `/camera/wide`, `/lidar`, `/localization`, `/perception`,
 `/mission`, and `/diagnostics` namespaces. `/tf` and `/tf_static` carry only
@@ -69,7 +81,8 @@ best-effort, volatile; `state_reliable` means keep-last 10, reliable, volatile;
 name, acquisition clock, and freshness deadline are mandatory manifest fields.
 
 `map -> odom` has exactly one publisher, `ed_uav_localization.field_anchor`.
-`odom -> base_link` has exactly one publisher, `ed_uav_localization.ekf`.
+`odom -> base_link` has exactly one publisher,
+`ed_uav_localization.source_supervisor`.
 `ed_uav_description.robot_state_publisher` publishes the static `base_link`
 edges to `fcu_link`, `lidar_link`, `camera_narrow_optical_frame`,
 `camera_wide_optical_frame`, and `rangefinder_link`. No other component may

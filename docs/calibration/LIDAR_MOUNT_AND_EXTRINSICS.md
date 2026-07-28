@@ -152,7 +152,7 @@ From `ros2_contract_manifest.json`:
 | Edge | Publisher | Topic |
 |---|---|---|
 | `map → odom` | `ed_uav_localization.field_anchor` | `/tf_static` |
-| `odom → base_link` | `ed_uav_localization.ekf` | `/tf` |
+| `odom → base_link` | `ed_uav_localization.source_supervisor` | `/tf` |
 
 ### 4.4 URDF Definition
 

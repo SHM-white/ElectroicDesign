@@ -17,6 +17,10 @@ import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 
+from ed_uav_localization.odometry import OdometryMessage, odom_to_base_transform
+from geometry_msgs.msg import TransformStamped
+from tf2_ros import Buffer, TransformBroadcaster, TransformListener
+
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -300,6 +304,8 @@ class SourceSupervisor(Node):
 
         # --- Init the actual ROS node ---
         super().__init__("source_supervisor")
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
 
         # --- Parameters ---
         self.declare_parameter("lio_max_age_active", 0.15)  # type: ignore[attr-defined]
@@ -381,6 +387,7 @@ class SourceSupervisor(Node):
         self._status_pub = self.create_publisher(  # type: ignore[attr-defined]
             _LS, "/localization/status", 10
         )
+        self._tf_broadcaster = TransformBroadcaster(self)
 
         # --- Periodic evaluation ---
         publish_rate = self.get_parameter("publish_rate").value  # type: ignore[attr-defined]
@@ -510,13 +517,20 @@ class SourceSupervisor(Node):
         self._override_reason = ""
 
         if candidate is not None and candidate != self._primary_source:
-            aligned, reason = self._check_alignment_for(candidate)
-            if aligned:
-                self._primary_source = candidate
+            if candidate == LocalizationSource.NONE:
+                self._primary_source = LocalizationSource.NONE
                 self._primary_since = now
                 self._override_reason = f"switched to {candidate.name}"
             else:
-                self._override_reason = reason
+                aligned, reason = self._check_alignment_for(candidate)
+                if aligned:
+                    self._primary_source = candidate
+                    self._primary_since = now
+                    self._override_reason = f"switched to {candidate.name}"
+                else:
+                    self._override_reason = reason
+            if self._primary_source == LocalizationSource.NONE:
+                self._fused_odom = None
         elif self._primary_source == LocalizationSource.NONE:
             self._override_reason = "no valid source"
 
@@ -525,6 +539,7 @@ class SourceSupervisor(Node):
         if odom is not None:
             self._fused_odom = odom
             self._odom_pub.publish(odom)  # type: ignore[attr-defined]
+            self._publish_odom_transform(odom)
 
         # --- Publish status ---
         self._publish_status(now, lio_state, vis_state, lio_age)
@@ -608,6 +623,26 @@ class SourceSupervisor(Node):
         """Return the odometry message for the current primary source."""
         return self._get_odom_for(self._primary_source)
 
+    def _publish_odom_transform(self, odom: OdometryMessage) -> None:
+        transform = odom_to_base_transform(odom)
+        transform_msg = TransformStamped()
+        transform_msg.header.stamp = transform.stamp
+        transform_msg.header.frame_id = transform.parent_frame
+        transform_msg.child_frame_id = transform.child_frame
+        transform_msg.transform.translation.x = transform.translation_x
+        transform_msg.transform.translation.y = transform.translation_y
+        transform_msg.transform.translation.z = transform.translation_z
+        transform_msg.transform.rotation.x = transform.rotation_x
+        transform_msg.transform.rotation.y = transform.rotation_y
+        transform_msg.transform.rotation.z = transform.rotation_z
+        transform_msg.transform.rotation.w = transform.rotation_w
+        self._tf_broadcaster.sendTransform(transform_msg)
+
+    def _map_to_odom_available(self) -> bool:
+        from rclpy.time import Time
+
+        return bool(self._tf_buffer.can_transform("map", "odom", Time()))
+
     def _publish_status(
         self,
         now: "Time",  # type: ignore[name-defined]  # noqa: F821
@@ -636,7 +671,7 @@ class SourceSupervisor(Node):
             msg.state = self._LocalizationStatus.STATE_UNINITIALIZED  # type: ignore[attr-defined]
 
         msg.age_sec = float(lio_age) if lio_age is not None else -1.0
-        msg.map_to_odom_valid = True
+        msg.map_to_odom_valid = self._map_to_odom_available()
         msg.reason = self._override_reason[:96]
         self._status_pub.publish(msg)  # type: ignore[attr-defined]
 

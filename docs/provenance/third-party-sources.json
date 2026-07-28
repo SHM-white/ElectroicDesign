@@ -30,23 +30,51 @@
       ]
     },
     {
+      "id": "livox_sdk2",
+      "repository_url": "https://github.com/Livox-SDK/Livox-SDK2.git",
+      "checkout_directory": "livox_sdk2",
+      "revision": "f5d9375f84efe2b15bc0a052d3e18482ed13adf4",
+      "license": {
+        "spdx": "MIT",
+        "repository_path": "LICENSE.txt",
+        "source_url": "https://github.com/Livox-SDK/Livox-SDK2/blob/f5d9375f84efe2b15bc0a052d3e18482ed13adf4/LICENSE.txt",
+        "cache_path": "docs/provenance/licenses/livox_sdk2-LICENSE.txt",
+        "sha256": "8a71b3149554ec5b7df17087e63affedc4c0dbc7fb65bfe5495cdf86224fa85f",
+        "retrieved_at": "2026-07-28"
+      },
+      "corresponding_source": {
+        "repository_url": "https://github.com/Livox-SDK/Livox-SDK2.git",
+        "revision": "f5d9375f84efe2b15bc0a052d3e18482ed13adf4",
+        "availability": "upstream-pinned",
+        "archive_url": "https://github.com/Livox-SDK/Livox-SDK2/archive/f5d9375f84efe2b15bc0a052d3e18482ed13adf4.tar.gz"
+      },
+      "invocation_boundary": {
+        "kind": "separate-library",
+        "description": "livox_ros_driver2 links the installed Livox-SDK2 shared library; ed_* packages do not copy Livox-SDK2 source."
+      },
+      "forbidden_copy_markers": [
+        "livox-sdk2",
+        "livox_sdk2"
+      ]
+    },
+    {
       "id": "fast_lio_ros2",
       "repository_url": "https://github.com/hku-mars/FAST_LIO.git",
       "checkout_directory": "fast_lio_ros2",
-      "revision": "2fffc570a25d0df172720bac034fbdb6a13d2162",
+      "revision": "a4743b095409588842a5b30ddfa27e29d2f99164",
       "license": {
         "spdx": "GPL-2.0-only",
         "repository_path": "LICENSE",
-        "source_url": "https://github.com/hku-mars/FAST_LIO/blob/2fffc570a25d0df172720bac034fbdb6a13d2162/LICENSE",
+        "source_url": "https://github.com/hku-mars/FAST_LIO/blob/a4743b095409588842a5b30ddfa27e29d2f99164/LICENSE",
         "cache_path": "docs/provenance/licenses/fast_lio_ros2-LICENSE.txt",
         "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
         "retrieved_at": "2026-07-22"
       },
       "corresponding_source": {
         "repository_url": "https://github.com/hku-mars/FAST_LIO.git",
-        "revision": "2fffc570a25d0df172720bac034fbdb6a13d2162",
+        "revision": "a4743b095409588842a5b30ddfa27e29d2f99164",
         "availability": "upstream-pinned",
-        "archive_url": "https://github.com/hku-mars/FAST_LIO/archive/2fffc570a25d0df172720bac034fbdb6a13d2162.tar.gz"
+        "archive_url": "https://github.com/hku-mars/FAST_LIO/archive/a4743b095409588842a5b30ddfa27e29d2f99164.tar.gz"
       },
       "invocation_boundary": {
         "kind": "separate-process",

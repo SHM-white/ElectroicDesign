@@ -1,0 +1,25 @@
+/**:
+  ros__parameters:
+    common:
+      lid_topic: /lidar/points
+      imu_topic: /lidar/imu
+      time_sync_en: false
+    feature_extract_enable: false
+    point_filter_num: 3
+    preprocess:
+      # FAST-LIO type 2 consumes x/y/z/intensity/time/ring PointCloud2 fields in seconds.
+      lidar_type: 2
+      scan_line: 4
+      scan_rate: 10
+      timestamp_unit: 0
+    mapping:
+      extrinsic_est_en: false
+      extrinsic_T: [0.0, 0.0, 0.0]
+      extrinsic_R: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    publish:
+      map_en: true
+      path_en: true
+      scan_publish_en: true
+      dense_publish_en: true
+    pcd_save:
+      pcd_save_en: false

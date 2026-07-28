@@ -106,7 +106,9 @@ main() {
     fi
     if is_jammy && [[ -r "$native_setup" ]]; then
         # shellcheck disable=SC1090
+        set +u
         source "$native_setup"
+        set -u
         exec "$@"
     fi
 

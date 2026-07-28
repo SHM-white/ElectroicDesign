@@ -7,7 +7,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetEnvironmentVariable
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -18,17 +18,26 @@ def generate_launch_description() -> LaunchDescription:
     description_share = Path(get_package_share_directory("ed_uav_description"))
     localization_share = Path(get_package_share_directory("ed_uav_localization"))
     mission_share = Path(get_package_share_directory("ed_uav_mission"))
+    navigation_share = Path(get_package_share_directory("ed_uav_navigation"))
     world = package_share / "worlds" / "ed_uav_arena.sdf"
     bridge = package_share / "config" / "bridge.yaml"
     rviz = package_share / "rviz" / "sim.rviz"
     profile = localization_share / "config" / "fields" / "simulation_arena.yaml"
-    mission = mission_share / "config" / "missions" / "simulation_patrol.yaml"
+    mission = mission_share / "config" / "missions" / "simulation_competition.yaml"
     calibration = description_share / "config" / "synthetic_calibrated.yaml"
+    localization_mode = LaunchConfiguration("localization_mode")
+    fast_lio_mode = PythonExpression(["'", localization_mode, "' == 'fast_lio'"])
+    ground_truth_mode = PythonExpression(["'", localization_mode, "' == 'ground_truth'"])
     return LaunchDescription(
         [
             DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument("gui", default_value="true"),
             DeclareLaunchArgument("use_rviz", default_value="true"),
+            DeclareLaunchArgument(
+                "localization_mode",
+                default_value="fast_lio",
+                choices=("fast_lio", "ground_truth"),
+            ),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", str(package_share / "models")),
             SetEnvironmentVariable("IGN_GAZEBO_RESOURCE_PATH", str(package_share / "models")),
             IncludeLaunchDescription(
@@ -69,6 +78,18 @@ def generate_launch_description() -> LaunchDescription:
                 }.items(),
             ),
             IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(str(package_share / "launch" / "fast_lio_simulation.launch.py")),
+                launch_arguments={
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                    "calibration_file": str(calibration),
+                }.items(),
+                condition=IfCondition(fast_lio_mode),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(str(navigation_share / "launch" / "planner_only.launch.py")),
+                launch_arguments={"use_sim_time": LaunchConfiguration("use_sim_time")}.items(),
+            ),
+            IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(mission_share / "launch" / "mission_executor.launch.py")
                 ),
@@ -85,7 +106,12 @@ def generate_launch_description() -> LaunchDescription:
                 executable="sim_fcu",
                 name="sim_fcu",
                 output="screen",
-                parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
+                parameters=[
+                    {
+                        "use_sim_time": LaunchConfiguration("use_sim_time"),
+                        "publish_odom_to_base_link_tf": False,
+                    }
+                ],
             ),
             Node(
                 package="ed_uav_gazebo",
@@ -93,6 +119,7 @@ def generate_launch_description() -> LaunchDescription:
                 name="sim_localization",
                 output="screen",
                 parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time")}],
+                condition=IfCondition(ground_truth_mode),
             ),
             Node(
                 package="rviz2",

@@ -1,0 +1,15 @@
+version: 1
+mission_id: simulation-competition
+mission_type: competition
+field_profile_id: simulation-arena
+timeout_sec: 90.0
+takeoff_altitude_m: 1.5
+competition:
+  altitude_m: 1.5
+  forward_distance_m: 2.0
+  hover_sec: 1.0
+  planner_timeout_sec: 5.0
+terminal_landing:
+  land_altitude_m: 0.0
+  descent_speed_m_s: 0.5
+  disarm_after_sec: 1.0
