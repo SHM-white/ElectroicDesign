@@ -1,5 +1,7 @@
 """Install the ED UAV perception detector runtime package."""
 
+from glob import glob
+
 from setuptools import find_packages, setup
 
 
@@ -12,17 +14,19 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml"]),
+        (f"share/{package_name}/launch", glob("launch/*.launch.py")),
     ],
     install_requires=["setuptools", "numpy", "opencv-python-headless>=4.5"],
     zip_safe=True,
     maintainer="ED UAV maintainers",
     maintainer_email="maintainers@example.invalid",
-    description="Narrow-camera detector runtime for ED UAV perception.",
+    description="Narrow-camera detection and prescribed target pose runtime.",
     license="Apache-2.0",
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
             "detector_node = ed_uav_perception.detector_node:main",
+            "target_observation_node = ed_uav_perception.target_observation_node:main",
         ],
     },
 )

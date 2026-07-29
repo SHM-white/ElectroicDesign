@@ -12,6 +12,7 @@ import pytest
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT))
 
+from ed_uav_camera.calibration import NonProductionCalibrationError
 from ed_uav_camera.profiles import JsonObject, JsonValue, UnsupportedProfileError
 from ed_uav_camera.runtime_plan import load_runtime_plan
 
@@ -52,6 +53,32 @@ def test_rejects_selected_mode_that_was_not_declared_by_profile_catalog(tmp_path
         load_runtime_plan(plan, catalog, now_ns=100)
 
     # Then: a mode cannot be silently treated as supported hardware.
+
+
+def test_rejects_recorded_video_calibration_at_hardware_runtime_gate(tmp_path: Path) -> None:
+    # Given: an otherwise valid plan whose calibration came from a recorded fixture.
+    catalog = tmp_path / "profiles.json"
+    plan = tmp_path / "runtime-plan.json"
+    catalog.write_text(json.dumps(profile_catalog()), encoding="utf-8")
+    raw_plan = runtime_plan()
+    cameras = raw_plan["cameras"]
+    assert isinstance(cameras, list)
+    narrow = cameras[0]
+    assert isinstance(narrow, dict)
+    calibration = narrow["calibration"]
+    assert isinstance(calibration, dict)
+    calibration.update(
+        {
+            "capture_provenance": "recorded_video_fixture",
+            "observed_serial": "NARROW-FAKE",
+            "observed_by_id": "/dev/v4l/by-id/narrow-fake",
+        }
+    )
+    plan.write_text(json.dumps(raw_plan), encoding="utf-8")
+
+    # When/Then: formal runtime parsing refuses non-production calibration.
+    with pytest.raises(NonProductionCalibrationError, match="non-production"):
+        load_runtime_plan(plan, catalog, now_ns=100)
 
 
 def profile_catalog() -> JsonObject:
@@ -151,5 +178,8 @@ def camera_plan(camera: FakeCameraDefinition) -> JsonObject:
             "captured_at_ns": 0,
             "valid_for_ns": 1_000,
             "camera_info_url": f"file:///{camera.role}-fake.yaml",
+            "capture_provenance": "direct_v4l2",
+            "observed_serial": camera.serial,
+            "observed_by_id": f"/dev/v4l/by-id/{camera.role}-fake",
         },
     }

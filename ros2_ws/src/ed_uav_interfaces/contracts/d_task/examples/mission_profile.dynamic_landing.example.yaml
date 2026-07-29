@@ -1,0 +1,22 @@
+version: 1
+mission_profile_id: d2026-dynamic-landing
+task: dynamic_landing
+owner: ed_uav_mission
+units:
+  length: m
+  speed: m/s
+  time: s
+frame:
+  id: map
+  convention: ENU
+freshness:
+  vehicle_telemetry_ms: 500
+  target_observation_ms: 200
+  mission_status_ms: 1000
+target_revision: d2026-circle-cross-v1
+route_order: [B, D, A]
+cruise_altitude_m: 1.5
+timing:
+  takeoff_deadline_s: 15.0
+  mission_deadline_s: 90.0
+  vehicle_dwell_s: 5.0

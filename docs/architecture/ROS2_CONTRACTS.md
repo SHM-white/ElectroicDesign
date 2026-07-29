@@ -46,11 +46,17 @@ action, TF edge, or hardware owner is approved by this freeze.
 | `/localization/status`, `/localization/odom` | `LocalizationStatus`, `Odometry` | localization supervisor, EKF | `map`, `odom` | `state_reliable`, 0.20/0.15 s |
 | `/perception/narrow/detections` | `Detection2DArray` | narrow perception | narrow optical | `state_reliable`, 0.20 s |
 | `/diagnostics` | `DiagnosticArray` | bringup aggregator | `base_link` | `state_reliable`, 1.00 s |
+| `/d_task/vehicle/telemetry` | `VehicleTelemetry` | ground-vehicle bridge | `vehicle_start` | `state_reliable`, 0.50 s |
+| `/d_task/target_observation` | `TargetObservation` | target perception | message `frame_id` | sensor best-effort, 0.20 s |
+| `/d_task/mission_status` | `MissionStatus` | mission | `map` ENU | `state_reliable`, 1.00 s |
+| `/d_task/payload_contact_state` | `PayloadContactState` | payload bridge | `base_link` | `state_reliable`, 0.20 s |
 
 `/localization/start_map_session` is owned only by the map archive and uses
 `StartMapSession`; saved-map loading/relocalization is excluded. `/fcu/flight_command`
 is owned only by the FCU bridge and uses `FlightCommand`. `/mission/execute` is
 owned only by the mission package and uses `ExecuteMission`.
+`/d_task/pre_arm/select_mission` is also owned only by the mission package and
+accepts `SelectDTaskMission` requests only before arming.
 
 ### Simulation-Only Graph
 
@@ -66,7 +72,7 @@ the canonical visualization outputs without publishing TF.
 
 All names are absolute and occupy the fixed `/fcu`, `/rangefinder`,
 `/camera/narrow`, `/camera/wide`, `/lidar`, `/localization`, `/perception`,
-`/mission`, and `/diagnostics` namespaces. `/tf` and `/tf_static` carry only
+`/mission`, `/d_task`, and `/diagnostics` namespaces. `/tf` and `/tf_static` carry only
 the authorities named below; they are not alternative data interfaces.
 
 All physical quantities are SI and all world/body coordinates are ENU under
@@ -104,6 +110,24 @@ DOFs in its pose are unspecified. `FlightCommand` and `ExecuteMission` use
 bounded correlation/identity/reason fields. `StartMapSession` uses bounded IDs
 and paths. Custom interfaces must not use unbounded strings or sequences.
 
+Every D-task custom message and pre-arm request carries contract version 1.
+`VehicleTelemetry` carries the start stamp/event, heartbeat, acquisition time,
+source sequence, CRC-16, displacement or wheel speed in SI, turn class, and the
+ordered START/B/D/A/COMPLETE state. `TargetObservation` names the approved
+`d2026-circle-cross-v1` geometry and its acquisition frame. `MissionStatus` and
+`PayloadContactState` expose bounded operator and contact/payload states with a
+single publisher owner. Consumers measure freshness on a local steady clock;
+ROS acquisition stamps provide provenance and are never used as an age clock.
+Vehicle and ESP32 source sequences use uint32 serial-number arithmetic: modulo
+deltas `1..2^31-1` advance, zero is duplicate, and deltas `2^31..2^32-1` are
+stale. Therefore `UINT32_MAX -> 0` is a valid wrap while `8 -> 7` is rejected.
+
+Strict D-task schemas and credential-free examples live under
+`ed_uav_interfaces/contracts/d_task`. Real Mid-360 serial, sensor/host IP,
+firmware, and ground-station peer values are permitted only in the gitignored
+`deployment_preset.local.yaml`; field loading rejects placeholders and RFC 5737
+documentation addresses rather than substituting defaults.
+
 Enum values are frozen in the `.msg` and `.action` sources: FCU source is V7 or
 simulator; FCU mode is stabilize (0), altitude hold (1), position hold (2), or
 program (3). Localization source is none, LIO, visual boundary, or fused and
@@ -118,4 +142,7 @@ Run the standalone surface with:
 ```bash
 ./.venv/bin/python ros2_ws/src/ed_uav_interfaces/tools/check_contract.py \
   ros2_ws/src/ed_uav_interfaces/contracts/ros2_contract_manifest.json
+
+./.venv/bin/python ros2_ws/src/ed_uav_interfaces/tools/check_d_task_config.py \
+  mission ros2_ws/src/ed_uav_interfaces/contracts/d_task/examples/mission_profile.example.yaml
 ```

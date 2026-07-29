@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Mid-360 field manifest",
+  "type": "object",
+  "required": ["serial_number", "lidar_ip", "host_ip", "firmware", "driver_json", "extrinsics", "fast_lio_launch"],
+  "properties": {
+    "serial_number": {"type": "string", "minLength": 1},
+    "lidar_ip": {"type": "string", "minLength": 1},
+    "host_ip": {"type": "string", "minLength": 1},
+    "firmware": {"type": "string", "minLength": 1},
+    "driver_json": {"type": "string", "minLength": 1},
+    "extrinsics": {"type": "string", "minLength": 1},
+    "fast_lio_launch": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

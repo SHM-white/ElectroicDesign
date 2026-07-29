@@ -1,0 +1,14 @@
+vehicle_bridge:
+  ros__parameters:
+    bind_host: 0.0.0.0
+    bind_port: 0
+    car_peer_host: ""
+    car_peer_port: 0
+    hmi_peer_host: ""
+    hmi_peer_port: 0
+    car_sender_id: ""
+    hmi_sender_id: ""
+    bridge_sender_id: ""
+    hmac_key_file: ""
+    mission_timeout_seconds: 90.0
+    telemetry_stale_seconds: 0.75

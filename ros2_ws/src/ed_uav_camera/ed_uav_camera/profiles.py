@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum, unique
+from enum import unique
 import json
 from pathlib import Path
 from typing import TypeAlias
@@ -11,6 +11,7 @@ from typing import TypeAlias
 from typing_extensions import assert_never
 
 from .model import CameraRole
+from .string_enum import StrEnum
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 JsonObject: TypeAlias = dict[str, JsonValue]

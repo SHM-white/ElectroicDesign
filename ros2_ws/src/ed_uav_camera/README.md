@@ -38,6 +38,10 @@ python3 -m ed_uav_camera.fake_cli --duration-seconds 600 \
   --wide-unplug-at-seconds 120 --wide-reconnect-at-seconds 180 --restart-wide
 ```
 
-No stereo processing is launched. Physical capability enumeration, controller
-topology, camera calibration, and measured bandwidth are P25 work and are not
-claimed by this package.
+No stereo processing is launched. Controller topology, supported-mode probing,
+and measured bandwidth remain external preflight work. The selected-camera
+bootstrap at `tools/calibration/calibrate_chessboard.py` directly enumerates
+stable V4L2 by-id devices and creates the serial/raster-bound calibration input
+required by this strict launch path; it does not launch ROS or bypass the gate.
+Recorded-video and synthetic runs are marked non-production and are rejected by
+the formal hardware runtime gate regardless of supplied serial or by-id text.

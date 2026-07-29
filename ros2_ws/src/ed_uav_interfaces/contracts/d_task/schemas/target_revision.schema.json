@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ed-uav.invalid/schemas/d-task/target-revision-v1.json",
+  "title": "D-task 50 cm / 30 cm circle-cross target v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "target_revision", "owner", "frame_id", "units", "geometry"],
+  "properties": {
+    "version": {"const": 1},
+    "target_revision": {"const": "d2026-circle-cross-v1"},
+    "owner": {"const": "wheel_vehicle_platform"},
+    "frame_id": {"const": "vehicle_platform"},
+    "units": {"const": "m"},
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outer_diameter_m", "inner_diameter_m", "line_width_m", "pattern"],
+      "properties": {
+        "outer_diameter_m": {"const": 0.5},
+        "inner_diameter_m": {"const": 0.3},
+        "line_width_m": {"type": "number", "minimum": 0.018, "maximum": 0.022},
+        "pattern": {"const": "concentric_circles_cross"}
+      }
+    }
+  }
+}

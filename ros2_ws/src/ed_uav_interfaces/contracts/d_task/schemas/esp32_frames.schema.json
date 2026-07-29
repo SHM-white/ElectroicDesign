@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ed-uav.invalid/schemas/d-task/esp32-frames-v1.json",
+  "title": "D-task ESP32 telemetry frame window v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "owner", "freshness_limit_ms", "frames"],
+  "properties": {
+    "version": {"const": 1},
+    "owner": {"const": "wheel-vehicle"},
+    "freshness_limit_ms": {"type": "integer", "minimum": 1, "maximum": 2000},
+    "frames": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/vehicleTelemetryFrame"}
+    }
+  },
+  "$defs": {
+    "vehicleTelemetryFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "frame_type", "sequence", "acquisition_time_ms", "checksum_crc16", "payload"],
+      "properties": {
+        "version": {"const": 1},
+        "frame_type": {"const": "vehicle_telemetry"},
+        "sequence": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "acquisition_time_ms": {"type": "integer", "minimum": 0},
+        "checksum_crc16": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "payload": {"$ref": "#/$defs/vehicleTelemetryPayload"}
+      }
+    },
+    "vehicleTelemetryPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["started", "heartbeat", "motion_kind", "displacement_m", "wheel_speed_m_s", "turn_class", "route_stage", "lap_complete"],
+      "properties": {
+        "started": {"type": "boolean"},
+        "heartbeat": {"type": "boolean"},
+        "motion_kind": {"enum": ["displacement", "wheel_speed"]},
+        "displacement_m": {"type": "number"},
+        "wheel_speed_m_s": {"type": "number", "minimum": 0},
+        "turn_class": {"enum": ["straight", "small_turn", "large_turn"]},
+        "route_stage": {"enum": ["START", "B", "D", "A", "COMPLETE"]},
+        "lap_complete": {"type": "boolean"}
+      }
+    }
+  }
+}

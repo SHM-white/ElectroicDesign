@@ -1,7 +1,7 @@
-from setuptools import find_packages, setup
-from glob import glob
 import os
+from glob import glob
 
+from setuptools import find_packages, setup
 
 package_name = "ed_uav_mission"
 
@@ -13,6 +13,7 @@ setup(
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml"]),
         (os.path.join("share", package_name, "launch"), glob("launch/*.launch.py")),
+        (os.path.join("share", package_name, "config"), glob("config/*.yaml")),
         (os.path.join("share", package_name, "config", "missions"), glob("config/missions/*.yaml")),
     ],
     install_requires=["setuptools", "PyYAML>=6"],

@@ -25,7 +25,10 @@
         "height": 720,
         "captured_at_ns": 0,
         "valid_for_ns": 9000000000000000000,
-        "camera_info_url": "file:///synthetic/fake-narrow.yaml"
+        "camera_info_url": "file:///synthetic/fake-narrow.yaml",
+        "capture_provenance": "synthetic_fixture",
+        "observed_serial": "FAKE-NARROW-001",
+        "observed_by_id": "/dev/v4l/by-id/fake-narrow"
       }
     },
     {
@@ -50,7 +53,10 @@
         "height": 720,
         "captured_at_ns": 0,
         "valid_for_ns": 9000000000000000000,
-        "camera_info_url": "file:///synthetic/fake-wide.yaml"
+        "camera_info_url": "file:///synthetic/fake-wide.yaml",
+        "capture_provenance": "synthetic_fixture",
+        "observed_serial": "FAKE-WIDE-001",
+        "observed_by_id": "/dev/v4l/by-id/fake-wide"
       }
     }
   ]

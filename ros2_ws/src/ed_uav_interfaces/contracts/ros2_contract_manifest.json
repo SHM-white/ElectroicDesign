@@ -4,9 +4,14 @@
     {"path": "msg/FcuState.msg", "definition": "builtin_interfaces/Time acquisition_stamp\nuint32 source_sequence\nstring<=64 frame_id"},
     {"path": "msg/LocalizationStatus.msg", "definition": "builtin_interfaces/Time acquisition_stamp\nuint32 source_sequence\nstring<=96 reason"},
     {"path": "msg/BoundaryObservation.msg", "definition": "std_msgs/Header header\nuint32 source_sequence\nuint8 observable_dof_mask\ngeometry_msgs/PoseWithCovariance pose\nstring<=64 association_id"},
+    {"path": "msg/VehicleTelemetry.msg", "definition": "uint16 contract_version\nbuiltin_interfaces/Time start_stamp\nbuiltin_interfaces/Time acquisition_stamp\nuint32 source_sequence\nuint16 checksum_crc16\nstring<=32 vehicle_id\nbool start_event\nbool heartbeat_alive\nuint8 motion_kind\nfloat32 displacement_m\nfloat32 wheel_speed_m_s\nuint8 turn_class\nuint8 route_stage\nbool lap_complete\nstring<=32 frame_id"},
+    {"path": "msg/TargetObservation.msg", "definition": "uint16 contract_version\nbuiltin_interfaces/Time acquisition_stamp\nuint32 source_sequence\nstring<=32 observation_id\nstring<=32 target_revision\nstring<=64 frame_id\ngeometry_msgs/PoseWithCovariance pose\nfloat32 confidence\nfloat32 outer_diameter_m\nfloat32 inner_diameter_m\nfloat32 line_width_m"},
+    {"path": "msg/MissionStatus.msg", "definition": "uint16 contract_version\nbuiltin_interfaces/Time acquisition_stamp\nuint32 source_sequence\nstring<=64 mission_id\nuint8 state\nuint8 route_stage\nbool complete\nstring<=96 reason"},
+    {"path": "msg/PayloadContactState.msg", "definition": "uint16 contract_version\nbuiltin_interfaces/Time acquisition_stamp\nuint32 source_sequence\nuint8 payload_state\nuint8 contact_state\nbool contact_stable\nfloat32 contact_duration_s\nstring<=64 owner\nstring<=64 frame_id"},
     {"path": "action/FlightCommand.action", "definition": "uint8 command\ngeometry_msgs/PoseStamped target_pose\ngeometry_msgs/Twist target_velocity\nstring<=64 correlation_id\n---\nuint8 result_code\nstring<=96 reason\n---\nuint8 execution_state"},
     {"path": "action/ExecuteMission.action", "definition": "string<=64 mission_id\nstring<=96 field_profile_id\n---\nuint8 result_code\nstring<=96 reason\n---\nstring<=64 state_id"},
-    {"path": "srv/StartMapSession.srv", "definition": "string<=64 session_id\nstring<=128 archive_root\n---\nbool accepted\nstring<=96 reason\nstring<=128 staging_uri"}
+    {"path": "srv/StartMapSession.srv", "definition": "string<=64 session_id\nstring<=128 archive_root\n---\nbool accepted\nstring<=96 reason\nstring<=128 staging_uri"},
+    {"path": "srv/SelectDTaskMission.srv", "definition": "uint16 contract_version\nstring<=64 mission_id\nstring<=64 mission_profile_id\nstring<=64 deployment_preset_id\nstring<=32 target_revision\nuint8 task\n---\nbool accepted\nuint16 contract_version\nstring<=96 reason"}
   ],
   "topics": [
     {"name": "/fcu/state", "type": "ed_uav_interfaces/msg/FcuState", "owner": "ed_uav_fcu_bridge", "qos": "state_reliable", "units": "SI: m, m/s, V", "frame": "base_link", "clock": "acquisition_ros_time", "freshness": "0.50 s"},
@@ -34,10 +39,15 @@
     {"name": "/localization/odom", "type": "nav_msgs/msg/Odometry", "owner": "ed_uav_localization.source_supervisor", "qos": "state_reliable", "units": "SI: m, rad", "frame": "odom", "clock": "source_acquisition_ros_time", "freshness": "0.15 s"},
     {"name": "/map", "type": "nav_msgs/msg/OccupancyGrid", "owner": "nav2_map_server", "qos": "latched_reliable", "units": "occupancy probability", "frame": "map", "clock": "source_acquisition_ros_time", "freshness": "on map load"},
     {"name": "/perception/narrow/detections", "type": "vision_msgs/msg/Detection2DArray", "owner": "ed_uav_perception.narrow", "qos": "state_reliable", "units": "pixel bounding boxes", "frame": "camera_narrow_optical_frame", "clock": "camera_acquisition_ros_time", "freshness": "0.20 s"},
-    {"name": "/diagnostics", "type": "diagnostic_msgs/msg/DiagnosticArray", "owner": "ed_uav_bringup.diagnostics_aggregator", "qos": "state_reliable", "units": "unitless diagnostic values", "frame": "base_link", "clock": "steady_clock_age", "freshness": "1.00 s"}
+    {"name": "/diagnostics", "type": "diagnostic_msgs/msg/DiagnosticArray", "owner": "ed_uav_bringup.diagnostics_aggregator", "qos": "state_reliable", "units": "unitless diagnostic values", "frame": "base_link", "clock": "steady_clock_age", "freshness": "1.00 s"},
+    {"name": "/d_task/vehicle/telemetry", "type": "ed_uav_interfaces/msg/VehicleTelemetry", "owner": "ed_ground_vehicle_bridge", "qos": "state_reliable", "units": "SI: m, m/s", "frame": "vehicle_start", "clock": "vehicle_acquisition_time; freshness by local steady clock", "freshness": "0.50 s"},
+    {"name": "/d_task/target_observation", "type": "ed_uav_interfaces/msg/TargetObservation", "owner": "ed_uav_perception.target", "qos": "sensor_data_best_effort", "units": "SI: m, confidence ratio", "frame": "message frame_id: camera optical frame or vehicle_platform", "clock": "camera_acquisition_ros_time; freshness by local steady clock", "freshness": "0.20 s"},
+    {"name": "/d_task/mission_status", "type": "ed_uav_interfaces/msg/MissionStatus", "owner": "ed_uav_mission", "qos": "state_reliable", "units": "bounded states and SI time", "frame": "map (ENU)", "clock": "source_acquisition_ros_time; freshness by local steady clock", "freshness": "1.00 s"},
+    {"name": "/d_task/payload_contact_state", "type": "ed_uav_interfaces/msg/PayloadContactState", "owner": "ed_uav_payload_bridge", "qos": "state_reliable", "units": "SI: s", "frame": "base_link", "clock": "source_acquisition_ros_time; freshness by local steady clock", "freshness": "0.20 s"}
   ],
   "services": [
-    {"name": "/localization/start_map_session", "type": "ed_uav_interfaces/srv/StartMapSession", "owner": "ed_uav_localization.map_archive", "qos": "command_reliable", "units": "session identifiers and filesystem paths", "frame": "map", "clock": "steady_clock"}
+    {"name": "/localization/start_map_session", "type": "ed_uav_interfaces/srv/StartMapSession", "owner": "ed_uav_localization.map_archive", "qos": "command_reliable", "units": "session identifiers and filesystem paths", "frame": "map", "clock": "steady_clock"},
+    {"name": "/d_task/pre_arm/select_mission", "type": "ed_uav_interfaces/srv/SelectDTaskMission", "owner": "ed_uav_mission", "qos": "command_reliable", "units": "bounded identifiers and contract version", "frame": "map (ENU)", "clock": "steady_clock before arming"}
   ],
   "actions": [
     {"name": "/fcu/flight_command", "type": "ed_uav_interfaces/action/FlightCommand", "owner": "ed_uav_fcu_bridge", "qos": "command_reliable", "units": "SI/ENU: m, m/s, rad", "frame": "map or odom", "clock": "steady_clock timeout plus acquisition ROS time"},
@@ -61,6 +71,8 @@
     {"node": "ed_uav_camera.wide", "hardware_owner": "wide camera device", "activation": "after calibration and device identity validation"},
     {"node": "ed_uav_lidar", "hardware_owner": "Mid-360 endpoint", "activation": "after time and device validation"},
     {"node": "ed_uav_localization", "hardware_owner": "map-to-odom and odom-to-base-link TF authorities", "activation": "after fresh eligible sensor sources"},
-    {"node": "ed_uav_mission", "hardware_owner": "mission action server only; no direct hardware", "activation": "after FCU, calibration, profile, localization, and authority prerequisites"}
+    {"node": "ed_ground_vehicle_bridge", "hardware_owner": "wheel-vehicle ESP32 telemetry transport", "activation": "after exclusive transport ownership and a fresh version-1 heartbeat"},
+    {"node": "ed_uav_payload_bridge", "hardware_owner": "payload release and contact inputs", "activation": "after payload/contact self-test and exclusive hardware ownership"},
+    {"node": "ed_uav_mission", "hardware_owner": "mission action and pre-arm selection servers only; no direct hardware", "activation": "after FCU, calibration, profile, localization, and authority prerequisites"}
   ]
 }

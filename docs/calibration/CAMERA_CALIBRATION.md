@@ -1,11 +1,10 @@
 # Camera Calibration Runbook
 
-> Status: **Procedure documented, tooling is P25 work.** The `full_calibration`
-> camera profile (2592×1944 @ 2 Hz MJPEG) exists in
-> `ros2_ws/src/ed_uav_camera/config/camera_profiles.yaml`. No capture script,
-> calibration solver, or reprojection overlay tool exists yet. This document
-> describes the intended procedure backed by the code contracts that consume
-> calibration output.
+> Status: **Selected-camera chessboard bootstrap implemented.**
+> `tools/calibration/calibrate_chessboard.py` opens one stable V4L2 by-id device
+> directly, before the calibration-gated ROS launch. It also accepts a recorded
+> video for deterministic verification, but recorded and synthetic outputs are
+> explicitly non-production and fail the formal hardware runtime gate.
 
 ---
 
@@ -30,40 +29,31 @@ The system uses two monocular UVC cameras (narrow and wide). Each requires:
 | Calibration gate (serial, resolution, freshness) | `ed_uav_camera/calibration.py` | Implemented |
 | `full_calibration` profile (2592×1944 @ 2 Hz) | `ed_uav_camera/config/camera_profiles.yaml` | Implemented |
 | Body extrinsic YAML + validation | `ed_uav_description/calibration.py` | Implemented |
-| **ChArUco capture script** | — | **Not implemented** |
-| **`cv2.calibrateCamera` solver** | — | **Not implemented** |
-| **Reprojection overlay tool** | — | **Not implemented** |
+| Chessboard direct-capture CLI | `tools/calibration/calibrate_chessboard.py` | Implemented |
+| `cv2.calibrateCamera` train/holdout solver | `ed_uav_camera/chessboard_solver.py` | Implemented |
+| Reprojection overlays | artifact `overlays/` directory | Implemented |
 | **camera_info → CameraCalibration bridge** | — | **Not implemented** |
 
-### What Must Be Built (P25)
-
-- `tools/calibration/capture_charuco.py` — capture images at `full_calibration` profile
-- `tools/calibration/calibrate_intrinsics.py` — run `cv2.calibrateCamera` / `cv2.fisheye.calibrate`
-- `tools/calibration/reprojection_overlay.py` — visualize reprojection error
-- `ed_uav_perception/camera_info_bridge.py` — ROS CameraInfo → CameraCalibration adapter
+The bootstrap is intentionally separate from `dual_uvc.launch.py`. Formal camera
+launch still requires a runtime plan containing accepted `camera_info`; no launch
+gate is bypassed to create the initial calibration.
 
 ---
 
-## 2. ChArUco Board Specification
+## 2. Chessboard Specification
 
 ### Recommended Board
 
 | Parameter | Value |
 |---|---|
-| Squares X | 7 |
-| Squares Y | 5 |
-| Square size | 30 mm |
-| Marker size | 22.5 mm (75% of square) |
-| Dictionary | `DICT_4X4_50` |
+| Physical columns | 11 |
+| Physical rows | 8 |
+| OpenCV inner corners | `(10, 7)` |
+| Square size | 15.0 mm |
 
-This yields 35 corners (internal intersections) for calibration. Print on rigid,
-flat substrate. Verify square size with calipers (±0.1 mm tolerance).
-
-### Why ChArUco over Chessboard
-
-- Partial occlusion tolerance (board can be partially visible)
-- Sub-pixel corner refinement from ArUco marker detection
-- Pose estimation possible even with few visible corners
+Mount the board on a rigid, flat substrate. Measure a square with calipers before
+every run. The CLI requires an explicit `--confirm-square-mm 15.0`; `(8,11)` is
+not the OpenCV corner pattern and is rejected.
 
 ---
 
@@ -78,30 +68,40 @@ flat substrate. Verify square size with calipers (±0.1 mm tolerance).
   colcon test --packages-select ed_uav_camera'
 ```
 
-### 3.2 Launch at Full Resolution
+### 3.2 Capture One Camera Directly
 
 ```bash
-# Real device — requires P25-produced camera_plan JSON
-ros2 launch ed_uav_camera dual_uvc.launch.py \
-  camera_plan:=/path/to/calibration_plan.json
+PYTHONPATH=ros2_ws/src/ed_uav_camera \
+python3 tools/calibration/calibrate_chessboard.py \
+  --width 1280 --height 720 \
+  --confirm-square-mm 15.0 \
+  --output-dir /secure/calibration/narrow-1280x720
 ```
 
-The `camera_plan` must select the `full_calibration` profile:
-- Narrow: 2592×1944 @ 2 Hz MJPEG
-- Wide: 2592×1944 @ 2 Hz MJPEG
+The command enumerates only `/dev/v4l/by-id/*-video-index0`, displays serial and
+stable path, and prompts for narrow/wide plus the selected camera. It opens that
+by-id path with OpenCV's V4L2 backend. Persisted output never uses `/dev/videoN`.
+Run it once for every camera and every exact runtime raster.
+
+Production provenance is not a command-line option. It is derived only when the
+CLI opens an enumerated stable by-id device through the direct V4L2 path. An
+`--input-video` run always emits `recorded_video_fixture` and
+`production_eligible: false`, even if supplied serial and by-id text match real
+hardware. Synthetic fixtures use `synthetic_fixture`; both fail the formal
+hardware runtime gate.
 
 ### 3.3 Capture Checklist
 
-Capture **at least 30 images per camera** at each target resolution. Images must
-satisfy:
+Move the board until at least 15 sharp, unique observations pass automatically.
+Capture stops at 24 accepted observations. The filters require:
 
 | Criterion | Minimum |
 |---|---|
-| Board visible with ≥12 corners | Every image |
-| Coverage: all quadrants of the image | At least 6 images per quadrant |
-| Tilt range: 0°–45° from fronto-parallel | Across the set |
-| Distance range: 0.3 m–2.0 m | Across the set |
-| Lighting variation | At least 3 lighting conditions |
+| Board visible | All 70 `(10, 7)` inner corners |
+| Blur | Laplacian variance >= 80 |
+| Duplicate separation | Normalized corner RMS >= 0.008 |
+| Coverage | Board centers occupy >=4 cells of a 3x3 image grid |
+| Scale diversity | Board area fraction span >=0.025 |
 
 ### 3.4 Image Naming Convention
 
@@ -151,7 +151,8 @@ fx_720 = fx_2592 * (1280 / 2592)
 cx_720 = cx_2592 * (1280 / 2592)
 ```
 
-But direct calibration at each resolution is preferred.
+Scaled intrinsics are not accepted by this bootstrap. Calibrate directly at each
+selected raster; the descriptor and existing runtime gate bind the result to it.
 
 ---
 
@@ -245,7 +246,10 @@ Each camera in the runtime plan JSON must include:
     "height": 1944,
     "captured_at_ns": 1721700000000000000,
     "valid_for_ns": 7776000000000000000,
-    "camera_info_url": "file:///secure/narrow_2592x1944.yaml"
+    "camera_info_url": "file:///secure/narrow_2592x1944.yaml",
+    "capture_provenance": "direct_v4l2",
+    "observed_serial": "DEVICE-SERIAL-HERE",
+    "observed_by_id": "/dev/v4l/by-id/usb-camera-video-index0"
   }
 }
 ```
@@ -255,6 +259,8 @@ The `calibration.py` gate validates:
 - `width`/`height` match the selected mode
 - `captured_at_ns + valid_for_ns > now_ns` (freshness)
 - `camera_info_url` starts with `file://`
+- `capture_provenance` is exactly `direct_v4l2`
+- observed serial and stable by-id exactly match the runtime camera binding
 
 ---
 
@@ -285,9 +291,10 @@ mean_error /= len(obj_points)
 
 ### 7.2 Holdout Validation
 
-Split images: 80% train, 20% holdout. Calibrate on train set, evaluate
-reprojection error on holdout. If holdout error exceeds train error by >50%,
-the calibration is overfitting — add more diverse images.
+The deterministic split assigns every fifth accepted observation to holdout.
+Calibration uses only the train observations; each holdout pose is independently
+solved against the fixed intrinsics. Acceptance requires holdout mean <=0.5 px
+and holdout maximum <=1.0 px.
 
 ### 7.3 Overlay Visualization
 
@@ -296,7 +303,21 @@ Generate overlay images showing:
 - Reprojected corners (red crosses)
 - Per-corner error vectors (yellow lines)
 
-Save to `calibration_data/overlays/` for manual inspection.
+The output directory contains `camera_info.yaml`, `descriptor.json`,
+`descriptor.json.sha256`, and `overlays/`. Files are written into a hidden sibling
+staging directory and the complete directory is renamed into place. A retry
+replaces interrupted partial output and removes stale staging state; an existing
+complete artifact is never silently overwritten.
+
+The descriptor includes serial, stable by-id, exact raster, accepted frame
+indices, metrics, capture time/lifetime, camera-info URI, and two deliberately
+different hashes:
+
+- `descriptor_hash.algorithm = ed-canonical-json-v1`: SHA-256 of UTF-8 compact
+  JSON with sorted keys, ASCII escaping, finite numbers, and the top-level
+  `descriptor_hash` field omitted.
+- `descriptor.json.sha256`: SHA-256 of the exact emitted pretty-printed
+  `descriptor.json` file bytes, in standard checksum-file format.
 
 ---
 

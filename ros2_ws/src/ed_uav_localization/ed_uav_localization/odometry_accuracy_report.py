@@ -57,7 +57,7 @@ class StraightLineMetrics(TypedDict):
 Metrics = StationaryMetrics | LoopMetrics | StraightLineMetrics
 
 
-class TrialResult(TypedDict):
+class TrialResult(TypedDict, total=False):
     schema_version: int
     status: str
     trial: str
@@ -70,6 +70,13 @@ class TrialResult(TypedDict):
     sample_count: int
     rejected_count: int
     metrics: Metrics | None
+    dx_m: float
+    dy_m: float
+    dz_m: float
+    xy_m: float
+    three_d_m: float
+    health: str
+    age_sec: float
 
 
 @dataclass(frozen=True, slots=True)

@@ -8,6 +8,7 @@ ament_python_install_package(${PROJECT_NAME})
 
 install(PROGRAMS
   scripts/ed_uav_fcu_bridge
+  scripts/ed_uav_v7_characterize
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -16,6 +17,10 @@ if(BUILD_TESTING)
   ament_add_pytest_test(v7_codec test/test_v7_codec.py)
   ament_add_pytest_test(telemetry_cache test/test_telemetry_cache.py)
   ament_add_pytest_test(actions test/test_actions.py)
+  ament_add_pytest_test(programmable_commands test/test_programmable_commands.py)
+  ament_add_pytest_test(capability_gate test/test_capability_gate.py)
+  ament_add_pytest_test(characterize_cli test/test_characterize_cli.py)
+  ament_add_pytest_test(verifier_blockers test/test_verifier_blockers.py)
   ament_add_pytest_test(pty_surface test/test_pty_surface.py)
   ament_add_pytest_test(flight_command_authority test/test_flight_command_authority.py)
   ament_add_pytest_test(flight_command_boundaries test/test_flight_command_boundaries.py)

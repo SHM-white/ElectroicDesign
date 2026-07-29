@@ -8,18 +8,34 @@ import pytest
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from ed_uav_fcu_bridge.actions import (  # noqa: E402
+from ed_uav_fcu_bridge.actions import (
     CommandKind,
+    CommandRejectedError,
     CommandRequest,
     FlightActionController,
     ResultCode,
 )
-from ed_uav_fcu_bridge.v7_codec import build_frame, decode_frame  # noqa: E402
+from ed_uav_fcu_bridge.v7_codec import build_frame, decode_frame
 
 
 def acknowledgement_for(raw: bytes) -> bytes:
     frame = decode_frame(raw)
     return build_frame(0xFF, 0x00, bytes((frame.frame_id, frame.sum_check, frame.add_check)))
+
+
+def test_existing_controller_rejects_overlap_before_a_second_write() -> None:
+    # Given: the current controller already awaiting one command acknowledgement.
+    written: list[bytes] = []
+    controller = FlightActionController(written.append)
+    first = controller.start(CommandRequest.hover(), steady_now=5.0, timeout_s=0.5)
+
+    # When: another command is requested before the first command completes.
+    with pytest.raises(CommandRejectedError, match="already awaiting acknowledgement"):
+        controller.start(CommandRequest.land(), steady_now=5.1, timeout_s=0.5)
+
+    # Then: the first command retains ownership and no overlapping frame is written.
+    assert controller.pending is first
+    assert written == [first.raw]
 
 
 def test_command_reports_success_only_for_its_matching_ack() -> None:
@@ -72,6 +88,24 @@ def test_unrelated_ack_cannot_complete_the_pending_command() -> None:
     assert result is None
     assert controller.pending is not None
     assert controller.pending.command is CommandKind.UNLOCK
+
+
+def test_new_same_kind_command_cannot_reuse_previous_terminal_result() -> None:
+    # Given: one MOVE completed and left its terminal result available to the node.
+    written: list[bytes] = []
+    controller = FlightActionController(written.append)
+    controller.start(CommandRequest.move(100, 30, 90), steady_now=35.0, timeout_s=0.5)
+    first = controller.handle_frame(
+        decode_frame(acknowledgement_for(written[0])),
+        steady_now=35.1,
+    )
+    assert first is not None and first.code is ResultCode.SUCCEEDED
+
+    # When: a different wire command of the same high-level kind starts.
+    controller.start(CommandRequest.move(200, 30, 90), steady_now=35.2, timeout_s=0.5)
+
+    # Then: the old same-kind result is unavailable until the new ACK arrives.
+    assert controller.last_result is None
 
 
 @pytest.mark.parametrize(

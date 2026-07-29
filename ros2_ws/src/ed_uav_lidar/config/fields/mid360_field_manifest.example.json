@@ -1,0 +1,9 @@
+{
+  "serial_number": "",
+  "lidar_ip": "0.0.0.0",
+  "host_ip": "0.0.0.0",
+  "firmware": "UNSET",
+  "driver_json": "",
+  "extrinsics": "",
+  "fast_lio_launch": ""
+}

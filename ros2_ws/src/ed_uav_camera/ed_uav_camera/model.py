@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from enum import StrEnum, unique
+from enum import unique
+
+from .string_enum import StrEnum
 
 
 @unique

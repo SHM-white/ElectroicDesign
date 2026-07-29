@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Console entry point for prop-off V7 characterization."""
+
+from ed_uav_fcu_bridge.characterize import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

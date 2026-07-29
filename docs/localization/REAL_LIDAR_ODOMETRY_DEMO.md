@@ -11,7 +11,7 @@
 `ed_uav_localization`、验证 odom 并采集结果。从仓库根目录执行：
 
 ```bash
-./tools/run_lidar_odometry_accuracy_demo.sh
+./tools/run_lidar_odometry.sh
 ```
 
 无参数默认执行 60 秒静止试验，要求至少 100 个样本。回环试验可显式传递 demo 参数；话题统一由
@@ -19,7 +19,7 @@
 
 ```bash
 ODOM_TOPIC=/localization/odom \
-  ./tools/run_lidar_odometry_accuracy_demo.sh --mode loop --duration-sec 60 --min-samples 100
+  ./tools/run_lidar_odometry.sh --mode loop --duration-sec 60 --min-samples 100
 ```
 
 直线试验必须提供人工实测的水平距离，不能从 odom 反算：
@@ -27,7 +27,7 @@ ODOM_TOPIC=/localization/odom \
 ```bash
 read -r -p "Physically measured level distance in meters: " KNOWN_DISTANCE_M
 ODOM_TOPIC=/localization/odom \
-  ./tools/run_lidar_odometry_accuracy_demo.sh \
+  ./tools/run_lidar_odometry.sh \
   --mode straight_line --duration-sec 60 --min-samples 100 \
   --known-distance-m "$KNOWN_DISTANCE_M"
 ```
@@ -40,7 +40,7 @@ ODOM_TOPIC=/localization/odom \
 已构建且 `ros2_ws/install/setup.bash` 存在的工作区可跳过重复构建：
 
 ```bash
-ED_ODOMETRY_DEMO_SKIP_BUILD=1 ./tools/run_lidar_odometry_accuracy_demo.sh
+ED_ODOMETRY_DEMO_SKIP_BUILD=1 ./tools/run_lidar_odometry.sh
 ```
 
 若 overlay 不存在，去掉 `ED_ODOMETRY_DEMO_SKIP_BUILD=1` 重新运行以构建 `ed_uav_localization`。
@@ -139,7 +139,7 @@ frame 改变或时间戳回退都先修复，不能开始演示。
 机体保持水平并完全不动。规范时长是 30 到 60 秒，本命令取 60 秒。
 
 ```bash
-./tools/run_lidar_odometry_accuracy_demo.sh
+./tools/run_lidar_odometry.sh
 ```
 
 ### 5.2 操作员声明的 return-to-mark 回环
@@ -149,7 +149,7 @@ frame 改变或时间戳回退都先修复，不能开始演示。
 
 ```bash
 ODOM_TOPIC=/localization/odom \
-  ./tools/run_lidar_odometry_accuracy_demo.sh --mode loop --duration-sec 60 --min-samples 100
+  ./tools/run_lidar_odometry.sh --mode loop --duration-sec 60 --min-samples 100
 ```
 
 ### 5.3 水平直线实测距离
@@ -160,7 +160,7 @@ ODOM_TOPIC=/localization/odom \
 ```bash
 read -r -p "Physically measured level distance in meters: " KNOWN_DISTANCE_M
 ODOM_TOPIC=/localization/odom \
-  ./tools/run_lidar_odometry_accuracy_demo.sh \
+  ./tools/run_lidar_odometry.sh \
   --mode straight_line --duration-sec 60 --min-samples 100 \
   --known-distance-m "$KNOWN_DISTANCE_M"
 ```

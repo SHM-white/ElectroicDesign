@@ -1,0 +1,7 @@
+version: 1
+preset_kind: documentation_example
+preset_id: d2026-local-field-template
+mission_profile_id: d2026-payload-drop
+target_revision: d2026-circle-cross-v1
+requires_local_manifest: true
+local_manifest: deployment_preset.local.yaml

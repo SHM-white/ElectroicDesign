@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ed-uav.invalid/schemas/d-task/deployment-preset-v1.json",
+  "title": "D-task deployment preset v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "preset_kind", "preset_id", "mission_profile_id", "target_revision"],
+  "properties": {
+    "version": {"const": 1},
+    "preset_kind": {"enum": ["documentation_example", "field"]},
+    "preset_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "mission_profile_id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+    "target_revision": {"const": "d2026-circle-cross-v1"},
+    "requires_local_manifest": {"const": true},
+    "local_manifest": {"const": "deployment_preset.local.yaml"},
+    "mid360": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "serial", "sensor_ip", "host_ip", "firmware"],
+      "properties": {
+        "owner": {"const": "ed_uav_lidar"},
+        "serial": {"type": "string", "minLength": 4, "maxLength": 64},
+        "sensor_ip": {"type": "string", "format": "ipv4"},
+        "host_ip": {"type": "string", "format": "ipv4"},
+        "firmware": {"type": "string", "minLength": 2, "maxLength": 64}
+      }
+    },
+    "ground_station": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "transport", "peer_id"],
+      "properties": {
+        "owner": {"const": "ground_station_esp32s3"},
+        "transport": {"const": "esp_now"},
+        "peer_id": {"type": "string", "pattern": "^[0-9A-F]{2}(:[0-9A-F]{2}){5}$"}
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {"preset_kind": {"const": "documentation_example"}},
+      "required": ["requires_local_manifest", "local_manifest"],
+      "not": {"anyOf": [{"required": ["mid360"]}, {"required": ["ground_station"]}]}
+    },
+    {
+      "properties": {"preset_kind": {"const": "field"}},
+      "required": ["mid360", "ground_station"],
+      "not": {"anyOf": [{"required": ["requires_local_manifest"]}, {"required": ["local_manifest"]}]}
+    }
+  ]
+}

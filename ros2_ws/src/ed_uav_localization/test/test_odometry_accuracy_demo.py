@@ -290,3 +290,16 @@ def test_completed_synthetic_trial_emits_relative_metrics_as_single_line_json() 
     parsed = json.loads(output.removeprefix("ODOMETRY_ACCURACY_RESULT="))
     assert parsed["metrics"]["mode"] == "stationary"
     assert "absolute accuracy" in parsed["interpretation"]
+
+
+def test_trial_live_summary_updates_on_each_accepted_sample(capsys: pytest.CaptureFixture[str]) -> None:
+    trial = OdometryAccuracyTrial(TrialConfiguration(mode=OdometryEvaluationMode.LOOP))
+    trial.receive(_odometry(stamp_ns=0, x_m=0.0))
+    trial.receive(_odometry(stamp_ns=1_000_000_000, x_m=2.0))
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("ODOMETRY_ACCURACY_LIVE ")]
+    assert len(lines) == 2
+    assert "dx_m=0.000000" in lines[0]
+    assert "xy_m=0.000000" in lines[0]
+    assert "frame=odom" in lines[1]
+    assert "dx_m=2.000000" in lines[1]
+

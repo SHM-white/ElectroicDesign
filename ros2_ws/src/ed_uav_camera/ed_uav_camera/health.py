@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum, unique
+from enum import unique
+
+from .string_enum import StrEnum
 from typing_extensions import assert_never
 
 from .model import CameraRole

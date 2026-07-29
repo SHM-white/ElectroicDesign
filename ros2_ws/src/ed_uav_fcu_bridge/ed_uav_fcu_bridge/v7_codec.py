@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-
 FRAME_HEADER: Final = 0xAA
 MAX_PAYLOAD_BYTES: Final = 255
+PROGRAMMABLE_FRAME_IDS: Final = frozenset((0xE0,))
 
 
 class FrameDecodeError(ValueError):
@@ -153,3 +153,37 @@ def cmd_move(distance_cm: int, speed_cmps: int, direction_deg: int) -> bytes:
         + speed_cmps.to_bytes(2, "little")
         + direction_deg.to_bytes(2, "little")
     )
+
+
+def _signed_cm(value_cm: int) -> bytes:
+    if not -100000 <= value_cm <= 100000:
+        raise ValueError("V7 programmable distance must be in the inclusive range -100000..100000 cm")
+    return value_cm.to_bytes(4, "little", signed=True)
+
+
+def _vertical_distance_speed(distance_cm: int, speed_cmps: int) -> bytes:
+    if not 0 <= distance_cm <= 10000:
+        raise ValueError("V7 vertical distance must be in the inclusive range 0..10000 cm")
+    if not 10 <= speed_cmps <= 300:
+        raise ValueError("V7 vertical speed must be in the inclusive range 10..300 cm/s")
+    return distance_cm.to_bytes(2, "little") + speed_cmps.to_bytes(2, "little")
+
+
+def cmd_target_position(first_cm: int, second_cm: int) -> bytes:
+    """Build documented target-position fields; the manual does not name their axes."""
+    return _command(bytes((0x10, 0x01, 0x01)) + _signed_cm(first_cm) + _signed_cm(second_cm))
+
+
+def cmd_target_height(height_cm: int) -> bytes:
+    """Build the documented signed target-ground-height command."""
+    return _command(bytes((0x10, 0x01, 0x02)) + _signed_cm(height_cm))
+
+
+def cmd_ascend(distance_cm: int, speed_cmps: int) -> bytes:
+    """Build the documented relative ascend command."""
+    return _command(bytes((0x10, 0x02, 0x01)) + _vertical_distance_speed(distance_cm, speed_cmps))
+
+
+def cmd_descend(distance_cm: int, speed_cmps: int) -> bytes:
+    """Build the documented relative descend command."""
+    return _command(bytes((0x10, 0x02, 0x02)) + _vertical_distance_speed(distance_cm, speed_cmps))

@@ -1,0 +1,10 @@
+version: 1
+target_revision: d2026-circle-cross-v1
+owner: wheel_vehicle_platform
+frame_id: vehicle_platform
+units: m
+geometry:
+  outer_diameter_m: 0.5
+  inner_diameter_m: 0.3
+  line_width_m: 0.02
+  pattern: concentric_circles_cross

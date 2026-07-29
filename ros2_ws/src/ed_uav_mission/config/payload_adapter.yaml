@@ -1,0 +1,6 @@
+contract_version: 1
+freshness_timeout_s: 0.2
+actuator_timeout_s: 0.5
+minimum_standoff_m: 0.5
+contact_dwell_s: 5.0
+minimum_vehicle_speed_m_s: 0.05

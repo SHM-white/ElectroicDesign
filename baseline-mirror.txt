@@ -1,0 +1,253 @@
+.FFFFFFFF                                                                [100%]
+=================================== FAILURES ===================================
+__ test_lidar_odometry_runner_builds_preflights_and_records_the_default_trial __
+
+tmp_path = PosixPath('/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_bui0')
+
+    def test_lidar_odometry_runner_builds_preflights_and_records_the_default_trial(tmp_path: Path) -> None:
+        # Given: a sourceable temporary overlay and an available fake external odometry chain.
+        workspace = create_fake_workspace(tmp_path)
+    
+        # When: the runner is invoked without arguments.
+        result = run_runner(workspace)
+    
+        # Then: it builds the package, measures the default stationary trial, and preserves evidence.
+>       assert result.returncode == 0, result.stderr
+E       AssertionError: /tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_bui0/workspace/tools/run_lidar_odometry_accuracy_demo.sh: line 2: /opt/ros/humble/setup.bash: No such file or directory
+E         ROS 2 Humble setup is unavailable at /opt/ros/humble/setup.bash
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_bui0/workspace/tools/run_lidar_o...t/ros/humble/setup.bash: No such file or directory\nROS 2 Humble setup is unavailable at /opt/ros/humble/setup.bash\n').returncode
+
+tools/test_lidar_odometry_accuracy_demo_runner.py:146: AssertionError
+___ test_lidar_odometry_runner_rejects_wrong_topics_before_starting_the_demo ___
+
+tmp_path = PosixPath('/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_rej0')
+
+    def test_lidar_odometry_runner_rejects_wrong_topics_before_starting_the_demo(tmp_path: Path) -> None:
+        # Given: a topic with the wrong ROS message type.
+        workspace = create_fake_workspace(tmp_path)
+    
+        # When: the preflight observes the mismatch.
+        result = run_runner(workspace, extra_environment={"FAKE_TOPIC_TYPE": "geometry_msgs/msg/Pose"})
+    
+        # Then: it directs the operator to the external chain without producing measurement metrics.
+        assert result.returncode != 0
+>       assert "Livox + ROS 2 FAST-LIO + localization chain" in result.stderr
+E       AssertionError: assert 'Livox + ROS 2 FAST-LIO + localization chain' in '/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_rej0/workspace/tools/run_lidar_odometry_accuracy_demo.s...pt/ros/humble/setup.bash: No such file or directory\nROS 2 Humble setup is unavailable at /opt/ros/humble/setup.bash\n'
+E        +  where '/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_rej0/workspace/tools/run_lidar_odometry_accuracy_demo.s...pt/ros/humble/setup.bash: No such file or directory\nROS 2 Humble setup is unavailable at /opt/ros/humble/setup.bash\n' = CompletedProcess(args=['/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_rej0/workspace/tools/run_lidar_o...t/ros/humble/setup.bash: No such file or directory\nROS 2 Humble setup is unavailable at /opt/ros/humble/setup.bash\n').stderr
+
+tools/test_lidar_odometry_accuracy_demo_runner.py:174: AssertionError
+_ test_lidar_odometry_runner_preserves_demo_failure_and_rejects_topic_flag_override _
+
+tmp_path = PosixPath('/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_pre0')
+
+    def test_lidar_odometry_runner_preserves_demo_failure_and_rejects_topic_flag_override(tmp_path: Path) -> None:
+        # Given: a preflight-ready chain whose demo reports a failed trial.
+        workspace = create_fake_workspace(tmp_path)
+    
+        # When: the demo exits nonzero after emitting its structured result.
+        result = run_runner(workspace, extra_environment={"FAKE_DEMO_STATUS": "23"})
+    
+        # Then: the runner retains the demo exit status and its JSON evidence.
+>       assert result.returncode == 23
+E       AssertionError: assert 1 == 23
+E        +  where 1 = CompletedProcess(args=['/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_pre0/workspace/tools/run_lidar_o...t/ros/humble/setup.bash: No such file or directory\nROS 2 Humble setup is unavailable at /opt/ros/humble/setup.bash\n').returncode
+
+tools/test_lidar_odometry_accuracy_demo_runner.py:190: AssertionError
+_ test_lidar_odometry_runner_rejects_invalid_result_json[ODOMETRY_ACCURACY_RESULT={not-json] _
+
+tmp_path = PosixPath('/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_rej1')
+invalid_result_line = 'ODOMETRY_ACCURACY_RESULT={not-json'
+
+    @pytest.mark.parametrize(
+        "invalid_result_line",
+        (
+            f"{RESULT_PREFIX}{{not-json",
+            f"{RESULT_PREFIX}[]",
+            f'{RESULT_PREFIX}{{"schema_version":1,"status":"passed"}}',
+        ),
+    )
+    def test_lidar_odometry_runner_rejects_invalid_result_json(tmp_path: Path, invalid_result_line: str) -> None:
+        # Given: a demo that exits successfully but emits an invalid structured result.
+        workspace = create_fake_workspace(tmp_path)
+    
+        # When: the runner extracts the one prefixed line.
+        result = run_runner(workspace, extra_environment={"FAKE_RESULT_LINE": invalid_result_line})
+    
+        # Then: it fails closed and retains only the unaccepted candidate as evidence.
+        assert result.returncode != 0
+>       evidence = evidence_directory(workspace)
+
+tools/test_lidar_odometry_accuracy_demo_runner.py:219: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/test_lidar_odometry_accuracy_demo_runner.py:102: in evidence_directory
+    directories = list((workspace.root / ".omo" / "evidence" / "lidar-odometry").iterdir())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_rej1/workspace/.omo/evidence/lidar-odometry')
+
+    def iterdir(self):
+        """Yield path objects of the directory contents.
+    
+        The children are yielded in arbitrary order, and the
+        special entries '.' and '..' are not included.
+        """
+>       for name in os.listdir(self):
+E       FileNotFoundError: [Errno 2] No such file or directory: '/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_rej1/workspace/.omo/evidence/lidar-odometry'
+
+/usr/lib/python3.12/pathlib.py:1058: FileNotFoundError
+_ test_lidar_odometry_runner_rejects_invalid_result_json[ODOMETRY_ACCURACY_RESULT=[]] _
+
+tmp_path = PosixPath('/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_rej2')
+invalid_result_line = 'ODOMETRY_ACCURACY_RESULT=[]'
+
+    @pytest.mark.parametrize(
+        "invalid_result_line",
+        (
+            f"{RESULT_PREFIX}{{not-json",
+            f"{RESULT_PREFIX}[]",
+            f'{RESULT_PREFIX}{{"schema_version":1,"status":"passed"}}',
+        ),
+    )
+    def test_lidar_odometry_runner_rejects_invalid_result_json(tmp_path: Path, invalid_result_line: str) -> None:
+        # Given: a demo that exits successfully but emits an invalid structured result.
+        workspace = create_fake_workspace(tmp_path)
+    
+        # When: the runner extracts the one prefixed line.
+        result = run_runner(workspace, extra_environment={"FAKE_RESULT_LINE": invalid_result_line})
+    
+        # Then: it fails closed and retains only the unaccepted candidate as evidence.
+        assert result.returncode != 0
+>       evidence = evidence_directory(workspace)
+
+tools/test_lidar_odometry_accuracy_demo_runner.py:219: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/test_lidar_odometry_accuracy_demo_runner.py:102: in evidence_directory
+    directories = list((workspace.root / ".omo" / "evidence" / "lidar-odometry").iterdir())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_rej2/workspace/.omo/evidence/lidar-odometry')
+
+    def iterdir(self):
+        """Yield path objects of the directory contents.
+    
+        The children are yielded in arbitrary order, and the
+        special entries '.' and '..' are not included.
+        """
+>       for name in os.listdir(self):
+E       FileNotFoundError: [Errno 2] No such file or directory: '/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_rej2/workspace/.omo/evidence/lidar-odometry'
+
+/usr/lib/python3.12/pathlib.py:1058: FileNotFoundError
+_ test_lidar_odometry_runner_rejects_invalid_result_json[ODOMETRY_ACCURACY_RESULT={"schema_version":1,"status":"passed"}] _
+
+tmp_path = PosixPath('/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_rej3')
+invalid_result_line = 'ODOMETRY_ACCURACY_RESULT={"schema_version":1,"status":"passed"}'
+
+    @pytest.mark.parametrize(
+        "invalid_result_line",
+        (
+            f"{RESULT_PREFIX}{{not-json",
+            f"{RESULT_PREFIX}[]",
+            f'{RESULT_PREFIX}{{"schema_version":1,"status":"passed"}}',
+        ),
+    )
+    def test_lidar_odometry_runner_rejects_invalid_result_json(tmp_path: Path, invalid_result_line: str) -> None:
+        # Given: a demo that exits successfully but emits an invalid structured result.
+        workspace = create_fake_workspace(tmp_path)
+    
+        # When: the runner extracts the one prefixed line.
+        result = run_runner(workspace, extra_environment={"FAKE_RESULT_LINE": invalid_result_line})
+    
+        # Then: it fails closed and retains only the unaccepted candidate as evidence.
+        assert result.returncode != 0
+>       evidence = evidence_directory(workspace)
+
+tools/test_lidar_odometry_accuracy_demo_runner.py:219: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tools/test_lidar_odometry_accuracy_demo_runner.py:102: in evidence_directory
+    directories = list((workspace.root / ".omo" / "evidence" / "lidar-odometry").iterdir())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_rej3/workspace/.omo/evidence/lidar-odometry')
+
+    def iterdir(self):
+        """Yield path objects of the directory contents.
+    
+        The children are yielded in arbitrary order, and the
+        special entries '.' and '..' are not included.
+        """
+>       for name in os.listdir(self):
+E       FileNotFoundError: [Errno 2] No such file or directory: '/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_rej3/workspace/.omo/evidence/lidar-odometry'
+
+/usr/lib/python3.12/pathlib.py:1058: FileNotFoundError
+__ test_lidar_odometry_runner_explains_missing_overlay_when_build_is_skipped ___
+
+tmp_path = PosixPath('/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_exp0')
+
+    def test_lidar_odometry_runner_explains_missing_overlay_when_build_is_skipped(tmp_path: Path) -> None:
+        # Given: an already-skipped build whose expected install overlay is absent.
+        workspace = create_fake_workspace(tmp_path)
+        (workspace.root / "ros2_ws" / "install" / "setup.bash").unlink()
+    
+        # When: the runner is asked not to rebuild the workspace.
+        result = run_runner(workspace, extra_environment={"ED_ODOMETRY_DEMO_SKIP_BUILD": "1"})
+    
+        # Then: it exits before ROS preflight with a stable reason and remediation.
+        assert result.returncode != 0
+>       assert "rerun without ED_ODOMETRY_DEMO_SKIP_BUILD=1" in result.stderr
+E       AssertionError: assert 'rerun without ED_ODOMETRY_DEMO_SKIP_BUILD=1' in '/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_exp0/workspace/tools/run_lidar_odometry_accuracy_demo.s...pt/ros/humble/setup.bash: No such file or directory\nROS 2 Humble setup is unavailable at /opt/ros/humble/setup.bash\n'
+E        +  where '/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_exp0/workspace/tools/run_lidar_odometry_accuracy_demo.s...pt/ros/humble/setup.bash: No such file or directory\nROS 2 Humble setup is unavailable at /opt/ros/humble/setup.bash\n' = CompletedProcess(args=['/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_exp0/workspace/tools/run_lidar_o...t/ros/humble/setup.bash: No such file or directory\nROS 2 Humble setup is unavailable at /opt/ros/humble/setup.bash\n').stderr
+
+tools/test_lidar_odometry_accuracy_demo_runner.py:235: AssertionError
+_ test_lidar_odometry_runner_postprocesses_demo_interrupt_without_orphaning_it _
+
+tmp_path = PosixPath('/tmp/pytest-of-shm-white/pytest-30/test_lidar_odometry_runner_pos0')
+
+    def test_lidar_odometry_runner_postprocesses_demo_interrupt_without_orphaning_it(tmp_path: Path) -> None:
+        # Given: a foreground fake demo that publishes an interrupted result only after SIGINT.
+        workspace = create_fake_workspace(tmp_path)
+        demo_pid_file = workspace.root / "demo.pid"
+        environment = {
+            **os.environ,
+            "FAKE_RUNTIME_LOG": str(workspace.log),
+            "FAKE_DEMO_PID": str(demo_pid_file),
+            "FAKE_DEMO_WAIT_FOR_INT": "1",
+            "FAKE_INTERRUPT_RESULT_LINE": (
+                f'{RESULT_PREFIX}{{"input_topic":"/localization/odom","interpretation":"relative behavior",'
+                '"metrics":null,"rejected_count":0,"sample_count":0,"schema_version":1,'
+                '"status":"INTERRUPTED","trial":"stationary"}'
+            ),
+            "PATH": f"{workspace.root / 'fake-bin'}:{os.environ['PATH']}",
+        }
+        runner = subprocess.Popen(
+            [str(workspace.runner)],
+            cwd=workspace.root,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        demo_pid: int | None = None
+        try:
+            for _ in range(100):
+                if demo_pid_file.is_file():
+                    demo_pid = int(demo_pid_file.read_text(encoding="utf-8"))
+                    break
+                time.sleep(0.02)
+>           assert demo_pid is not None, "fake demo did not start"
+E           AssertionError: fake demo did not start
+E           assert None is not None
+
+tools/test_lidar_odometry_accuracy_demo_runner.py:273: AssertionError
+=========================== short test summary info ============================
+FAILED tools/test_lidar_odometry_accuracy_demo_runner.py::test_lidar_odometry_runner_builds_preflights_and_records_the_default_trial
+FAILED tools/test_lidar_odometry_accuracy_demo_runner.py::test_lidar_odometry_runner_rejects_wrong_topics_before_starting_the_demo
+FAILED tools/test_lidar_odometry_accuracy_demo_runner.py::test_lidar_odometry_runner_preserves_demo_failure_and_rejects_topic_flag_override
+FAILED tools/test_lidar_odometry_accuracy_demo_runner.py::test_lidar_odometry_runner_rejects_invalid_result_json[ODOMETRY_ACCURACY_RESULT={not-json]
+FAILED tools/test_lidar_odometry_accuracy_demo_runner.py::test_lidar_odometry_runner_rejects_invalid_result_json[ODOMETRY_ACCURACY_RESULT=[]]
+FAILED tools/test_lidar_odometry_accuracy_demo_runner.py::test_lidar_odometry_runner_rejects_invalid_result_json[ODOMETRY_ACCURACY_RESULT={"schema_version":1,"status":"passed"}]
+FAILED tools/test_lidar_odometry_accuracy_demo_runner.py::test_lidar_odometry_runner_explains_missing_overlay_when_build_is_skipped
+FAILED tools/test_lidar_odometry_accuracy_demo_runner.py::test_lidar_odometry_runner_postprocesses_demo_interrupt_without_orphaning_it
+8 failed, 1 passed in 2.11s

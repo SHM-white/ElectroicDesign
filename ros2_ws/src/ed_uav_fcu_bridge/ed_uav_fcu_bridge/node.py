@@ -21,7 +21,13 @@ from rclpy.node import Node
 from sensor_msgs.msg import BatteryState
 
 from .actions import CommandKind, CommandRejectedError, CommandRequest, ResultCode
-from .authority import FlightCommandAuthorityError, require_flight_command_authority
+from .authority import (
+    FlightCommandAuthorityError,
+    ProgrammableCapabilityError,
+    capability_trust_from_environment,
+    require_flight_command_authority,
+    require_programmable_capability,
+)
 from .command_validation import goal_rejection_reason
 from .ros_messages import (
     battery_message,
@@ -33,7 +39,13 @@ from .serial_port import ExclusiveSerialPort
 from .session import BridgeConfig, NativeV7Bridge
 from .telemetry import FreshnessPolicy, TelemetrySnapshot
 
-__all__ = ("FcuBridgeNode", "FlightCommandAuthorityError", "require_flight_command_authority")
+__all__ = (
+    "FcuBridgeNode",
+    "FlightCommandAuthorityError",
+    "ProgrammableCapabilityError",
+    "require_flight_command_authority",
+    "require_programmable_capability",
+)
 
 
 class FlightGoalHandle(Protocol):
@@ -61,10 +73,25 @@ class FcuBridgeNode(Node):
         self.declare_parameter("move_speed_cmps", 30)
         self.declare_parameter("enable_experimental_0x32_0x33", False)
         self.declare_parameter("enable_flight_commands", False)
+        self.declare_parameter("enable_programmable_commands", False)
+        self.declare_parameter("programmable_capability_report", "")
+        self.declare_parameter("fcu_device_identity", "")
         commands_enabled = require_flight_command_authority(
             bool(self.get_parameter("enable_flight_commands").value),
             os.environ,
         )
+        programmable_enabled = bool(
+            self.get_parameter("enable_programmable_commands").value
+        )
+        if programmable_enabled:
+            require_programmable_capability(
+                True,
+                capability_trust_from_environment(
+                Path(str(self.get_parameter("programmable_capability_report").value)),
+                str(self.get_parameter("fcu_device_identity").value),
+                os.environ,
+                ),
+            )
         policy = FreshnessPolicy(
             float(self.get_parameter("position_max_age_s").value),
             float(self.get_parameter("aux_status_max_age_s").value),

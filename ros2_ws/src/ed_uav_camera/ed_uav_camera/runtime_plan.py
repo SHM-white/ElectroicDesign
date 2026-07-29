@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing_extensions import assert_never
 
-from .calibration import CalibrationDescriptor, validate_calibration
+from .calibration import CaptureProvenance, CalibrationDescriptor, validate_calibration
 from .identity import CameraBinding, ObservedCamera, bind_observed_cameras
 from .model import CameraRole
 from .profiles import (
@@ -142,7 +142,19 @@ def _parse_calibration(raw_calibration: JsonValue) -> CalibrationDescriptor:
         _nonnegative_integer(raw_calibration.get("captured_at_ns"), "calibration captured_at_ns"),
         _positive_integer(raw_calibration.get("valid_for_ns"), "calibration valid_for_ns"),
         _text(raw_calibration.get("camera_info_url"), "camera_info_url"),
+        _capture_provenance(raw_calibration.get("capture_provenance")),
+        _text(raw_calibration.get("observed_serial"), "calibration observed_serial"),
+        _text(raw_calibration.get("observed_by_id"), "calibration observed_by_id"),
     )
+
+
+def _capture_provenance(raw_provenance: JsonValue) -> CaptureProvenance:
+    if not isinstance(raw_provenance, str):
+        raise RuntimePlanError("calibration capture_provenance must be text")
+    try:
+        return CaptureProvenance(raw_provenance)
+    except ValueError as error:
+        raise RuntimePlanError(f"unsupported calibration provenance {raw_provenance!r}") from error
 
 
 def _validate_observed_serial(binding: CameraBinding, observed_serial: str) -> None:
