@@ -1,42 +1,37 @@
-# YOLO Training and Deployment Runbook
+# YOLO 训练与部署操作手册
 
-> Source: `ml/yolo/` (contract layer), `ros2_ws/src/ed_uav_perception/` (runtime),
+> 来源：`ml/yolo/`（契约层）、`ros2_ws/src/ed_uav_perception/`（运行时）、
 > `THIRD_PARTY_NOTICES.md` (license pinning), `docs/legal/OPEN_SOURCE.md` (release gate).
 
 ---
 
-## 1. Licensing — AGPL-3.0 Obligations
+## 1. 许可，AGPL-3.0 义务
 
-Ultralytics is pinned at:
+Ultralytics 固定为：
 
-| Field | Value |
+| 字段 | 值 |
 |---|---|
 | Repository | `https://github.com/ultralytics/ultralytics.git` |
 | Revision | `7a159ea24ec94c47cf25c75785e0a56e47ba4e7b` |
 | License | **AGPL-3.0-only** |
 | SHA-256 | `0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0` |
 
-### AGPL Implications
+### AGPL 影响
 
-- **Distribution**: If you distribute model weights trained with Ultralytics,
-  you must also distribute the corresponding Ultralytics source code.
-- **Remote access**: If the model is used as a network service (e.g., inference
-  API), the source must be available to users.
-- **Model artifacts**: ONNX/OpenVINO exports are derivative works — they carry
-  the AGPL obligation.
-- **Our mitigation**: The ML environment (`ml/yolo/`) is **isolated** from the
-  ROS process. `ed_uav_perception` does NOT import Ultralytics. Inference uses
-  provider-neutral ONNX/OpenVINO runtimes only.
+- **分发**：如果分发使用 Ultralytics 训练的模型权重，也必须分发对应的 Ultralytics 源代码。
+- **远程访问**：如果模型作为网络服务使用（例如推理 API），必须向用户提供源代码。
+- **模型工件**：ONNX/OpenVINO 导出物是衍生作品，承担 AGPL 义务。
+- **项目措施**：ML 环境（`ml/yolo/`）与 ROS 进程**隔离**。`ed_uav_perception` 不导入 Ultralytics。推理只使用与提供方无关的 ONNX/OpenVINO 运行时。
 
-### Release Gate
+### 发布门槛
 
-Before any distribution of model artifacts, review:
+在分发任何模型工件前，审阅：
 `docs/legal/OPEN_SOURCE.md` — artifact composition, GPL/AGPL conditions,
 modifications, source-offer mechanics, model/dataset licenses.
 
 ---
 
-## 2. Project Layout
+## 2. 项目布局
 
 ```
 ml/yolo/
@@ -46,9 +41,9 @@ ml/yolo/
 │   └── model-manifest.schema.json    # JSON Schema for model manifest
 ├── src/yolo_contract/
 │   ├── __init__.py                   # Public API surface
-│   ├── models.py                     # Frozen dataclasses (DatasetManifest, ModelManifest, etc.)
+│   ├── models.py                     # 冻结数据类（DatasetManifest、ModelManifest 等）
 │   ├── schema.py                     # Strict parsers, split validation
-│   ├── runtime.py                    # Provider-neutral ONNX/OpenVINO protocol
+│   ├── runtime.py                    # 与提供方无关的 ONNX/OpenVINO 协议
 │   ├── cli.py                        # Dry-run CLI (train, validate, export, detect-mock)
 │   ├── errors.py                     # Typed error hierarchy
 │   └── jsonio.py                     # JSON loading + SHA-256 hashing
@@ -58,29 +53,28 @@ ml/yolo/
     └── test_cli.py                   # CLI integration tests
 ```
 
-**No trained weights, dataset files, or actual training scripts exist.** The
-contract layer defines the schema and validation — training execution is future work.
+**不存在训练权重、数据集文件或实际训练脚本。**契约层定义模式和验证，训练执行属于未来工作。
 
 ---
 
-## 3. Dataset Collection
+## 3. 数据集采集
 
-### 3.1 Image Sources
+### 3.1 图像来源
 
-| Source | Use Case | Resolution |
+| 来源 | 用途 | 分辨率 |
 |---|---|---|
 | `/camera/narrow/image_raw` | Narrow-field detections | Per runtime profile |
 | `/camera/wide/image_raw` | Wide-field boundary/localization | Per runtime profile |
 | Manual capture (USB camera) | Offline dataset building | Match target resolution |
 
-### 3.2 Capture Guidelines
+### 3.2 采集指南
 
-- Capture at the **same resolution** as the target runtime mode
-- Include varied lighting (indoor, outdoor, shadow, direct sun)
-- Include varied angles (0°–60° from fronto-parallel)
-- Include partial occlusions (10%–50% of target)
-- Include negative examples (no target visible)
-- Minimum **200 images per class** for initial training
+- 使用与目标运行模式**相同的分辨率**采集
+- 包含不同光照（室内、室外、阴影、直射阳光）
+- 包含不同角度（相对正视方向 0°–60°）
+- 包含部分遮挡（目标的 10%–50%）
+- 包含负样本（看不到目标）
+- 初始训练每类至少 **200 张图像**
 
 ### 3.3 Storage
 
@@ -99,16 +93,15 @@ datasets/
 
 ---
 
-## 4. Labeling Guidelines
+## 4. 标注指南
 
-### 4.1 Tool
+### 4.1 工具
 
-Use [CVAT](https://cvat.ai/) or [Label Studio](https://labelstud.io/) for
-annotation. Export in YOLO format.
+使用 [CVAT](https://cvat.ai/) 或 [Label Studio](https://labelstud.io/) 进行标注。以 YOLO 格式导出。
 
-### 4.2 Bounding Box Rules
+### 4.2 边界框规则
 
-| Rule | Description |
+| 规则 | 描述 |
 |---|---|
 | Tight fit | Box should be 1–2 pixels inside the object boundary |
 | Full object | Include the entire object, even if partially occluded |
@@ -116,9 +109,9 @@ annotation. Export in YOLO format.
 | Truncated objects | If >30% visible, label it. If <30%, skip |
 | Overlapping boxes | Allowed — each object gets its own box |
 
-### 4.3 Class Definitions
+### 4.3 类别定义
 
-Define classes in the dataset manifest `class_map`:
+在数据集清单的 `class_map` 中定义类别：
 
 ```json
 {
@@ -130,26 +123,25 @@ Define classes in the dataset manifest `class_map`:
 }
 ```
 
-**Constraint**: Class IDs must be contiguous starting from 0. Class names must
-be lowercase with underscores.
+**约束**：类别 ID 必须从 0 开始连续排列。类别名称必须使用小写字母和下划线。
 
 ---
 
-## 5. Immutable Train/Val/Test Splits
+## 5. 不可变的训练/验证/测试分区
 
-### 5.1 Split Requirements
+### 5.1 分区要求
 
-From `schema.py::load_dataset_manifest()`:
+摘自 `schema.py::load_dataset_manifest()`：
 
-| Requirement | Enforcement |
+| 要求 | 强制方式 |
 |---|---|
-| All three splits present | `MissingMetadataError` if any split empty |
+| 三个分区均存在 | 任一分区为空则为 `MissingMetadataError` |
 | No cross-split hash overlap | `SplitOverlapError` if SHA-256 appears in multiple splits |
 | No duplicate hashes within split | `DuplicateHashError` |
 | Every sample has license | `MissingMetadataError` |
 | Every sample has SHA-256 | Schema validation failure |
 
-### 5.2 Dataset Manifest Format
+### 5.2 数据集清单格式
 
 ```json
 {
@@ -176,39 +168,39 @@ From `schema.py::load_dataset_manifest()`:
 }
 ```
 
-### 5.3 Validation
+### 5.3 验证
 
 ```bash
-# Validate dataset manifest
+# 验证数据集清单
 cd ml/yolo
 python -m yolo_contract validate --dataset datasets/marker-v1/dataset.json
 ```
 
-The schema parser rejects:
-- Floating revisions (must be SHA-1 pinned)
-- Missing license attribution
-- Split overlap (same image in train AND val)
-- Path traversal in sample URLs
+模式解析器拒绝：
+- 浮动修订版本（必须固定为 SHA-1）
+- 缺少许可证归属信息
+- 分区重叠（同一图像同时位于 train 和 val）
+- 样本 URL 中的路径遍历
 
 ---
 
-## 6. Training Procedure
+## 6. 训练流程
 
-### 6.1 Environment Setup
+### 6.1 环境设置
 
 ```bash
-# Create isolated ML environment (separate from ROS)
+# 创建独立的 ML 环境（与 ROS 分离）
 cd ml/yolo
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[train]"
 ```
 
-This installs Ultralytics (AGPL-3.0) in the isolated `ml/yolo` environment only.
+这只会在独立的 `ml/yolo` 环境中安装 Ultralytics（AGPL-3.0）。
 
-### 6.2 Training Data Config (YOLO format)
+### 6.2 训练数据配置（YOLO 格式）
 
-Create `data.yaml`:
+创建 `data.yaml`：
 
 ```yaml
 path: /absolute/path/to/datasets/marker-v1
@@ -219,10 +211,10 @@ names:
   0: marker
 ```
 
-### 6.3 Training Command
+### 6.3 训练命令
 
 ```bash
-# YOLOv8n (nano) — recommended for Intel i5 inference
+# YOLOv8n（nano），推荐用于 Intel i5 推理
 yolo detect train \
   model=yolov8n.pt \
   data=data.yaml \
@@ -234,7 +226,7 @@ yolo detect train \
   name=marker-v1
 ```
 
-| Parameter | Value | Rationale |
+| 参数 | 值 | 理由 |
 |---|---|---|
 | `model` | `yolov8n.pt` | Nano — fits Intel i5 CPU inference budget |
 | `imgsz` | 640 | Standard YOLO input, matches preprocessing contract |
@@ -242,19 +234,19 @@ yolo detect train \
 | `device` | `cpu` | No GPU on target platform |
 | `epochs` | 100 | Start here; increase if underfitting |
 
-### 6.4 Monitoring
+### 6.4 监控
 
 ```bash
 # TensorBoard
 tensorboard --logdir runs/train
 
-# Or check results
+# 或检查结果
 cat runs/train/marker-v1/results.csv
 ```
 
-### 6.5 Acceptance Criteria
+### 6.5 验收标准
 
-| Metric | Target |
+| 指标 | 目标 |
 |---|---|
 | mAP@50 | ≥ 0.85 |
 | mAP@50-95 | ≥ 0.60 |
@@ -263,11 +255,11 @@ cat runs/train/marker-v1/results.csv
 
 ---
 
-## 7. Model Manifest
+## 7. 模型清单
 
-### 7.1 Manifest Format
+### 7.1 清单格式
 
-After training, create `model-manifest.json`:
+训练后创建 `model-manifest.json`：
 
 ```json
 {
@@ -300,23 +292,23 @@ After training, create `model-manifest.json`:
 }
 ```
 
-### 7.2 Validation
+### 7.2 验证
 
 ```bash
 python -m yolo_contract validate --model model-manifest.json
 ```
 
-Rejects:
-- `training_provider` mismatch with pinned Ultralytics revision
-- Missing or mismatched `dataset_manifest_sha256`
-- Artifact SHA-256 mismatch with actual file
-- Path escape (artifact path outside manifest directory)
+拒绝以下情况：
+- `training_provider` 与固定的 Ultralytics 修订版本不匹配
+- 缺少或不匹配的 `dataset_manifest_sha256`
+- 工件 SHA-256 与实际文件不匹配
+- 路径越界（工件路径位于清单目录之外）
 
 ---
 
-## 8. Export to ONNX / OpenVINO
+## 8. 导出到 ONNX / OpenVINO
 
-### 8.1 ONNX Export
+### 8.1 ONNX 导出
 
 ```bash
 yolo export \
@@ -326,9 +318,9 @@ yolo export \
   simplify=True
 ```
 
-Output: `best.onnx`
+输出：`best.onnx`
 
-### 8.2 OpenVINO Export
+### 8.2 OpenVINO 导出
 
 ```bash
 yolo export \
@@ -337,37 +329,37 @@ yolo export \
   imgsz=640
 ```
 
-Output: `best_openvino_model/` directory with `.xml` + `.bin` files.
+输出：包含 `.xml` + `.bin` 文件的 `best_openvino_model/` 目录。
 
-### 8.3 Intel i5 Optimization
+### 8.3 Intel i5 优化
 
-OpenVINO is preferred for Intel i5 targets:
+对于 Intel i5 目标，优先使用 OpenVINO：
 
 ```bash
-# Install OpenVINO runtime
+# 安装 OpenVINO 运行时
 pip install openvino
 
-# Benchmark
+# 基准测试
 yolo benchmark model=best_openvino_model imgsz=640 device=cpu
 ```
 
-### 8.4 Export Acceptance Criteria
+### 8.4 导出验收标准
 
-| Gate | Criterion |
+| 门槛 | 标准 |
 |---|---|
 | ONNX loads | `onnxruntime.InferenceSession` succeeds |
 | OpenVINO loads | `openvino.Core.compile_model` succeeds |
-| Output shape matches | `[1, num_classes+4, num_anchors]` for YOLOv8 |
+| 输出形状匹配 | YOLOv8 为 `[1, num_classes+4, num_anchors]` |
 | Numerical parity | ONNX output within 1e-4 of PyTorch output on test image |
 | Artifact SHA-256 | Matches `model-manifest.json` `artifact.sha256` |
 
 ---
 
-## 9. ROS Runtime Integration
+## 9. ROS 运行时集成
 
-### 9.1 Provider Architecture
+### 9.1 提供方架构
 
-Source: `ed_uav_perception/provider_interface.py`
+来源：`ed_uav_perception/provider_interface.py`
 
 ```python
 class DetectorProvider(ABC):
@@ -377,13 +369,13 @@ class DetectorProvider(ABC):
     provider_type: str
 ```
 
-| Provider | Status | Import |
+| 提供方 | 状态 | 导入 |
 |---|---|---|
-| `MockDetectorProvider` | ✅ Implemented | None (deterministic mock) |
-| `ONNXDetectorProvider` | ❌ Stub (`NotImplementedError`) | `onnxruntime` |
-| `OpenVINODetectorProvider` | ❌ Stub (`NotImplementedError`) | `openvino` |
+| `MockDetectorProvider` | ✅ 已实现 | 无（确定性模拟） |
+| `ONNXDetectorProvider` | ❌ 存根（`NotImplementedError`） | `onnxruntime` |
+| `OpenVINODetectorProvider` | ❌ 存根（`NotImplementedError`） | `openvino` |
 
-### 9.2 Detection Pipeline
+### 9.2 检测流水线
 
 ```
 /camera/narrow/image_raw
@@ -395,10 +387,10 @@ class DetectorProvider(ABC):
     → Publish Detection2DArray to /perception/detections
 ```
 
-### 9.3 Model Loading (future)
+### 9.3 模型加载（未来）
 
 ```python
-# ONNX provider (to implement)
+# ONNX 提供方（待实现）
 class ONNXDetectorProvider(DetectorProvider):
     def __init__(self, model_path: str, manifest: ModelManifest):
         import onnxruntime as ort
@@ -406,51 +398,49 @@ class ONNXDetectorProvider(DetectorProvider):
         self.manifest = manifest
 
     def detect(self, image: np.ndarray) -> list[Detection2D]:
-        # Preprocess: resize, normalize, transpose to NCHW
-        # Run inference
-        # Postprocess: NMS, scale bboxes to image coords
+        # 预处理：调整大小、归一化、转置为 NCHW
+        # 执行推理
+        # 后处理：NMS，将边界框缩放到图像坐标
         ...
 ```
 
-### 9.4 Key Constraint
+### 9.4 关键约束
 
-**Providers must NOT import Ultralytics in the ROS process.** The ML
-environment is isolated. The ROS process only uses ONNX Runtime or OpenVINO
-Runtime.
+**提供方不得在 ROS 进程中导入 Ultralytics。**ML 环境是隔离的。ROS 进程只使用 ONNX Runtime 或 OpenVINO Runtime。
 
 ---
 
-## 10. CLI Reference
+## 10. CLI 参考
 
 Entry point: `ed-yolo` (maps to `yolo_contract.cli:main`)
 
-**All commands require `--dry-run` — no actual training/export executes.**
+**所有命令都要求 `--dry-run`，不会执行实际训练/导出。**
 
 ```bash
-# Train (dry-run validation only)
+# 训练（仅试运行验证）
 ed-yolo train --dataset dataset.json --model model.json --dry-run
 
-# Validate manifest consistency
+# 验证清单一致性
 ed-yolo validate --dataset dataset.json --model model.json --dry-run
 
-# Export (dry-run validation only)
+# 导出（仅试运行验证）
 ed-yolo export --model model.json --format onnx --output out.onnx --dry-run
 
-# Mock detection (deterministic, no model needed)
+# 模拟检测（确定性执行，无需模型）
 ed-yolo detect-mock --dataset dataset.json --model model.json \
   --image-id FRAME --image-sha256 SHA256 --frame-id camera_narrow_optical_frame
 ```
 
 ---
 
-## 11. Acceptance Criteria Summary
+## 11. 验收标准摘要
 
-| Gate | Criterion | Tool |
+| 门槛 | 标准 | 工具 |
 |---|---|---|
-| Dataset immutability | No split overlap, unique SHA-256s | `schema.py` parser |
-| Model manifest integrity | Artifact SHA-256 matches, provider pin matches | `schema.py` parser |
-| Training quality | mAP@50 ≥ 0.85, mAP@50-95 ≥ 0.60 | `yolo benchmark` |
-| Export correctness | ONNX/OpenVINO loads, output shape matches, numerical parity | Export benchmark |
-| CPU latency | < 100 ms/frame on Intel i5 | `yolo benchmark` |
-| License compliance | AGPL-3.0 source offer ready | `check_third_party.py --strict` |
-| ROS isolation | No Ultralytics import in `ed_uav_perception` | Grep for `ultralytics` in `ros2_ws/src/` |
+| 数据集不可变性 | 无分区重叠，SHA-256 唯一 | `schema.py` 解析器 |
+| 模型清单完整性 | 工件 SHA-256 匹配，提供方固定值匹配 | `schema.py` 解析器 |
+| 训练质量 | mAP@50 ≥ 0.85，mAP@50-95 ≥ 0.60 | `yolo benchmark` |
+| 导出正确性 | ONNX/OpenVINO 可加载，输出形状匹配，数值一致 | 导出基准测试 |
+| CPU 延迟 | Intel i5 上 < 100 ms/帧 | `yolo benchmark` |
+| 许可证合规 | AGPL-3.0 源代码提供已准备 | `check_third_party.py --strict` |
+| ROS 隔离 | `ed_uav_perception` 中无 Ultralytics 导入 | 在 `ros2_ws/src/` 中搜索 `ultralytics` |

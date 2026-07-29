@@ -1,33 +1,23 @@
-# Gazebo Fortress Simulation
+# Gazebo Fortress 仿真
 
-This is a simulation-only path for validating ROS graph wiring, sensor
-transport, localization status, mission orchestration, and the simulator FCU
-action lifecycle. It is not a V7 firmware, HIL, hardware-sensor, or flight
-safety test. The field and mission files are synthetic and blocked from
-competition activation. It is never a substitute for serial hardware.
+这是一条仅用于仿真的路径，用于验证 ROS 图连接、传感器传输、定位状态、任务编排以及仿真器 FCU 动作生命周期。它不是 V7 固件、HIL、硬件传感器或飞行安全测试。场地和任务文件均为合成文件，禁止用于竞赛激活。它始终不能替代串口硬件。
 
-## Interactive GUI
+## 交互式 GUI
 
-From WSLg with `DISPLAY=:0`, `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`, and
-`/mnt/wslg` available:
+在 WSLg 中运行，并确保 `DISPLAY=:0`、`WAYLAND_DISPLAY`、`XDG_RUNTIME_DIR` 和 `/mnt/wslg` 可用：
 
 ```bash
 ./tools/run_gazebo_sim.sh
 ```
 
-This opens Gazebo Fortress and RViz and stays attached until `Ctrl+C`.
+此命令会打开 Gazebo Fortress 和 RViz，并持续附着运行，直到按下 `Ctrl+C`。
 
-## Bounded Smoke
+## 有界冒烟测试
 
 ```bash
 ./tools/run_gazebo_smoke.sh
 ```
 
-The smoke runner starts the headless simulator, checks `/clock`, enables the
-simulator controller, verifies ground-truth odometry, and cleans up the
-process group. Neither path opens serial hardware; the simulator owns
-`/fcu/flight_command` and reports `FcuState.SOURCE_SIMULATOR`.
+冒烟测试运行器会启动无头仿真器，检查 `/clock`，启用仿真控制器，验证真值里程计，并清理进程组。两条路径都不会打开串口硬件；仿真器拥有 `/fcu/flight_command`，并报告 `FcuState.SOURCE_SIMULATOR`。
 
-The simulator uses Gazebo Fortress native multicopter control and motor-model
-systems. It does not claim V7 protocol, HIL timing, real sensor fidelity, or
-flight readiness.
+仿真器使用 Gazebo Fortress 原生多旋翼控制和电机模型系统。它不声称具备 V7 协议、HIL 时序、真实传感器保真度或飞行就绪能力。

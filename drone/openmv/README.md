@@ -1,6 +1,6 @@
 # OpenMV 视觉后端
 
-OpenMV 完成绿色占比和区块编号识别，上位机只接收识别结果，不传图像。
+OpenMV 完成绿色像素占比和区块编号识别，上位机只接收识别结果，不传图像。
 
 ## 先采集数字模板
 
@@ -16,7 +16,7 @@ OpenMV 完成绿色占比和区块编号识别，上位机只接收识别结果�
 
 1. 使用 OpenMV IDE 把 [main.py](main.py) 和 `/templates` 目录保存到 OpenMV 文件系统。
 2. 在 OpenMV IDE 的阈值工具中标定 `GREEN_LAB_THRESHOLD`，再调整 `TEMPLATE_THRESHOLD`。模板误识别时提高阈值，漏识别时降低阈值。
-3. 默认使用 `UART(3)`、115200 baud。按具体 OpenMV 型号确认 UART TX 引脚，将 OpenMV TX 接到上位机 USB-TTL RX，并连接 GND。结果为单向传输，不需要连接上位机 TX。
+3. 默认使用 `UART(3)`、115200 波特率。按具体 OpenMV 型号确认 UART TX 引脚，将 OpenMV TX 接到上位机 USB-TTL RX，并连接 GND。结果为单向传输，不需要连接上位机 TX。
 4. 脱离 IDE 上电运行时，运行脚本必须以 `main.py` 的名字保存在 OpenMV 根目录。
 
 OpenMV 与 USB-TTL 使用 3.3V 逻辑电平。不要把 5V TTL 信号直接接入 OpenMV IO。

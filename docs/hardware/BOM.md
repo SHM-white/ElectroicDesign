@@ -1,6 +1,6 @@
-# Competition BOM
+# 竞赛 BOM
 
-This BOM is a planning inventory, not a mass, power, or flight-readiness claim. `unknown` is deliberately not converted to a measured zero. Values remain per unit; aggregate known totals multiply each known value by quantity. Every row maps to [`BOM.json`](BOM.json).
+本 BOM 是规划清单，不是质量、功率或适航就绪声明。`unknown` 不会被刻意转换为测量值 0。数值均按单件记录；已知汇总值按数量乘以各已知值。每一行均对应 [`BOM.json`](BOM.json)。
 
 | Item | Quantity | Ownership | Procurement status | Spare status | Mass / steady / peak | Connector or interface | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -31,4 +31,4 @@ This BOM is a planning inventory, not a mass, power, or flight-readiness claim. 
 | Known peak power | 0 W across 0 measured line items | [[C-BOM-UNKNOWN]] |
 | Unknown mass / steady / peak line items | 17 / 17 / 17 | [[C-BOM-UNKNOWN]] |
 
-All physical values remain unknown until P24-P29 measurements. The numeric known-value sums are zero only because there are no measured line items, not because any component has zero mass or power. [[C-BOM-UNKNOWN]]
+在完成 P24-P29 测量前，所有实体数值仍为未知。已知数值总和为 0，仅因为没有已测量的行项目，并不表示任何部件的质量或功率为 0。[[C-BOM-UNKNOWN]]

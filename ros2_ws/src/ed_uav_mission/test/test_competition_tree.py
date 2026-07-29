@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from ed_uav_mission import competition_tree
 from ed_uav_mission.competition_tree import (
     CompetitionStep,
     MapPose,
@@ -22,6 +23,17 @@ PROFILE_PATH = (
     / "simulation_arena.yaml"
 )
 COMPETITION_CONFIG = PACKAGE_ROOT / "config" / "missions" / "simulation_competition.yaml"
+
+
+def test_competition_tree_declares_two_immutable_2026_task_branches() -> None:
+    # Given: the competition mission's checked-in branch definitions.
+    branches = getattr(competition_tree, "D_TASK_BRANCHES", None)
+
+    # When/Then: synthetic navigation is replaced by exactly the two D-task branches.
+    assert branches is not None
+    assert tuple(branches) == (1, 2)
+    assert not hasattr(competition_tree.CompetitionStep, "NAVIGATE_FORWARD")
+    assert not hasattr(competition_tree.CompetitionStep, "NAVIGATE_RETURN")
 
 
 def test_competition_tree_has_the_required_terminal_sequence() -> None:
@@ -95,6 +107,49 @@ def test_competition_params_reject_nonfinite_forward_distance() -> None:
     # Then: model parsing rejects it before execution.
     with pytest.raises(pydantic.ValidationError):
         CompetitionParams(forward_distance_m=math.inf)
+
+
+def test_d_task_profile_fixes_2026_altitude_stability_and_deadline() -> None:
+    # Given: a parsed competition profile for the immutable 2026 branches.
+    from ed_uav_mission.mission_config import parse_mission_config_text
+
+    config = parse_mission_config_text(COMPETITION_CONFIG.read_text(encoding="utf-8"))
+
+    # When/Then: branch-critical values and selection identifiers are explicit.
+    assert config.takeoff_altitude_m == 1.5
+    assert config.timeout_sec == 90.0
+    assert config.competition.stable_sec == 3.0
+    assert config.competition.mission_profile_id == "d2026-simulation"
+    assert config.competition.deployment_preset_id == "simulation"
+    assert config.competition.target_revision == "d2026-circle-cross-v1"
+
+
+def test_selection_store_commits_once_only_while_pre_arm() -> None:
+    # Given: the shared D-task model and one valid pre-arm selection.
+    from ed_uav_mission import d_task_model
+
+    store_type = getattr(d_task_model, "SelectionStore", None)
+    assert store_type is not None
+    store = store_type()
+    selection = d_task_model.DTaskSelection(
+        mission_id="simulation-competition",
+        mission_profile_id="d2026-simulation",
+        deployment_preset_id="simulation",
+        target_revision="d2026-circle-cross-v1",
+        task=d_task_model.DTaskKind.PAYLOAD_DROP,
+        committed_at_s=1.0,
+    )
+
+    # When: the same run attempts a second selection and an armed selection.
+    first = store.commit(selection, pre_arm=True)
+    duplicate = store.commit(selection, pre_arm=True)
+    armed = store_type().commit(selection, pre_arm=False)
+
+    # Then: only the original immutable selection is retained.
+    assert first.accepted is True
+    assert duplicate.accepted is False
+    assert armed.accepted is False
+    assert store.selection is selection
 
 
 def test_empty_planner_path_is_rejected_before_any_move_goal() -> None:

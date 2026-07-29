@@ -61,3 +61,59 @@ def test_node_consumes_typed_camera_and_vehicle_context() -> None:
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
+
+def test_node_publishes_rejected_dimensions_over_ros_topic() -> None:
+    # Given
+    import time
+
+    import pytest
+    import rclpy
+    from ed_uav_interfaces.msg import TargetObservation
+    from ed_uav_perception.target_observation_node import TargetObservationNode
+    from rclpy.node import Node
+    from rclpy.qos import qos_profile_sensor_data
+    from sensor_msgs.msg import Image
+
+    rclpy.init()
+    producer = TargetObservationNode()
+    probe = Node("rejected_target_observation_probe")
+    received: list[TargetObservation] = []
+    subscription = probe.create_subscription(
+        TargetObservation,
+        "/d_task/target_observation",
+        received.append,
+        qos_profile_sensor_data,
+    )
+    try:
+        discovery_deadline = time.monotonic() + 2.0
+        while (
+            producer._publisher.get_subscription_count() == 0
+            and time.monotonic() < discovery_deadline
+        ):
+            rclpy.spin_once(probe, timeout_sec=0.05)
+            rclpy.spin_once(producer, timeout_sec=0.05)
+        assert producer._publisher.get_subscription_count() == 1
+        image = Image()
+        image.header.frame_id = "camera_optical"
+        image.header.stamp = producer.get_clock().now().to_msg()
+
+        # When
+        producer._image_callback(image)
+        receipt_deadline = time.monotonic() + 2.0
+        while not received and time.monotonic() < receipt_deadline:
+            rclpy.spin_once(probe, timeout_sec=0.05)
+
+        # Then
+        assert len(received) == 1
+        message = received[0]
+        assert message.valid is False
+        assert message.rejection_reason == "uncalibrated"
+        assert message.outer_diameter_m == pytest.approx(0.50)
+        assert message.inner_diameter_m == pytest.approx(0.30)
+        assert message.line_width_m == pytest.approx(0.020)
+    finally:
+        probe.destroy_subscription(subscription)
+        probe.destroy_node()
+        producer.destroy_node()
+        rclpy.shutdown()

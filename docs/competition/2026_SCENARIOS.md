@@ -1,14 +1,14 @@
-# 2026 Scenario Envelope
+# 2026 场景范围
 
-This is an adaptation envelope, not a guessed task implementation. `confirmed-context` means the local official 2026 equipment notice supports component availability, but the notice is not a released task rule. `unknown` remains a hard gate.
+本文是适配范围，不是猜测性赛题实现。`confirmed-context` 表示本地官方 2026 年器材通知支持相关部件可用，但该通知不是已发布的赛题规则。`unknown` 仍是硬门槛。
 
 | Class | Fact or decision | Consequence | Evidence |
 | --- | --- | --- | --- |
-| Confirmed context | The stored official 2026-07-21 equipment notice lists a camera, short-range wireless communication, and wireless image transmission | retain camera and wireless paths without treating the equipment list as a task rule | [[C-2026-CAMERA-WIRELESS]] |
-| Confirmed context | A laptop ground-station dependency is imprudent; a comparable 2025 task explicitly required embedded controls/display and prohibited a PC | scored flow uses embedded display, buttons, and onboard compute | [[C-2026-NO-LAPTOP]] |
-| Inferred | Coverage, inspection, recognition, target visit, and air-ground reporting are reusable capability families | select a mission plugin only after rules define the arena | [[C-HIST-2021]] |
-| Inferred | A vehicle and payload are useful only for air-ground or delivery/fire variants | keep both as disabled scenario-gated BOM items | [[C-HIST-2022]] |
-| Unknown | Lidar permission, required sensing modality, field dimensions, scoring, vehicle, and payload rules | do not mark lidar allowed or procure story-specific hardware | [[C-2026-LIDAR]] |
-| Rejected input | The local `2026电赛控制类猜题.pdf` is titled as a guess and contains its own disclaimer | do not classify it as official or derive requirements from it | [[C-2026-GUESS-REJECTED]] |
+| 已确认背景 | 存档的官方 2026-07-21 器材通知列出摄像头、短距离无线通信和无线图像传输 | 保留摄像头和无线链路，但不把器材清单当作赛题规则 | [[C-2026-CAMERA-WIRELESS]] |
+| 已确认背景 | 依赖笔记本地面站并不稳妥；相近的 2025 年赛题明确要求嵌入式控制/显示并禁止使用 PC | 计分流程使用嵌入式显示、按键和机载计算 | [[C-2026-NO-LAPTOP]] |
+| 推断 | 覆盖、巡检、识别、目标访问和空地报告是可复用的能力族 | 只有规则定义赛场后，才能选择任务插件 | [[C-HIST-2021]] |
+| 推断 | 车辆和载荷只适用于空地协同或投递/灭火变体 | 两者保留在 BOM 中，但由场景门控并默认禁用 | [[C-HIST-2022]] |
+| 未知 | 激光雷达许可、必需的感知模态、场地尺寸、计分、车辆和载荷规则 | 不得标记为允许使用激光雷达，也不得采购特定故事所需硬件 | [[C-2026-LIDAR]] |
+| 已拒绝输入 | 本地 `2026电赛控制类猜题.pdf` 标题即表明是猜题，并含有自身免责声明 | 不得将其归类为官方资料，也不得据此推导需求 | [[C-2026-GUESS-REJECTED]] |
 
-The equipment notice does not state lidar permission or a required sensing modality. Lidar permission therefore remains unknown and rule-gated; otherwise the camera-only profile remains available. [[C-2026-CAMERA-WIRELESS]] [[C-2026-LIDAR]]
+器材通知没有说明激光雷达是否获准，也没有规定必需的感知模态。因此，激光雷达许可仍属未知，并受规则门控；在此之外，纯摄像头配置仍可用。[[C-2026-CAMERA-WIRELESS]] [[C-2026-LIDAR]]

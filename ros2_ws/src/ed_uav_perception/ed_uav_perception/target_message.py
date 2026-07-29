@@ -72,6 +72,9 @@ def to_target_observation(
     message.candidate_count = observation.candidate_count
     rms = observation.reprojection_rms_px
     message.reprojection_rms_px = rms if math.isfinite(rms) else -1.0
+    message.outer_diameter_m = 0.50
+    message.inner_diameter_m = 0.30
+    message.line_width_m = 0.020
     if isinstance(observation, AcceptedObservation):
         translation = observation.pose.translation_m
         message.valid = True
@@ -88,8 +91,6 @@ def to_target_observation(
         message.confidence = observation.quality
         message.quality = observation.quality
         message.rejection_reason = ""
-        message.outer_diameter_m = 0.50
-        message.inner_diameter_m = 0.30
         message.line_width_m = observation.line_width_m
     else:
         message.valid = False
@@ -97,7 +98,4 @@ def to_target_observation(
         message.confidence = 0.0
         message.quality = 0.0
         message.rejection_reason = observation.reject_reason.value
-        message.outer_diameter_m = 0.0
-        message.inner_diameter_m = 0.0
-        message.line_width_m = 0.0
     return message

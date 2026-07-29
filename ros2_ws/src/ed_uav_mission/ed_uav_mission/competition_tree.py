@@ -2,16 +2,9 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from enum import Enum, auto
+from ed_uav_mission.d_task_model import D_TASK_BRANCHES, DTaskPhase
 
-
-class CompetitionStep(Enum):
-    TAKEOFF = auto()
-    HOVER = auto()
-    NAVIGATE_FORWARD = auto()
-    NAVIGATE_RETURN = auto()
-    LAND = auto()
-    DISARM = auto()
+CompetitionStep = DTaskPhase
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,11 +30,10 @@ class MoveGoal:
 def competition_sequence() -> tuple[CompetitionStep, ...]:
     return (
         CompetitionStep.TAKEOFF,
-        CompetitionStep.HOVER,
-        CompetitionStep.NAVIGATE_FORWARD,
-        CompetitionStep.NAVIGATE_RETURN,
-        CompetitionStep.LAND,
-        CompetitionStep.DISARM,
+        CompetitionStep.STABILIZING,
+        CompetitionStep.ACQUIRING,
+        CompetitionStep.RETURNING_HOME,
+        CompetitionStep.LANDING_HOME,
     )
 
 

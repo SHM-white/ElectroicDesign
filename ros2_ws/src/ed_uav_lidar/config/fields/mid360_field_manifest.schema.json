@@ -10,7 +10,7 @@
     "firmware": {"type": "string", "minLength": 1},
     "driver_json": {"type": "string", "minLength": 1},
     "extrinsics": {"type": "string", "minLength": 1},
-    "fast_lio_launch": {"type": "string", "minLength": 1}
+    "fast_lio_launch": {"const": "fast_lio.launch.py"}
   },
   "additionalProperties": true
 }

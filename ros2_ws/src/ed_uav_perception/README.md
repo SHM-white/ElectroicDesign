@@ -1,22 +1,17 @@
-# ED UAV perception
+# ED UAV 感知
 
-`target_observation_node` consumes `/camera/narrow/image_raw`, matching
-`CameraInfo`, and `/d_task/vehicle/telemetry`. It detects only the frozen
-`d2026-circle-cross-v1` geometry, uses raw distorted pixels with raw `K/D`, and
-publishes typed valid or rejected observations on `/d_task/target_observation`.
+`target_observation_node` 消费 `/camera/narrow/image_raw`、匹配的 `CameraInfo` 和
+`/d_task/vehicle/telemetry`。它只检测冻结的 `d2026-circle-cross-v1` 几何图形，使用带原始 `K/D`
+的原始畸变像素，并在 `/d_task/target_observation` 上发布带类型的有效或拒绝观测。
 
-Launch it directly with `ros2 launch ed_uav_perception
-target_observation.launch.py`. Camera and vehicle topic arguments are
-remappable from the same launch command.
+使用 `ros2 launch ed_uav_perception target_observation.launch.py` 直接启动。
+相机和飞行器话题参数可通过同一启动命令重新映射。
 
-The target is fourfold symmetric. `VehicleTelemetry.heading_rad` and signed
-`yaw_rate_rad_s` predict heading at image acquisition; a fresh retained prior
-also bounds temporal jumps. Missing disambiguation, calibration, freshness, or
-geometry publishes a typed rejection instead of selecting a pose.
+目标具有四重对称性。`VehicleTelemetry.heading_rad` 和带符号的 `yaw_rate_rad_s` 用于预测图像采集时的航向；
+保留的新鲜先验也会限制时间跳变。缺少消歧信息、标定、新鲜度或几何信息时，会发布带类型的拒绝结果，
+而不是选择一个位姿。
 
-Every processed image publishes validity/status, candidate count, reprojection
-RMS, quality, covariance policy, and a bounded rejection reason. Diagnostic
-parameters mirror the latest typed message.
+每张处理后的图像都会发布有效性/状态、候选数量、重投影 RMS、质量、协方差策略和有界的拒绝原因。
+诊断参数与最新的带类型消息保持一致。
 
-Synthetic tests and driver artifacts characterize software behavior only;
-they are not physical camera or flight-accuracy evidence.
+合成测试和驱动产物仅用于描述软件行为；它们不是物理相机或飞行精度证据。

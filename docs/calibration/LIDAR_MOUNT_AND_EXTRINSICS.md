@@ -1,18 +1,16 @@
-# Lidar Mount and Extrinsics
+# 激光雷达安装与外参
 
-> **Status**: Contract defined, hardware pending (Task 24)
-> **Owner**: `ed_uav_lidar`, `ed_uav_description`
-> **Sensor**: Livox Mid-360
+> **状态**：契约已定义，硬件待完成（Task 24）
+> **所有者**：`ed_uav_lidar`、`ed_uav_description`
+> **传感器**：Livox Mid-360
 
 ---
 
-## 1. Overview
+## 1. 概述
 
-This document specifies the physical mounting, coordinate frames, time
-synchronization, and extrinsic calibration requirements for the Livox Mid-360
-lidar on the ED UAV platform.
+本文规定 ED UAV 平台 Livox Mid-360 激光雷达的物理安装、坐标系、时间同步和外参标定要求。
 
-### Current State
+### 当前状态
 
 | Component | File | Status |
 |---|---|---|
@@ -30,9 +28,9 @@ lidar on the ED UAV platform.
 
 ---
 
-## 2. Mid-360 Mounting Requirements
+## 2. Mid-360 安装要求
 
-### 2.1 Physical Mount
+### 2.1 物理安装
 
 | Requirement | Specification | Rationale |
 |---|---|---|
@@ -44,15 +42,15 @@ lidar on the ED UAV platform.
 | Payload | No payload attached to sensor body | Vibration isolation |
 | Vibration | Rigid mount preferred | Signal quality |
 
-### 2.2 Mounting Location
+### 2.2 安装位置
 
-The Mid-360 should be mounted:
+Mid-360 应安装：
 - At the center of mass (CoM) or as close as possible
 - Above the propeller plane to minimize occlusion
 - Away from motors and ESCs to reduce EMI
 - With clear line of sight below for ground detection
 
-### 2.3 Heat Management
+### 2.3 热管理
 
 | Parameter | Value | Source |
 |---|---|---|
@@ -61,8 +59,8 @@ The Mid-360 should be mounted:
 | Shell temperature limit | ≤70°C | Mid-360 datasheet |
 | Thermal throttling | None (sensor continues at reduced accuracy) | Mid-360 datasheet |
 
-The heat spreader must dissipate 14W peak without exceeding 70°C shell
-temperature. Monitor with onboard temperature sensor during extended runs.
+散热板必须在峰值 14W 时仍能散热，且外壳温度不得超过 70°C。长时间运行时使用板载
+温度传感器监测。
 
 From `ed_uav_lidar/config/lidar.yaml`:
 
@@ -74,17 +72,17 @@ From `ed_uav_lidar/config/lidar.yaml`:
 
 ---
 
-## 3. FOV and Occlusion Analysis
+## 3. FOV 和遮挡分析
 
 ### 3.1 Mid-360 FOV
 
-The Mid-360 has a **360° × 59°** FOV:
+Mid-360 的 FOV 为 **360° × 59°**：
 - Horizontal: 360° (full rotation)
 - Vertical: 59° (29.5° above and below horizontal)
 
-### 3.2 Occlusion Requirements
+### 3.2 遮挡要求
 
-Occlusion analysis must verify:
+遮挡分析必须验证：
 
 | Requirement | Threshold | Verification |
 |---|---|---|
@@ -93,7 +91,7 @@ Occlusion analysis must verify:
 | Landing gear occlusion | No persistent occlusion | Dynamic analysis |
 | Camera body intrusion | Outside lidar FOV | CAD analysis |
 
-### 3.3 Occlusion Sources
+### 3.3 遮挡来源
 
 | Source | Risk | Mitigation |
 |---|---|---|
@@ -103,7 +101,7 @@ Occlusion analysis must verify:
 | Wiring | Low | Route away from FOV |
 | Frame arms | Medium (depends on design) | Minimize arm thickness |
 
-### 3.4 FOV Verification Procedure
+### 3.4 FOV 验证流程
 
 1. Mount sensor on airframe
 2. Place airframe on level surface
@@ -114,9 +112,9 @@ Occlusion analysis must verify:
 
 ---
 
-## 4. Coordinate Frames
+## 4. 坐标系
 
-### 4.1 TF Tree Structure
+### 4.1 TF 树结构
 
 From `ros2_contract_manifest.json`:
 
@@ -128,10 +126,9 @@ map → odom → base_link → lidar_link
                      └── rangefinder_link
 ```
 
-### 4.2 Static Frames
+### 4.2 静态坐标系
 
-All `base_link → *` transforms are static and published by
-`robot_state_publisher` from the calibration YAML.
+所有 `base_link → *` 变换都是静态变换，由 `robot_state_publisher` 根据标定 YAML 发布。
 
 From `ros2_contract_manifest.json`:
 
@@ -147,14 +144,14 @@ From `ros2_contract_manifest.json`:
 }
 ```
 
-### 4.3 Dynamic Frames
+### 4.3 动态坐标系
 
 | Edge | Publisher | Topic |
 |---|---|---|
 | `map → odom` | `ed_uav_localization.field_anchor` | `/tf_static` |
 | `odom → base_link` | `ed_uav_localization.source_supervisor` | `/tf` |
 
-### 4.4 URDF Definition
+### 4.4 URDF 定义
 
 From `ed_uav_description/urdf/ed_uav.urdf.xacro`:
 
@@ -172,9 +169,9 @@ YAML during launch.
 
 ---
 
-## 5. lidar_link Transform
+## 5. lidar_link 变换
 
-### 5.1 Calibration YAML Format
+### 5.1 标定 YAML 格式
 
 From `ed_uav_description/config/synthetic_calibrated.yaml`:
 
@@ -195,14 +192,14 @@ transforms:
   rangefinder_link: {xyz_m: [0.0, 0.0, -0.06], rpy_rad: [0.0, 0.0, 0.0]}
 ```
 
-### 5.2 Transform Fields
+### 5.2 变换字段
 
 | Field | Type | Description |
 |---|---|---|
 | `xyz_m` | [x, y, z] | Position offset from `base_link` in meters |
 | `rpy_rad` | [roll, pitch, yaw] | Orientation offset in radians |
 
-### 5.3 Standard Mount Values
+### 5.3 标准安装值
 
 For a standard bottom-surface mount with laser pointing down:
 
@@ -212,7 +209,7 @@ For a standard bottom-surface mount with laser pointing down:
 | `fcu_link` | [0.0, 0.0, 0.0] | [0.0, 0.0, 0.0] | At CoM |
 | `rangefinder_link` | [0.0, 0.0, -0.06] | [0.0, 0.0, 0.0] | 6cm below CoM |
 
-### 5.4 Calibration Procedure
+### 5.4 标定流程
 
 1. Mount sensor rigidly on airframe
 2. Measure physical offset from `base_link` origin to sensor center
@@ -237,9 +234,9 @@ FRAME_NAMES: Final = (
 
 ---
 
-## 6. PTP/Time Synchronization
+## 6. PTP/时间同步
 
-### 6.1 Time Authority Modes
+### 6.1 时间权威模式
 
 From `ed_uav_lidar/config.py`:
 
@@ -257,7 +254,7 @@ class TimeAuthority(str, Enum):
 **Note**: Neither mode claims measured synchronization. Both report UNVERIFIED
 status until hardware validation (Task 24).
 
-### 6.2 PTP Configuration
+### 6.2 PTP 配置
 
 The Mid-360 supports PTPv2 (IEEE 1588) for time synchronization.
 
@@ -269,7 +266,7 @@ From `ed_uav_lidar/config/lidar.yaml`:
     time_authority: host  # or ptp
 ```
 
-### 6.3 PTP Setup Requirements
+### 6.3 PTP 设置要求
 
 To enable PTP:
 
@@ -284,7 +281,7 @@ sudo ptp4l -i eth0 -m -S &
 sudo phc2sys -s eth0 -c CLOCK_REALTIME -w &
 ```
 
-### 6.4 Time Verification
+### 6.4 时间验证
 
 From `ed_uav_lidar/health.py`:
 
@@ -313,9 +310,9 @@ Health states:
 
 ---
 
-## 7. Driver Configuration
+## 7. 驱动配置
 
-### 7.1 Lidar Config
+### 7.1 激光雷达配置
 
 From `ed_uav_lidar/config/lidar.yaml`:
 
@@ -334,7 +331,7 @@ From `ed_uav_lidar/config/lidar.yaml`:
     fastlio_custom_topic: /livox/lidar
 ```
 
-### 7.2 Mid-360 Driver JSON
+### 7.2 Mid-360 驱动 JSON
 
 From `ed_uav_lidar/config/mid360_driver.json`:
 
@@ -373,7 +370,7 @@ From `ed_uav_lidar/config/mid360_driver.json`:
 }
 ```
 
-### 7.3 Field Configuration Gate
+### 7.3 现场配置门控
 
 From `ed_uav_lidar/config.py`:
 
@@ -397,7 +394,7 @@ def _field_check(config: LidarConfig) -> FieldCheck:
     return FieldCheck(ready=not missing, missing=missing)
 ```
 
-The system refuses to start the Livox driver until:
+在以下条件满足前，系统拒绝启动 Livox 驱动：
 - `serial_number` is not `UNSET`
 - `sensor_ip` is not `0.0.0.0`
 - `firmware_version` is not `UNSET`
@@ -405,9 +402,9 @@ The system refuses to start the Livox driver until:
 
 ---
 
-## 8. Launch Flow
+## 8. 启动流程
 
-### 8.1 Launch Plan
+### 8.1 启动计划
 
 From `ed_uav_lidar/launch_plan.py`:
 
@@ -454,7 +451,7 @@ def build_launch_plan(config: LidarConfig) -> LaunchPlan:
             )
 ```
 
-### 8.2 Data Flow
+### 8.2 数据流
 
 ```
 Livox Mid-360 (hardware)
@@ -466,7 +463,7 @@ Livox Mid-360 (hardware)
      → [IMU health monitoring]
 ```
 
-### 8.3 Topic Ownership
+### 8.3 主题所有权
 
 From `ros2_contract_manifest.json`:
 
@@ -485,7 +482,7 @@ From `ros2_contract_manifest.json`:
 
 ---
 
-## 9. Point Cloud Normalization
+## 9. 点云规范化
 
 ### 9.1 Mid-360 CustomMsg
 
@@ -504,7 +501,7 @@ class LivoxPoint(Protocol):
     line: int
 ```
 
-### 9.2 Normalization
+### 9.2 规范化
 
 The `mid360_adapter` converts Livox CustomMsg to standard PointCloud2:
 
@@ -518,7 +515,7 @@ fields = (
 )
 ```
 
-### 9.3 Timing Validation
+### 9.3 时间验证
 
 From `ed_uav_lidar/contracts.py`:
 
@@ -543,11 +540,11 @@ Error conditions:
 
 ---
 
-## 10. Vibration Testing
+## 10. 振动测试
 
-### 10.1 Pre-Flight Verification
+### 10.1 飞行前验证
 
-Before first flight, verify:
+首次飞行前必须验证：
 
 | Test | Duration | Criteria |
 |---|---|---|
@@ -555,7 +552,7 @@ Before first flight, verify:
 | Motor test | 60 seconds | Point cloud density stable, IMU noise increase <2× static |
 | Flight test | 30 seconds | LIO converges within 5s, no divergence, drift ≤5 cm |
 
-### 10.2 Static Test
+### 10.2 静态测试
 
 1. Place airframe on level surface
 2. Motors off
@@ -565,7 +562,7 @@ Before first flight, verify:
    - IMU noise (accelerometer/gyroscope variance)
    - Spurious points from vibration
 
-### 10.3 Motor Test
+### 10.3 电机测试
 
 1. Place airframe on level surface
 2. Motors at hover throttle (50%)
@@ -575,7 +572,7 @@ Before first flight, verify:
    - Vibration-induced artifacts
    - IMU noise increase (should be <2× static baseline)
 
-### 10.4 Flight Test
+### 10.4 飞行测试
 
 1. Hover at 1 meter for 30 seconds
 2. Analyze:
@@ -585,7 +582,7 @@ Before first flight, verify:
 
 ---
 
-## 11. Acceptance Criteria
+## 11. 验收标准
 
 From Task 24 (hardware gate):
 
@@ -604,7 +601,7 @@ From Task 24 (hardware gate):
 
 ---
 
-## 12. References
+## 12. 参考资料
 
 - Livox Mid-360 official user manual and specs
 - `ed_uav_lidar/config/lidar.yaml` — Lidar ROS parameters

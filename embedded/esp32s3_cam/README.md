@@ -1,28 +1,24 @@
-# ESP32S3-Cam I2C reference
+# ESP32S3-Cam I2C 参考
 
-This project implements the documented ESP32S3-Cam I2C register interface
-without vendor camera or inference code. Both firmware profiles return four
-zero bytes until a separately licensed detection producer calls the native
-service API.
+此项目实现已记录的 ESP32S3-Cam I2C 寄存器接口，不包含厂商摄像头或推理代码。在
+单独获得许可的检测生产者调用原生服务 API 之前，两个固件配置都返回四个零字节。
 
-## Protocol
+## 协议
 
-- Slave address: `0x52`
-- SDA: GPIO47
-- SCL: GPIO48
-- Bus frequency: 100000 Hz
-- Receive behavior: the final received byte selects the register
-- Response: exactly four unsigned bytes in `center_x`, `center_y`, `width`,
-  `length` order
+- 从机地址：`0x52`
+- SDA：GPIO47
+- SCL：GPIO48
+- 总线频率：100000 Hz
+- 接收行为：最后接收的字节选择寄存器
+- 响应：严格按 `center_x`、`center_y`、`width`、`length` 顺序返回四个无符号字节
 
-The `color_detection_reference` profile exposes red at register `0x00` and
-blue at register `0x01`. The `face_detection_reference` profile exposes face
-data at register `0x01`. Initial and no-detection values are `0, 0, 0, 0`.
-Profiles are fixed at compile time and cannot be switched at runtime.
+`color_detection_reference` 配置在寄存器 `0x00` 暴露红色数据，在寄存器 `0x01`
+暴露蓝色数据。`face_detection_reference` 配置在寄存器 `0x01` 暴露人脸数据。初始
+值和未检测到目标时的值为 `0, 0, 0, 0`。配置在编译时固定，不能在运行时切换。
 
-## Native tests
+## 原生测试
 
-From WSL, configure and run the project-focused C++17 tests with:
+在 WSL 中使用以下命令配置并运行项目专用的 C++17 测试：
 
 ```bash
 cmake -S embedded/esp32s3_cam -B /tmp/ed-esp32s3-cam -G Ninja \
@@ -31,22 +27,20 @@ cmake --build /tmp/ed-esp32s3-cam
 ctest --test-dir /tmp/ed-esp32s3-cam --output-on-failure
 ```
 
-The production core and core contract test do not include Arduino or Wire
-headers. A separate native adapter contract target compiles the production
-adapter against a minimal local ESP32 Wire API stub and verifies `slaveWrite`,
-callback registration, hardware constants, and the exact four-byte response.
+生产核心和核心契约测试不包含 Arduino 或 Wire 头文件。单独的原生适配器契约目标会
+使用本地最小 ESP32 Wire API 存根编译生产适配器，并验证 `slaveWrite`、回调注册、
+硬件常量以及严格的四字节响应。
 
-## Arduino firmware
+## Arduino 固件
 
-PlatformIO defines two independent ESP32-S3 Arduino environments:
+PlatformIO 定义两个相互独立的 ESP32-S3 Arduino 环境：
 
 ```bash
 pio run -e color_detection_reference
 pio run -e face_detection_reference
 ```
 
-Both environments explicitly compile as GNU++17 with `-Wall`, `-Wextra`,
-`-Werror`, and `-pedantic` after removing PlatformIO's GNU++11 default.
+移除 PlatformIO 默认的 GNU++11 后，两个环境都明确使用 GNU++17，并启用 `-Wall`、
+`-Wextra`、`-Werror` 和 `-pedantic` 编译。
 
-PlatformIO is not required for the native tests. Firmware builds were not run
-as part of this reference implementation when PlatformIO was unavailable.
+原生测试不需要 PlatformIO。PlatformIO 不可用时，本参考实现不会运行固件构建。

@@ -1,6 +1,6 @@
-# Camera Calibration Runbook
+# 相机标定运行手册
 
-> Status: **Selected-camera chessboard bootstrap implemented.**
+> 状态：**已实现选定相机棋盘格引导流程。**
 > `tools/calibration/calibrate_chessboard.py` opens one stable V4L2 by-id device
 > directly, before the calibration-gated ROS launch. It also accepts a recorded
 > video for deterministic verification, but recorded and synthetic outputs are
@@ -9,9 +9,9 @@
 
 ---
 
-## 1. Overview
+## 1. 概述
 
-The system uses two monocular UVC cameras (narrow and wide). Each requires:
+系统使用两个单目 UVC 相机（窄视场和宽视场）。每个相机都需要：
 
 1. **Intrinsic calibration** — camera matrix `K` and distortion coefficients `D`
    consumed by `ed_uav_perception/rectifier.py`
@@ -20,7 +20,7 @@ The system uses two monocular UVC cameras (narrow and wide). Each requires:
 3. **Body extrinsics** — `base_link → camera_*_optical_frame` transforms in the
    calibration YAML consumed by `ed_uav_description`
 
-### Current State (what exists)
+### 当前状态（已有内容）
 
 | Component | File | Status |
 |---|---|---|
@@ -35,15 +35,14 @@ The system uses two monocular UVC cameras (narrow and wide). Each requires:
 | Reprojection overlays | artifact `overlays/` directory | Implemented |
 | **camera_info → CameraCalibration bridge** | — | **Not implemented** |
 
-The bootstrap is intentionally separate from `dual_uvc.launch.py`. Formal camera
-launch still requires a runtime plan containing accepted `camera_info`; no launch
-gate is bypassed to create the initial calibration.
+引导流程特意与 `dual_uvc.launch.py` 分开。正式相机启动仍需要包含已接受
+`camera_info` 的运行时计划；不会绕过启动门控来创建初始标定。
 
 ---
 
-## 2. Chessboard Specification
+## 2. 棋盘格规格
 
-### Recommended Board
+### 推荐棋盘格
 
 | Parameter | Value |
 |---|---|
@@ -52,15 +51,14 @@ gate is bypassed to create the initial calibration.
 | OpenCV inner corners | `(10, 7)` |
 | Square size | 15.0 mm |
 
-Mount the board on a rigid, flat substrate. Measure a square with calipers before
-every run. The CLI requires an explicit `--confirm-square-mm 15.0`; `(8,11)` is
-not the OpenCV corner pattern and is rejected.
+将棋盘格安装在刚性平面基板上。每次运行前都用卡尺测量方格。CLI 要求显式指定
+`--confirm-square-mm 15.0`；`(8,11)` 不是 OpenCV 的角点模式，会被拒绝。
 
 ---
 
-## 3. Capture Procedure
+## 3. 采集流程
 
-### 3.1 Prerequisites
+### 3.1 前置条件
 
 ```bash
 # Build workspace with camera package
@@ -72,7 +70,7 @@ not the OpenCV corner pattern and is rejected.
 newgrp video
 ```
 
-### 3.2 Capture One Camera Directly
+### 3.2 直接采集一个相机
 
 ```bash
 # 1 = normal-view/narrow camera; 2 = wide-angle camera.
@@ -112,10 +110,10 @@ CLI opens an enumerated stable by-id device through the direct V4L2 path. An
 hardware. Synthetic fixtures use `synthetic_fixture`; both fail the formal
 hardware runtime gate.
 
-### 3.3 Capture Checklist
+### 3.3 采集检查表
 
-Move the board until at least 15 sharp, unique observations pass automatically.
-Capture stops at 24 accepted observations. The filters require:
+移动棋盘格，直到至少 15 个清晰且不重复的观测自动通过。接受 24 个观测后停止采集。
+过滤条件如下：
 
 | Criterion | Minimum |
 |---|---|
@@ -125,7 +123,7 @@ Capture stops at 24 accepted observations. The filters require:
 | Coverage | Board centers occupy >=4 cells of a 3x3 image grid |
 | Scale diversity | Board area fraction span >=0.025 |
 
-### 3.4 Image Naming Convention
+### 3.4 图像命名约定
 
 ```
 calibration_data/
@@ -142,16 +140,15 @@ calibration_data/
 
 ---
 
-## 4. Per-Resolution Calibration
+## 4. 逐分辨率标定
 
-### 4.1 Why Per-Resolution
+### 4.1 为什么要逐分辨率标定
 
-The `CalibrationDescriptor` in `ed_uav_camera/calibration.py` validates that the
-calibration resolution matches the runtime mode resolution. A 2592×1944
-calibration **cannot** be used with a 1280×720 runtime mode — the principal point
-offsets and pixel-scaled focal lengths differ.
+`ed_uav_camera/calibration.py` 中的 `CalibrationDescriptor` 会验证标定分辨率与运行模式
+分辨率匹配。2592×1944 标定**不能**用于 1280×720 运行模式，因为主点偏移和按像素
+缩放的焦距不同。
 
-### 4.2 Resolutions to Calibrate
+### 4.2 要标定的分辨率
 
 From `camera_profiles.yaml`:
 
@@ -161,10 +158,9 @@ From `camera_profiles.yaml`:
 | `wide_live` | 1280×720 | 15 Hz MJPEG | Wide runtime |
 | `narrow_live` | 1280×720 | 20 Hz MJPEG | Narrow runtime |
 
-Calibrate at **both** resolutions. The 2592×1944 calibration provides maximum
-accuracy; the 1280×720 calibration is needed for the runtime profile.
+两种分辨率都要标定。2592×1944 标定提供最高精度；运行时配置需要 1280×720 标定。
 
-### 4.3 Scaling Intrinsics (alternative)
+### 4.3 缩放内参（替代方案）
 
 If only the high-resolution calibration is available, intrinsics can be scaled:
 
@@ -173,14 +169,14 @@ fx_720 = fx_2592 * (1280 / 2592)
 cx_720 = cx_2592 * (1280 / 2592)
 ```
 
-Scaled intrinsics are not accepted by this bootstrap. Calibrate directly at each
-selected raster; the descriptor and existing runtime gate bind the result to it.
+该引导流程不接受缩放后的内参。应直接为每个选定栅格标定；描述符和现有运行时门控会
+将结果绑定到该栅格。
 
 ---
 
-## 5. Distortion Model Comparison
+## 5. 畸变模型比较
 
-### 5.1 Pinhole Model (5-param)
+### 5.1 针孔模型（5 参数）
 
 Coefficients: `[k1, k2, p1, p2, k3]`
 
@@ -192,7 +188,7 @@ undistorted = cv2.undistort(image, K, D, None, new_K)
 
 **Use when**: Focal length / FOV < 8 (not extreme wide-angle).
 
-### 5.2 Rational Model (8-param)
+### 5.2 有理模型（8 参数）
 
 Coefficients: `[k1, k2, p1, p2, k3, k4, k5, k6]`
 
@@ -202,7 +198,7 @@ Not directly consumed by `rectifier.py` — would require extending the
 
 **Use when**: High-distortion lenses where 5-param residuals are >0.5 px.
 
-### 5.3 Fisheye / Kannala-Brandt (4-param)
+### 5.3 鱼眼 / Kannala-Brandt（4 参数）
 
 Coefficients: `[k1, k2, k3, k4]`
 
@@ -215,7 +211,7 @@ undistorted = cv2.remap(image, map1, map2, cv2.INTER_LINEAR)
 
 **Use when**: FOV > 120° (typical for drone wide-angle lenses).
 
-### 5.4 Selection Guide
+### 5.4 选择指南
 
 | Criterion | Pinhole (5) | Rational (8) | Fisheye (4) |
 |---|---|---|---|
@@ -227,9 +223,9 @@ undistorted = cv2.remap(image, map1, map2, cv2.INTER_LINEAR)
 
 ---
 
-## 6. Calibration Output Format
+## 6. 标定输出格式
 
-### 6.1 Intrinsic File (camera_info YAML)
+### 6.1 内参文件（camera_info YAML）
 
 Standard ROS `camera_info_url` format:
 
@@ -256,7 +252,7 @@ projection_matrix:
   data: [fx, 0, cx, 0, 0, fy, cy, 0, 0, 0, 1, 0]
 ```
 
-### 6.2 Runtime Plan Entry
+### 6.2 运行时计划条目
 
 Each camera in the runtime plan JSON must include:
 
@@ -286,9 +282,9 @@ The `calibration.py` gate validates:
 
 ---
 
-## 7. Reprojection Error & Holdout Validation
+## 7. 重投影误差和留出验证
 
-### 7.1 Reprojection Error
+### 7.1 重投影误差
 
 Compute mean reprojection error across all calibration images:
 
@@ -311,14 +307,14 @@ mean_error /= len(obj_points)
 | Rational (8) | < 0.3 px | < 0.7 px |
 | Fisheye (4) | < 0.5 px | < 1.0 px |
 
-### 7.2 Holdout Validation
+### 7.2 留出验证
 
 The deterministic split assigns every fifth accepted observation to holdout.
 Calibration uses only the train observations; each holdout pose is independently
 solved against the fixed intrinsics. Acceptance requires holdout mean <=0.5 px
 and holdout maximum <=1.0 px.
 
-### 7.3 Overlay Visualization
+### 7.3 叠加可视化
 
 Generate overlay images showing:
 - Detected corners (green circles)
@@ -343,9 +339,9 @@ different hashes:
 
 ---
 
-## 8. Body Extrinsics
+## 8. 机体外参
 
-### 8.1 Calibration YAML Format
+### 8.1 标定 YAML 格式
 
 Defined in `ed_uav_description/calibration.py` and consumed by `bringup.launch.py`:
 
@@ -366,7 +362,7 @@ transforms:
   rangefinder_link:            {xyz_m: [0.0, 0.0, -0.06], rpy_rad: [0.0, 0.0, 0.0]}
 ```
 
-### 8.2 Measurement Procedure
+### 8.2 测量流程
 
 Measure from `base_link` (drone center of mass) to each sensor frame origin:
 
@@ -376,7 +372,7 @@ Measure from `base_link` (drone center of mass) to each sensor frame origin:
    level and forward-facing, rpy is typically `[0, 0, 0]` or `[0, 0, π]`
    (180° rotation for optical frame convention).
 
-### 8.3 Validation
+### 8.3 验证
 
 ```bash
 # Validate calibration file
@@ -388,7 +384,7 @@ python3 ros2_ws/src/ed_uav_description/tools/dump_static_model.py \
   path/to/calibrated.yaml
 ```
 
-### 8.4 Competition Gate
+### 8.4 竞赛门控
 
 The `competition` profile in `bringup.launch.py` requires:
 - `calibration_status == "CALIBRATED"`
@@ -397,7 +393,7 @@ The `competition` profile in `bringup.launch.py` requires:
 
 ---
 
-## 9. Legacy Hardcoded Values (to be replaced)
+## 9. 旧版硬编码值（待替换）
 
 The non-ROS `drone/config.py` contains placeholder intrinsics:
 
@@ -413,7 +409,7 @@ These must be replaced with measured calibration output before competition.
 
 ---
 
-## 10. Acceptance Criteria Summary
+## 10. 验收标准摘要
 
 | Gate | Criterion | Tool |
 |---|---|---|

@@ -1,23 +1,23 @@
-# Open Source Use Boundary
+# 开源使用边界
 
-This is an engineering compliance record, not legal advice. A qualified reviewer must assess the actual distribution, deployment, modifications, recipients, and jurisdiction before a release or event handoff.
+本文是工程合规记录，不构成法律意见。发布或交付活动前，必须由合格审阅者评估实际分发、部署、修改、接收方和司法辖区。
 
-## Current Scope
+## 当前范围
 
-Internal academic-competition development is the approved working scope. That scope does not remove license duties if the project later distributes source, binaries, containers, images, model artifacts, or access to a covered network service. The exact upstream revisions, license snapshots, notices, and source locations are recorded in the provenance manifests and checked by `python3 tools/check_third_party.py --strict`.
+内部学术竞赛开发是获批准的工作范围。如果项目之后分发源代码、二进制文件、容器、镜像、模型工件，或提供受许可约束的网络服务访问，该范围不会免除许可证义务。确切的上游修订版本、许可证快照、通知和源位置记录在来源清单中，并由 `python3 tools/check_third_party.py --strict` 检查。
 
-## Invocation Boundaries
+## 调用边界
 
 Livox ROS Driver 2 and FAST-LIO remain independently imported and launched from `ros2_ws/src/third_party`. Project-owned `ed_*` packages communicate only through declared ROS interfaces and must not copy their sources. Future Ultralytics training/export runs remain in the isolated `ml/yolo` environment; ROS runtime code consumes provider-neutral outputs and must not import Ultralytics.
 
-These separate-process boundaries preserve technical ownership and traceability. They do not, by themselves, determine whether a combined artifact is a derivative or combined work under any license; that question requires fact-specific legal review.
+这些独立进程边界保留了技术所有权和可追溯性。但仅凭这些边界，不能判断组合工件是否构成任何许可证下的衍生作品或组合作品；该问题需要基于具体事实进行法律审阅。
 
-## Copyleft Review Points
+## 著作权左派审阅要点
 
 FAST-LIO is recorded as GPL-2.0-only. Distribution of the covered program or a modified/combined artifact can create notice, license-text, and corresponding-source obligations. Ultralytics is recorded as AGPL-3.0-only. In addition to distribution questions, AGPL can require an offer of corresponding source to users who interact with a modified covered program over a network. The project therefore keeps its use isolated, pins the upstream source, and blocks model-weight downloads until task-specific provenance exists.
 
-When an obligation is triggered, preserve applicable notices and provide the corresponding source for the covered version and modifications through the required channel and timing. Publishing material only after an event can support compliance work, but it does not retroactively bypass an obligation that already applied. MIT-licensed Livox material still requires its applicable copyright and permission notice to be retained.
+义务触发后，应保留适用的通知，并按要求的渠道和时限提供受涵盖版本及其修改的对应源代码。仅在活动结束后发布材料可以支持合规工作，但不能追溯性地绕过已经适用的义务。MIT 许可的 Livox 材料仍须保留适用的版权和许可通知。
 
-## Release Gate
+## 发布门槛
 
-Before any redistribution, competition delivery, public service, or image/container handoff, review the exact artifact composition, the relevant GPL/AGPL conditions, all modifications, source-offer mechanics, model and dataset licenses, and recipient access. Do not represent this document as a legal conclusion.
+在任何再分发、竞赛交付、公共服务或镜像/容器交接前，审阅确切的工件组成、相关 GPL/AGPL 条件、所有修改、源代码提供机制、模型和数据集许可证以及接收方访问权限。不得将本文表述为法律结论。

@@ -110,13 +110,23 @@ for key in ('serial_number', 'firmware'):
     if not identity_pattern.fullmatch(value):
         print(f'invalid_{key}', file=sys.stderr)
         raise SystemExit(1)
-for key in ('driver_json', 'extrinsics', 'fast_lio_launch'):
+for key in ('driver_json', 'extrinsics'):
     candidate = Path(data[key].strip())
     if not candidate.is_absolute():
         candidate = manifest.parent / candidate
     if not candidate.exists():
         print(f'missing_{key}', file=sys.stderr)
         raise SystemExit(1)
+fast_lio_launch = Path(data['fast_lio_launch'].strip())
+if not fast_lio_launch.is_absolute():
+    fast_lio_launch = manifest.parent / fast_lio_launch
+approved_fast_lio_launch = manifest.parent.resolve() / 'fast_lio.launch.py'
+if fast_lio_launch.resolve(strict=False) != approved_fast_lio_launch:
+    print('disallowed_fast_lio_launch', file=sys.stderr)
+    raise SystemExit(1)
+if not approved_fast_lio_launch.is_file():
+    print('missing_fast_lio_launch', file=sys.stderr)
+    raise SystemExit(1)
 print('field_manifest=valid', file=sys.stderr)
 PY
 }

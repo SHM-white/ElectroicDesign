@@ -1,12 +1,12 @@
-# Localization and Failover Runbook
+# 定位与失效切换操作手册
 
-> Source: `ros2_ws/src/ed_uav_localization/` (source_supervisor.py, lio_health.py,
-> field_anchor.py), `ros2_ws/src/ed_uav_mission/` (safety_supervisor.py),
-> `ros2_ws/src/ed_uav_interfaces/msg/LocalizationStatus.msg`.
+> 来源：`ros2_ws/src/ed_uav_localization/`（source_supervisor.py、lio_health.py、
+> field_anchor.py）、`ros2_ws/src/ed_uav_mission/`（safety_supervisor.py）、
+> `ros2_ws/src/ed_uav_interfaces/msg/LocalizationStatus.msg`。
 
 ---
 
-## 1. Architecture Overview
+## 1. 架构概览
 
 ```
 ┌─────────────────┐     ┌─────────────────┐
@@ -43,23 +43,22 @@
 └──────────────────────────────────┘
 ```
 
-### What Does NOT Exist Yet
+### 当前尚不存在的内容
 
-| Component | Contract Reference | Status |
+| 组件 | 契约引用 | 状态 |
 |---|---|---|
-| EKF node (`odom → base_link` TF) | `ros2_contract_manifest.json` | **Not implemented** |
-| `/localization/start_map_session` service | `StartMapSession.srv` | **Not implemented** |
-| `LifecycleNode` wrappers | — | Not used (standard `rclpy.node.Node`) |
+| EKF 节点（`odom → base_link` TF） | `ros2_contract_manifest.json` | **未实现** |
+| `/localization/start_map_session` 服务 | `StartMapSession.srv` | **未实现** |
+| `LifecycleNode` 封装 | — | 未使用（标准 `rclpy.node.Node`） |
 
-The `SourceSupervisor` currently does **pass-through source selection**, not
-sensor fusion. The selected source's odometry is published directly to
-`/localization/odom`.
+当前 `SourceSupervisor` 执行的是**直通式源选择**，不是传感器融合。选中源的里程计会直接发布到
+`/localization/odom`。
 
 ---
 
-## 2. Primary Source: LIO (FAST-LIO)
+## 2. 主定位源：LIO（FAST-LIO）
 
-### 2.1 Data Path
+### 2.1 数据路径
 
 ```
 Livox Mid-360 → livox_ros_driver2 → /livox/lidar (CustomMsg)
@@ -70,41 +69,41 @@ Livox Mid-360 → livox_ros_driver2 → /livox/lidar (CustomMsg)
     /localization/lio/odom (Odometry)
 ```
 
-### 2.2 Health Monitoring
+### 2.2 健康监测
 
-`LIOHealthMonitor` (`lio_health.py`) subscribes to:
-- `/localization/lio/odom` — odometry output
-- `/imu/data` — raw IMU (configurable topic)
+`LIOHealthMonitor`（`lio_health.py`）订阅：
+- `/localization/lio/odom`，里程计输出
+- `/imu/data`，原始 IMU（话题可配置）
 
-Publishes `/localization/lio/health` (`DiagnosticArray`) at 10 Hz.
+以 10 Hz 发布 `/localization/lio/health`（`DiagnosticArray`）。
 
-**Health evaluation** (`evaluate_health()` — pure function, testable):
+**健康评估**（`evaluate_health()`，纯函数，可测试）：
 
-| Condition | Result |
+| 条件 | 结果 |
 |---|---|
 | `odom_age > lost_timeout (1.0s)` | `LOST` |
 | `imu_age > lost_timeout (1.0s)` | `LOST` |
 | `!covariance_finite` | `LOST` |
-| Any diagonal `> 1e6` | `LOST` |
-| `time_regression` (clock jumped backward) | `DEGRADED` |
+| 任一对角线元素 `> 1e6` | `LOST` |
+| `time_regression`（时钟回退） | `DEGRADED` |
 | `odom_age > max_age_active (0.15s)` | `DEGRADED` |
-| Otherwise | `HEALTHY` |
+| 其他情况 | `HEALTHY` |
 
-### 2.3 Source State Evaluation
+### 2.3 定位源状态评估
 
-`SourceSupervisor.evaluate_source_state()` classifies each source:
+`SourceSupervisor.evaluate_source_state()` 按以下规则对每个定位源分类：
 
-| State | Conditions |
+| 状态 | 条件 |
 |---|---|
-| `LOST` | No messages ever, covariance non-finite, covariance > 1e6 diagonal, no messages for > 1.0 s |
-| `DEGRADED` | Age > `max_age_degraded` (0.5 s), or age > `max_age_active` (0.15 s LIO / 0.20 s visual), or time regression |
-| `ACTIVE` | Fresh, finite covariance, within age thresholds |
+| `LOST` | 从未收到消息、协方差非有限、协方差对角线大于 1e6，或超过 1.0 s 未收到消息 |
+| `DEGRADED` | 年龄大于 `max_age_degraded`（0.5 s），或年龄大于 `max_age_active`（LIO 为 0.15 s，视觉为 0.20 s），或发生时间回退 |
+| `ACTIVE` | 数据新鲜、协方差有限且年龄在阈值内 |
 
 ---
 
-## 3. Visual Boundary Fallback
+## 3. 视觉边界备用源
 
-### 3.1 Data Path
+### 3.1 数据路径
 
 ```
 Camera (wide) → /camera/wide/image_raw
@@ -119,35 +118,35 @@ Camera (wide) → /camera/wide/image_raw
          /localization/boundary_observation (BoundaryObservation)
 ```
 
-### 3.2 BoundaryObservation DOF Mask
+### 3.2 BoundaryObservation DOF 掩码
 
-| Bit | DOF | Value |
+| 位 | DOF | 值 |
 |---|---|---|
-| X | 1 | Position X |
-| Y | 2 | Position Y |
-| Z | 4 | Altitude |
-| Roll | 8 | Roll angle |
-| Pitch | 16 | Pitch angle |
-| Yaw | 32 | Yaw angle |
+| X | 1 | X 位置 |
+| Y | 2 | Y 位置 |
+| Z | 4 | 高度 |
+| Roll | 8 | 横滚角 |
+| Pitch | 16 | 俯仰角 |
+| Yaw | 32 | 航向角 |
 
-Full pose (X, Y, Yaw) requires ≥ 2 non-parallel boundary constraints with
+完整位姿（X、Y、Yaw）需要至少 2 个不平行的边界约束，且
 inter-line angle > 30°. Single line → yaw-only constraint (`DOF_YAW` mask).
 
-### 3.3 Visual Stability Gate
+### 3.3 视觉稳定门
 
 `is_visual_stable()` requires:
 - ≥ `visual_consecutive_samples` (5) consecutive valid observations
 - Spanning ≥ `visual_stability_duration` (0.5 s)
 
-Until this gate passes, the supervisor will **not** switch to visual as primary.
+在通过此门之前，监督器**不会**将视觉源切换为主源。
 
 ---
 
-## 4. Source Switching Logic
+## 4. 定位源切换逻辑
 
-### 4.1 State Machine
+### 4.1 状态机
 
-Implemented in `decide_source_switch()` — pure function, 17 unit tests in
+实现于 `decide_source_switch()`，这是纯函数，并在
 `test_source_supervisor.py`.
 
 ```
@@ -170,43 +169,39 @@ Implemented in `decide_source_switch()` — pure function, 17 unit tests in
                     └─────────────┘
 ```
 
-### 4.2 Switching Rules
+### 4.2 切换规则
 
-| Current | Condition | Action |
+| 当前源 | 条件 | 操作 |
 |---|---|---|
-| LIO primary | LIO ACTIVE | Stay LIO |
-| LIO primary | LIO LOST + visual stable + hysteresis (2.0 s) | Switch → VISUAL |
-| LIO primary | Both LOST | Switch → NONE |
-| VISUAL primary | LIO ACTIVE + hysteresis (2.0 s) | Switch → LIO |
-| VISUAL primary | Visual LOST + LIO not LOST | Switch → LIO (even DEGRADED) |
-| VISUAL primary | Both LOST | Switch → NONE |
-| NONE | LIO ACTIVE | Switch → LIO |
-| NONE | Visual stable | Switch → VISUAL |
+| LIO 主源 | LIO ACTIVE | 保持 LIO |
+| LIO 主源 | LIO LOST + 视觉稳定 + 滞回（2.0 s） | 切换到 VISUAL |
+| LIO 主源 | 两者均 LOST | 切换到 NONE |
+| VISUAL 主源 | LIO ACTIVE + 滞回（2.0 s） | 切换到 LIO |
+| VISUAL 主源 | 视觉 LOST + LIO 未 LOST | 切换到 LIO（即使为 DEGRADED） |
+| VISUAL 主源 | 两者均 LOST | 切换到 NONE |
+| NONE | LIO ACTIVE | 切换到 LIO |
+| NONE | 视觉稳定 | 切换到 VISUAL |
 
-### 4.3 Hysteresis
+### 4.3 滞回
 
-The `switch_hysteresis_sec` (2.0 s) prevents rapid oscillation between sources.
-A switch is only allowed if the target source has been in the required state
-continuously for ≥ 2.0 seconds.
+`switch_hysteresis_sec`（2.0 s）用于防止定位源之间快速振荡。只有当目标源连续至少 2.0 秒处于所需状态时，才允许切换。
 
 ---
 
-## 5. No-Jump Constraints
+## 5. 无跳变约束
 
-### 5.1 Pose Alignment Gate
+### 5.1 位姿对齐门
 
-Before any source switch, `poses_aligned()` checks:
+每次切换定位源前，`poses_aligned()` 都会检查：
 
-| Check | Threshold |
+| 检查项 | 阈值 |
 |---|---|
-| Position difference | ≤ `max_switch_position_diff_m` (0.25 m) |
-| Yaw difference | ≤ `max_switch_yaw_diff_rad` (10° ≈ 0.175 rad) |
+| 位置差 | ≤ `max_switch_position_diff_m`（0.25 m） |
+| 航向差 | ≤ `max_switch_yaw_diff_rad`（10° ≈ 0.175 rad） |
 
-If either threshold is exceeded, the switch is **blocked** and the supervisor
-remains on the current source (even if degraded). This prevents position jumps
-when transitioning between LIO and visual odometry.
+如果任一阈值超出，切换将被**阻止**，监督器保持当前源，即使当前源已降级。这样可防止在 LIO 和视觉里程计之间切换时发生位置跳变。
 
-### 5.2 Implementation
+### 5.2 实现
 
 ```python
 def poses_aligned(lio_pose, visual_pose,
@@ -221,20 +216,19 @@ def poses_aligned(lio_pose, visual_pose,
     return pos_diff <= max_position_diff_m and yaw_diff <= max_yaw_diff_rad
 ```
 
-### 5.3 When No-Jump Blocks a Recovery
+### 5.3 无跳变约束阻止恢复时
 
-If LIO recovers but its pose has drifted > 0.25 m from the visual estimate, the
-supervisor will NOT switch back to LIO. The system remains on visual until either:
-- LIO converges back within tolerance, or
-- Visual is also lost (→ NONE → hover → land)
+如果 LIO 恢复但其位姿与视觉估计相差超过 0.25 m，监督器不会切回 LIO。系统继续使用视觉源，直到：
+- LIO 重新收敛到容差范围内，或
+- 视觉源也丢失（→ NONE → 悬停 → 降落）
 
 ---
 
-## 6. Loss Handling: Hover → Land
+## 6. 丢失处理：悬停→降落
 
-### 6.1 SafetySupervisor State Machine
+### 6.1 SafetySupervisor 状态机
 
-Source: `ed_uav_mission/safety_supervisor.py`
+来源：`ed_uav_mission/safety_supervisor.py`
 
 ```
 ┌──────────┐   all sources LOST   ┌──────────────────────────┐
@@ -262,63 +256,61 @@ Source: `ed_uav_mission/safety_supervisor.py`
       │                           └──────────────────────────┘
 ```
 
-### 6.2 Transition Details
+### 6.2 转换细节
 
-| From | Trigger | Action |
+| 起始状态 | 触发条件 | 操作 |
 |---|---|---|
-| ACTIVE | `LocalizationStatus.state == LOST` | Issue `FlightCommand.HOVER` |
-| HOVERING | Still LOST after 2.0 s | Issue `FlightCommand.LAND` |
-| HOVERING | `state != LOST` (recovered) | Return to ACTIVE |
-| LANDING | Check descent progress | Continue landing |
-| LANDING | 3 retries exhausted, no descent | Transition to CRITICAL |
+| ACTIVE | `LocalizationStatus.state == LOST` | 发出 `FlightCommand.HOVER` |
+| HOVERING | 2.0 s 后仍为 LOST | 发出 `FlightCommand.LAND` |
+| HOVERING | `state != LOST`（已恢复） | 返回 ACTIVE |
+| LANDING | 检查下降进度 | 继续降落 |
+| LANDING | 3 次重试耗尽且没有下降 | 转为 CRITICAL |
 
-### 6.3 Critical State
+### 6.3 CRITICAL 状态
 
-In CRITICAL state:
-- No automatic recovery
-- Manual operator takeover required
-- Motors are **NOT** automatically locked in air (per contract: "it never
-  automatically locks motors in air")
+在 CRITICAL 状态下：
+- 不执行自动恢复
+- 必须由操作员手动接管
+- 空中**不会**自动加锁电机（根据契约，系统“绝不会在空中自动加锁电机”）
 
-### 6.4 Other Loss Triggers
+### 6.4 其他丢失触发条件
 
-| Trigger | Action |
+| 触发条件 | 操作 |
 |---|---|
-| FCU communication loss | → CRITICAL |
-| Low battery voltage | → LAND |
-| Stale AUX status | → LAND |
-| Mission timeout | → LAND |
+| FCU 通信丢失 | → CRITICAL |
+| 电池电压低 | → LAND |
+| AUX 状态过期 | → LAND |
+| 任务超时 | → LAND |
 
 ---
 
-## 7. Field Anchor (map → odom)
+## 7. 场地锚点（map → odom）
 
-### 7.1 Purpose
+### 7.1 目的
 
-`FieldAnchor` publishes the `map → odom` transform that converts odometry into
-a fixed map frame. It is the **only** authorized publisher of this edge.
+`FieldAnchor` 发布 `map → odom` 变换，将里程计转换到固定的地图坐标系。它是该边**唯一**获授权的发布者。
 
-### 7.2 Behavior
+### 7.2 行为
 
-1. Load field profile YAML (must be `KnownFieldProfile`, not `UnknownArenaProfile`)
-2. Wait for first `/localization/odom` message (up to `takeoff_timeout_sec`, 10 s)
-3. Compute: `T_map_odom = T_map_base * T_odom_base_inverse`
-4. Publish on `/tf_static` via `StaticTransformBroadcaster`
+1. 加载场地配置 YAML（必须是 `KnownFieldProfile`，不能是 `UnknownArenaProfile`）
+2. 等待第一条 `/localization/odom` 消息（最长为 `takeoff_timeout_sec`，10 s）
+3. 计算：`T_map_odom = T_map_base * T_odom_base_inverse`
+4. 通过 `StaticTransformBroadcaster` 发布到 `/tf_static`
 
-### 7.3 Field Profile Requirements
+### 7.3 场地配置要求
 
-From `field_profile/model.py` (Pydantic validation):
-- Boundary segments must have nonzero length
-- At least 2 non-parallel segments (angle > 10°)
-- No-fly zones strictly inside allowed zone
-- No self-intersecting polygons
-- Unique identifiers across all elements
+根据 `field_profile/model.py`（Pydantic 验证）：
+- 边界线段长度必须非零
+- 至少有 2 条不平行线段（夹角 > 10°）
+- 禁飞区必须严格位于允许区域内部
+- 多边形不得自相交
+- 所有元素的标识符必须唯一
 
 ---
 
-## 8. Operator Procedures
+## 8. 操作员流程
 
-### 8.1 Pre-Flight Checks
+### 8.1 飞行前检查
 
 ```bash
 # 1. Verify localization source is ACTIVE
@@ -338,7 +330,7 @@ ros2 topic hz /localization/odom
 # Expected: ~66 Hz (150 ms freshness)
 ```
 
-### 8.2 Monitoring During Flight
+### 8.2 飞行期间监测
 
 ```bash
 # Watch localization status
@@ -348,7 +340,7 @@ ros2 topic echo /localization/status
 ros2 topic echo /rosout | grep -i "source\|switch\|lost\|degraded"
 ```
 
-### 8.3 Post-Flight Analysis
+### 8.3 飞行后分析
 
 ```bash
 # Record bag for analysis
@@ -363,14 +355,14 @@ ros2 topic echo /localization/status
 
 ---
 
-## 9. Acceptance Criteria
+## 9. 验收标准
 
-| Gate | Criterion | Verification |
+| 门 | 标准 | 验证方式 |
 |---|---|---|
-| LIO active | `/localization/status` shows `source=1, state=1` | `ros2 topic echo` |
-| Visual stable | ≥ 5 consecutive valid boundary observations | `test_source_supervisor.py` |
-| No-jump | Position diff ≤ 0.25 m, yaw diff ≤ 10° at switch | `test_source_supervisor.py` |
-| Hover on loss | `FlightCommand.HOVER` issued within 1 cycle (50 ms) | `test_source_supervisor.py` |
-| Land on sustained loss | `FlightCommand.LAND` issued after 2.0 s | `test_source_supervisor.py` |
-| No motor lock in air | Safety supervisor never issues DISARM while airborne | Contract review |
-| map→odom authority | Only `field_anchor` publishes this TF edge | `verify_static_tf.py` |
+| LIO 激活 | `/localization/status` 显示 `source=1, state=1` | `ros2 topic echo` |
+| 视觉稳定 | 至少 5 个连续有效的边界观测 | `test_source_supervisor.py` |
+| 无跳变 | 切换时位置差 ≤ 0.25 m，航向差 ≤ 10° | `test_source_supervisor.py` |
+| 丢失后悬停 | 在 1 个周期（50 ms）内发出 `FlightCommand.HOVER` | `test_source_supervisor.py` |
+| 持续丢失后降落 | 2.0 s 后发出 `FlightCommand.LAND` | `test_source_supervisor.py` |
+| 空中不加锁电机 | 安全监督器在空中从不发出 DISARM | 契约审查 |
+| map→odom 权限 | 只有 `field_anchor` 发布该 TF 边 | `verify_static_tf.py` |

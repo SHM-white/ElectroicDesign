@@ -103,3 +103,35 @@ def test_maps_rejection_to_typed_target_observation() -> None:
     assert message.confidence == 0.0
     assert message.rejection_reason == "stale_vehicle"
     assert len(message.rejection_reason) <= 96
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "stale_vehicle",
+        "incomplete_cross",
+        "line_width_out_of_range",
+        "camera_info_stamp_mismatch",
+    ],
+)
+def test_rejection_preserves_versioned_target_dimensions(reason: str) -> None:
+    # Given
+    from builtin_interfaces.msg import Time
+    from ed_uav_perception.target_message import to_target_observation
+    from ed_uav_perception.target_types import RejectedObservation, RejectReason
+
+    rejected = RejectedObservation(
+        4.0,
+        12,
+        "camera_optical",
+        "d2026-circle-cross-v1",
+        RejectReason(reason),
+    )
+
+    # When
+    message = to_target_observation(rejected, Time(sec=4))
+
+    # Then
+    assert message.outer_diameter_m == pytest.approx(0.50)
+    assert message.inner_diameter_m == pytest.approx(0.30)
+    assert message.line_width_m == pytest.approx(0.020)

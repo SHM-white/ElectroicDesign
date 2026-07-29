@@ -1,16 +1,15 @@
-# D-task Contract Documents
+# D-task 合约文档
 
-All files crossing this boundary are checked against the committed Draft 2020-12
-schema and then parsed into a frozen Pydantic model. Versions, units, frames,
-freshness limits, route order, target geometry, and owners are mandatory.
+所有跨越此边界的文件都会先依据已提交的 Draft 2020-12
+schema 校验，再解析为冻结的 Pydantic 模型。版本、单位、坐标系、
+新鲜度限制、路线顺序、目标几何信息和所有者均为必填项。
 
-The committed `examples/` are credential-free. Copy real field values only into
-`deployment_preset.local.yaml` beside this README; that path is gitignored.
-There is no default serial, IP address, firmware, or ESP-NOW peer. A missing
-local manifest, placeholder token, or RFC 5737 documentation address blocks a
-field preset.
+已提交的 `examples/` 不包含凭据。真实现场值只能复制到本 README
+旁的 `deployment_preset.local.yaml` 中；该路径已加入 gitignore。
+系统没有默认串口、IP 地址、固件或 ESP-NOW 对端。缺少本地清单、存在占位符
+令牌或使用 RFC 5737 文档地址，都会阻止现场预设生效。
 
-Validate a document from the repository root:
+请从仓库根目录校验文档：
 
 ```bash
 ./.venv/bin/python ros2_ws/src/ed_uav_interfaces/tools/check_d_task_config.py \

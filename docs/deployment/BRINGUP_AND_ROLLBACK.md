@@ -1,4 +1,4 @@
-# Bringup and Rollback Runbook
+# 启动与回滚运行手册
 
 > Source: `ros2_ws/src/ed_uav_bringup/`, `ros2_ws/src/ed_uav_verification/`,
 > `ros2_ws/src/ed_uav_fcu_bridge/`, `tools/run_humble.sh`,
@@ -7,10 +7,9 @@
 
 ---
 
-## 1. Deployment Gates Overview
+## 1. 部署门控概述
 
-The system defines three gate tiers. Only the **offline gate** is fully
-implemented today.
+系统定义三层门控。目前只有**离线门控**已完整实现。
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -42,9 +41,9 @@ implemented today.
 
 ---
 
-## 2. Offline Gate — Implemented
+## 2. 离线门控，已实现
 
-### 2.1 Gate 1: CI Build and Test
+### 2.1 门控 1：CI 构建与测试
 
 **File**: `.github/workflows/ros2-ci.yml`
 
@@ -70,9 +69,9 @@ steps:
 - 900 s timeout on container operations
 - Mutual-exclusion lock prevents concurrent runs
 
-**Acceptance**: All `colcon test` pass, `colcon test-result` shows 0 failures.
+**验收**：所有 `colcon test` 通过，且 `colcon test-result` 显示 0 个失败。
 
-### 2.2 Gate 2: Launch Surface Verification
+### 2.2 门控 2：启动面验证
 
 **File**: `ros2_ws/src/ed_uav_bringup/tools/verify_launch_surface.py`
 
@@ -83,16 +82,16 @@ python3 ros2_ws/src/ed_uav_bringup/tools/verify_launch_surface.py \
   ros2_ws/src/ed_uav_bringup/launch/bringup.launch.py
 ```
 
-**Checks**:
+**检查项**：
 1. Exactly 7 P06 launch arguments declared
 2. Exactly 4 P06 profiles exist (`offline`, `camera_only`, `lidar`, `competition`)
 3. `validate_for_profile()` called **before** `Node()` construction
 4. No forbidden TF authorities (`static_transform_publisher`, `map → odom`,
    `odom → base_link` as static joints)
 
-**Output**: `BRINGUP: GREEN` or `BRINGUP: RED: <reason>`
+**输出**：`BRINGUP: GREEN` 或 `BRINGUP: RED: <reason>`
 
-### 2.3 Gate 3: Calibration Validation
+### 2.3 门控 3：标定验证
 
 **File**: `ros2_ws/src/ed_uav_description/tools/validate_calibration.py`
 
@@ -101,13 +100,13 @@ python3 ros2_ws/src/ed_uav_description/tools/validate_calibration.py \
   ros2_ws/src/ed_uav_description/config/example_uncalibrated.yaml
 ```
 
-**Checks**:
+**检查项**：
 - Schema version valid
 - Calibration hash matches recomputed hash
 - All required transforms present
 - Competition profile: status must be `CALIBRATED`, serials must not be `UNSET`/`SYNTHETIC-*`
 
-### 2.4 Gate 4: ROS 2 Contract Verification
+### 2.4 门控 4：ROS 2 契约验证
 
 **File**: `ros2_ws/src/ed_uav_interfaces/tools/check_contract.py`
 
@@ -119,7 +118,7 @@ python3 ros2_ws/src/ed_uav_description/tools/validate_calibration.py \
 Validates all approved topics, services, actions, TF edges, QoS profiles,
 freshness deadlines, lifecycle ordering, and enum values.
 
-### 2.5 Gate 5: Deterministic Scenario Verification
+### 2.5 门控 5：确定性场景验证
 
 **File**: `ros2_ws/src/ed_uav_verification/ed_uav_verification/cli.py`
 
@@ -128,16 +127,16 @@ freshness deadlines, lifecycle ordering, and enum values.
 ed-uav-verify --output scenario_events.json
 ```
 
-**What it does**:
+**功能**：
 - Virtual monotonic clock (no real time dependency)
 - 8 synthetic sensor streams at 20 Hz
 - 6 fault injection modes: DROP, FREEZE, CORRUPTION, LATENCY, TIME_REGRESSION, PROCESS_DEATH
 - Atomic event artifact writing
 - Fault matrix assertion: every fault → activation + degradation + recovery + stream recovery
 
-**Output**: `SCENARIO: GREEN {sha256, duration, ticks}`
+**输出**：`SCENARIO: GREEN {sha256, duration, ticks}`
 
-### 2.6 Gate 6: Legacy Parity Check
+### 2.6 门控 6：旧版一致性检查
 
 **File**: `tools/parity_check.py`
 
@@ -152,7 +151,7 @@ Verifies SHA-256 integrity of protected legacy files:
 
 Hashes are pinned in `docs/testing/LEGACY_BASELINE.md`.
 
-### 2.7 Gate 7: Third-Party Provenance
+### 2.7 门控 7：第三方来源验证
 
 **File**: `tools/check_third_party.py`
 
@@ -166,7 +165,7 @@ Validates:
 - Dataset manifest: `policy.model_weight_downloads: "prohibited"`
 - No forbidden copy markers under `ed_*` packages
 
-### 2.8 Gate 8: Rollback Verification
+### 2.8 门控 8：回滚验证
 
 **File**: `tools/test_rollback.py`
 
@@ -174,7 +173,7 @@ Validates:
 pytest tools/test_rollback.py -v
 ```
 
-**Checks**:
+**检查项**：
 1. **Legacy imports**: 7 core modules importable (`lx_protocol`, `path_plan`, `state_machine`, `mcu_serial`, `config`, `localization`, `vision`)
 2. **Legacy command builders**: All 6 V7 commands produce valid checksummed frames
 3. **Legacy path and state**: Grid has 28 blocks, path covers all, `FlightState` has 10+ states
@@ -184,9 +183,9 @@ pytest tools/test_rollback.py -v
 
 ---
 
-## 3. Operator Flow
+## 3. 操作员流程
 
-### 3.1 Build
+### 3.1 构建
 
 ```bash
 # Full workspace build
@@ -195,7 +194,7 @@ pytest tools/test_rollback.py -v
   colcon build --symlink-install'
 ```
 
-### 3.2 Test
+### 3.2 测试
 
 ```bash
 # Full test suite
@@ -204,7 +203,7 @@ pytest tools/test_rollback.py -v
   colcon test-result --all --verbose'
 ```
 
-### 3.3 Launch (Offline/Simulated)
+### 3.3 启动（离线/模拟）
 
 ```bash
 # Source the workspace
@@ -216,7 +215,7 @@ ros2 launch ed_uav_bringup bringup.launch.py \
   calibration_file:=ros2_ws/src/ed_uav_description/config/example_uncalibrated.yaml
 ```
 
-### 3.4 Launch (Camera Only — Simulated)
+### 3.4 启动（仅相机，模拟）
 
 ```bash
 # Launch cameras with fake devices
@@ -230,7 +229,7 @@ ros2 launch ed_uav_bringup bringup.launch.py \
   calibration_file:=path/to/calibrated.yaml
 ```
 
-### 3.5 Launch (Verification Harness)
+### 3.5 启动（验证工具）
 
 ```bash
 # Deterministic 60-second scenario
@@ -238,7 +237,7 @@ ros2 launch ed_uav_verification verification_harness.launch.py \
   seed:=7 duration_seconds:=60 rate_hz:=20
 ```
 
-### 3.6 One-Click Offline Integration
+### 3.6 一键离线集成
 
 Run these commands from the repository root. Each script creates a timestamped
 directory below `.omo/evidence/offline-integration/scripts/` and writes a
@@ -274,7 +273,7 @@ replace, the original milestone results in `docs/testing/TODAY_MILESTONE.md`.
 The stored stage evidence includes `wall-time/`, `rviz/`, `rviz-visual/`,
 `rosbag/`, `fcu-final/`, and timestamped runs under `scripts/`.
 
-### 3.7 FCU Bridge (Standalone)
+### 3.7 FCU 桥接（独立运行）
 
 ```bash
 # Requires physical FCU on /dev/ttyUSB0
@@ -283,7 +282,7 @@ ros2 run ed_uav_fcu_bridge ed_uav_fcu_bridge \
   --ros-args -p serial_port:=/dev/ttyUSB0 -p baudrate:=500000
 ```
 
-**Prerequisites**:
+**前置条件**：
 - FCU connected via USB-TTL at 500000 baud
 - Cooperative serial ownership preflight or broker confirms that no other process
   owns `/dev/ttyUSB0`
@@ -292,10 +291,9 @@ ros2 run ed_uav_fcu_bridge ed_uav_fcu_bridge \
   `TIOCEXCL`, so the preflight remains required
 - User in `dialout` group (or run as root)
 
-### 3.8 Flight Command Authority
+### 3.8 飞行命令权限
 
-The `/fcu/flight_command` action is disabled by default. Explicit enablement
-requires all of the following:
+`/fcu/flight_command` action 默认禁用。显式启用必须满足以下全部条件：
 
 - `ROS_SECURITY_ENABLE=true`
 - `ROS_SECURITY_STRATEGY=Enforce`
@@ -310,7 +308,7 @@ credential-free and keeps flight commands disabled.
 
 ---
 
-## 4. Profiles
+## 4. 配置档
 
 Defined in `bringup.launch.py`:
 
@@ -321,7 +319,7 @@ Defined in `bringup.launch.py`:
 | `lidar` | Relaxed | LiDAR only | LiDAR testing |
 | `competition` | **Strict** (`CALIBRATED`) | All sensors + FCU | Competition |
 
-### Competition Gate Requirements
+### 竞赛门控要求
 
 - `calibration_status == "CALIBRATED"`
 - All `sensor_serials` match actual device serials
@@ -330,9 +328,9 @@ Defined in `bringup.launch.py`:
 
 ---
 
-## 5. Rollback Procedure
+## 5. 回滚流程
 
-### 5.1 What "Rollback" Means
+### 5.1 “回滚”的含义
 
 The project maintains two parallel codebases:
 
@@ -341,9 +339,9 @@ The project maintains two parallel codebases:
 | `drone/` (legacy) | `drone/main.py --profile competition` | Python-only, direct serial, no ROS |
 | `ros2_ws/` (ROS 2) | `ros2 launch ed_uav_bringup bringup.launch.py` | ROS 2 graph, typed interfaces |
 
-**Rollback** = reverting from the ROS 2 stack to the legacy `drone/` stack.
+**回滚** = 从 ROS 2 栈切换回旧版 `drone/` 栈。
 
-### 5.2 Rollback Steps
+### 5.2 回滚步骤
 
 ```bash
 # 1. Stop ROS 2 processes
@@ -363,19 +361,17 @@ cd drone
 python main.py --profile competition --serial-port /dev/ttyUSB0
 ```
 
-### 5.3 Serial Ownership Boundary
+### 5.3 串口所有权边界
 
 The `ExclusiveSerialPort` in `ed_uav_fcu_bridge/serial_port.py` uses a
 canonical character-device major/minor identity lock, `TIOCEXCL`, and
 `flock(LOCK_EX|LOCK_NB)`. Together these stop cooperating new opens from
 claiming the same endpoint.
 
-These mechanisms cannot evict a descriptor that was opened before the boundary
-was established. An external owner preflight or serial broker is required
-before connecting hardware, especially when a legacy process may already hold
-the FCU.
+这些机制无法驱逐在边界建立前已经打开的描述符。连接硬件前必须执行外部所有者预检
+或使用串口代理，尤其是在旧版进程可能已经持有 FCU 时。
 
-### 5.4 Protected Files
+### 5.4 受保护文件
 
 | File | Purpose | Integrity |
 |---|---|---|
@@ -383,13 +379,13 @@ the FCU.
 | `drone/debug_start.sh` | Legacy debug launcher | SHA-256 pinned |
 | `drone/field_test.sh` | Legacy field test launcher | SHA-256 pinned |
 
-Any modification detected by `tools/parity_check.py` triggers a RED gate.
+`tools/parity_check.py` 检测到任何修改都会触发 RED 门控。
 
 ---
 
-## 6. Docker/Container Deployment
+## 6. Docker/容器部署
 
-### 6.1 Image
+### 6.1 镜像
 
 ```bash
 # Build the Humble toolchain image
@@ -406,7 +402,7 @@ docker compose -f docker/compose.humble.yml up -d
 docker compose -f docker/compose.humble.yml exec humble bash
 ```
 
-### 6.3 Runner Dispatch
+### 6.3 运行器分派
 
 `tools/run_humble.sh` automatically selects:
 - **Native**: Ubuntu 22.04 with `/opt/ros/humble` installed
@@ -416,9 +412,9 @@ Override with `HUMBLE_CONTAINER_RUNTIME=podman` for Podman.
 
 ---
 
-## 7. Future Gates (Not Yet Implemented)
+## 7. 后续门控（尚未实现）
 
-### 7.1 Target Gate
+### 7.1 目标门控
 
 Real-device verification without flight:
 - Camera capture at all target resolutions
@@ -426,7 +422,7 @@ Real-device verification without flight:
 - FCU serial handshake (arm/disarm/mode)
 - Sensor timestamp synchronization check
 
-### 7.2 HIL Gate
+### 7.2 HIL 门控
 
 Hardware-in-loop with simulated dynamics:
 - Full mission execution against simulated field
@@ -434,7 +430,7 @@ Hardware-in-loop with simulated dynamics:
 - Localization source switching under load
 - Safety supervisor hover→land verification
 
-### 7.3 Flight Gate
+### 7.3 飞行门控
 
 Real flight with progressive autonomy:
 1. Manual flight with ROS logging only
@@ -444,7 +440,7 @@ Real flight with progressive autonomy:
 
 ---
 
-## 8. Acceptance Criteria Summary
+## 8. 验收标准摘要
 
 | Gate | Criterion | Tool |
 |---|---|---|

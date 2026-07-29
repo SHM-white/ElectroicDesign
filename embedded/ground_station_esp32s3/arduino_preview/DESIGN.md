@@ -1,10 +1,9 @@
-# Todo 6 HMI Preview Contract
+# Todo 6 HMI 预览契约
 
-This browser reference mirrors the Arduino station's fixed 800x480-style
-operator surface. It is a deterministic test harness, not a flight-control
-UI and not a replacement for the display/touch port.
+此浏览器参考复现 Arduino 地面站固定的 800x480 风格操作界面。它是确定性的测试
+工具，不是飞控 UI，也不是显示/触摸端口的替代品。
 
-## Tokens
+## 令牌
 
 - Canvas `#F4F4F4`, surface `#FFFFFF`, subtle `#E8E8E8`, border `#C6C6C6`.
 - Masthead `#161616`, primary text `#161616`, secondary `#525252`.
@@ -13,19 +12,16 @@ UI and not a replacement for the display/touch port.
 - 8 px spacing grid, sharp corners, 800x480 target canvas, 48 px minimum
   touch targets, built-in-style sans text with stable numeric columns.
 
-## Surface
+## 界面
 
-The surface is a flat operational dashboard: masthead, link/status strip,
-selection band, route/status band, and footer. No maps, flight controls,
-command transport, decorative imagery, gradients, shadows, or nested cards.
-Every status uses text as well as color and includes an age where freshness is
-relevant. CJK labels are kept in short, bounded phrases so they do not split
-mid-phrase on a constrained viewport.
+界面是扁平的操作仪表板，包括页眉、链路/状态条、选择区、路线/状态区和页脚。不包含
+地图、飞行控件、命令传输、装饰图像、渐变、阴影或嵌套卡片。每个状态都同时使用文字
+和颜色，在新鲜度相关时显示时长。CJK 标签保持为简短的有界短语，避免在受限视口中
+从短语中间断开。
 
-## States
+## 状态
 
-The preview exposes `BOOT_LOCKED`, `PRESTART`, `SELECT_PENDING`, `ARMED_READY`,
-`CAR_RUNNING`, and `FAULT`. Selection and confirmation are available only in
-`PRESTART`; an authoritative ACK is required before `ARMED_READY`; car start
-locks the task controls and leaves the station read-only. Reboot returns to
-`BOOT_LOCKED`.
+预览暴露 `BOOT_LOCKED`、`PRESTART`、`SELECT_PENDING`、`ARMED_READY`、
+`CAR_RUNNING` 和 `FAULT`。只有在 `PRESTART` 中才能选择和确认；进入 `ARMED_READY`
+前必须收到权威 ACK；小车启动会锁定任务控件，使地面站保持只读。重启返回
+`BOOT_LOCKED`。

@@ -1,41 +1,38 @@
-# Map Sessions
+# 地图会话
 
-> **Status**: Contract defined, not implemented (Task 13 contract layer)
-> **Owner**: `ed_uav_localization.map_archive`
-> **Contract**: `/localization/start_map_session` (frozen in `ros2_contract_manifest.json`)
+> **状态**：契约已定义，尚未实现（任务 13 契约层）
+> **所有者**：`ed_uav_localization.map_archive`
+> **契约**：`/localization/start_map_session`（已在 `ros2_contract_manifest.json` 中冻结）
 
 ---
 
-## 1. Overview
+## 1. 概览
 
-A map session captures a fresh point-cloud archive and trajectory from FAST-LIO
-odometry during a single flight run. Each session is atomic: either the archive
-is complete and valid, or it remains a `.partial` staging directory that can be
-cleaned up safely.
+地图会话在一次飞行运行期间，从 FAST-LIO 里程计采集新点云归档和轨迹。每个会话都是原子的：归档要么完整有效，要么保留为可安全清理的 `.partial` 暂存目录。
 
-The session system is designed around three principles:
+会话系统遵循三个原则：
 
-1. **Atomic completion** — no half-written archives can be mistaken for valid maps
-2. **Fresh-map rule** — LIO odometry remains available during accumulation
-3. **Deterministic replay** — session lifecycle is reproducible from fixture data
+1. **原子完成**：半写入归档不能被误认为有效地图
+2. **新地图规则**：累积期间 LIO 里程计仍然可用
+3. **确定性回放**：会话生命周期可由固定测试数据复现
 
-### Current State
+### 当前状态
 
-| Component | File | Status |
+| 组件 | 文件 | 状态 |
 |---|---|---|
-| `StartMapSession.srv` interface | `ed_uav_interfaces/srv/StartMapSession.srv` | **Defined and built** |
-| Contract manifest entry | `ed_uav_interfaces/contracts/ros2_contract_manifest.json` | **Frozen** |
-| `map_session.py` session manager | `ed_uav_localization/` | **Not implemented** |
-| `test_map_session.py` tests | `ed_uav_localization/test/` | **Not implemented** |
-| `.partial` staging pattern | `ed_uav_verification/artifacts.py` | **Reference implementation** |
-| LIO health monitoring | `ed_uav_localization/lio_health.py` | **Implemented** |
-| Source supervisor | `ed_uav_localization/source_supervisor.py` | **Implemented** |
+| `StartMapSession.srv` 接口 | `ed_uav_interfaces/srv/StartMapSession.srv` | **已定义并构建** |
+| 契约清单条目 | `ed_uav_interfaces/contracts/ros2_contract_manifest.json` | **已冻结** |
+| `map_session.py` 会话管理器 | `ed_uav_localization/` | **未实现** |
+| `test_map_session.py` 测试 | `ed_uav_localization/test/` | **未实现** |
+| `.partial` 暂存模式 | `ed_uav_verification/artifacts.py` | **参考实现** |
+| LIO 健康监测 | `ed_uav_localization/lio_health.py` | **已实现** |
+| 源监督器 | `ed_uav_localization/source_supervisor.py` | **已实现** |
 
 ---
 
-## 2. StartMapSession Service Definition
+## 2. StartMapSession 服务定义
 
-The frozen service contract is defined in `ed_uav_interfaces/srv/StartMapSession.srv`:
+冻结的服务契约定义于 `ed_uav_interfaces/srv/StartMapSession.srv`：
 
 ```
 # A new session only; saved-map loading and relocalization are not contracts.
@@ -48,25 +45,25 @@ string<=96 reason
 string<=128 staging_uri
 ```
 
-### Request Fields
+### 请求字段
 
-| Field | Type | Constraint | Description |
+| 字段 | 类型 | 约束 | 说明 |
 |---|---|---|---|
 | `session_id` | string | ≤64 chars | Caller-provided unique identifier |
 | `archive_root` | string | ≤128 chars | Filesystem root for archive storage |
 | `record_pointcloud` | bool | — | Whether to accumulate point cloud data |
 
-### Response Fields
+### 响应字段
 
-| Field | Type | Constraint | Description |
+| 字段 | 类型 | 约束 | 说明 |
 |---|---|---|---|
 | `accepted` | bool | — | Whether the session was started |
 | `reason` | string | ≤96 chars | Rejection reason if `accepted=false` |
 | `staging_uri` | string | ≤128 chars | Path to `.partial` staging directory |
 
-### Contract Manifest Registration
+### 契约清单注册
 
-From `ros2_contract_manifest.json`:
+根据 `ros2_contract_manifest.json`：
 
 ```json
 {
@@ -80,12 +77,11 @@ From `ros2_contract_manifest.json`:
 }
 ```
 
-Only `ed_uav_localization.map_archive` may own this service. No other node
-may register or respond on `/localization/start_map_session`.
+只有 `ed_uav_localization.map_archive` 可以拥有此服务。任何其他节点都不得在 `/localization/start_map_session` 上注册或响应。
 
 ---
 
-## 3. Session Lifecycle
+## 3. 会话生命周期
 
 ```
 START → ACCUMULATING → FINALIZING → COMPLETE
@@ -95,28 +91,26 @@ START → ACCUMULATING → FINALIZING → COMPLETE
 
 ### 3.1 START
 
-Client calls `StartMapSession` with session metadata. The service validates:
+客户端携带会话元数据调用 `StartMapSession`。服务验证：
 - `session_id` is unique (no active session with same ID)
 - `archive_root` is writable
 - `record_pointcloud` is consistent with current sensor state
 
-If validation passes, returns `accepted=true` with `staging_uri` pointing to
+验证通过后返回 `accepted=true`，并将 `staging_uri` 指向
 `<archive_root>/<session_id>.partial/`.
 
 ### 3.2 ACCUMULATING
 
-LIO odometry and point clouds are staged to the `.partial` directory:
+LIO 里程计和点云暂存到 `.partial` 目录：
 - Point clouds are appended to `pointcloud.pcd` (if `record_pointcloud=true`)
 - Trajectory poses are appended to `trajectory.csv`
 - Metadata is updated periodically
 
-**Critical invariant**: LIO odometry is NOT gated by session state. The
-`/localization/lio/odom` topic continues to publish regardless of session
-status. This is the "fresh-map rule" — see Section 6.
+**关键不变量**：LIO 里程计不受会话状态门控。无论会话处于何种状态，`/localization/lio/odom` 话题都继续发布。这就是“新地图规则”，见第 6 节。
 
 ### 3.3 FINALIZING
 
-On session stop (client call or timeout):
+会话停止时（客户端调用或超时）：
 1. All buffered data is flushed
 2. Checksums are computed for all files
 3. `manifest.json` is written with SHA-256 hashes
@@ -124,24 +118,23 @@ On session stop (client call or timeout):
 
 ### 3.4 COMPLETE
 
-The `.partial` directory is atomically renamed to the final archive path:
+`.partial` 目录以原子方式重命名为最终归档路径：
 ```
 <archive_root>/<session_id>.partial/  →  <archive_root>/<session_id>/
 ```
 
-The rename is atomic on POSIX filesystems. No observer can see a half-complete
-archive at the final path.
+在 POSIX 文件系统上，重命名是原子的。任何观察者都不会在最终路径看到未完成的归档。
 
 ### 3.5 CANCELLED
 
-If the process is interrupted during ACCUMULATING or FINALIZING:
+如果进程在 ACCUMULATING 或 FINALIZING 期间中断：
 - The `.partial` directory remains on disk
 - No final archive exists at the non-`.partial` path
 - Cleanup scripts can detect and remove stale partials by age
 
 ---
 
-## 4. Archive Format
+## 4. 归档格式
 
 ```
 <session_id>/
@@ -155,7 +148,7 @@ If the process is interrupted during ACCUMULATING or FINALIZING:
 └── manifest.json          # SHA-256 checksums of all files
 ```
 
-### 4.1 metadata.json Schema
+### 4.1 metadata.json 模式
 
 ```json
 {
@@ -174,7 +167,7 @@ If the process is interrupted during ACCUMULATING or FINALIZING:
 }
 ```
 
-| Field | Type | Description |
+| 字段 | 类型 | 说明 |
 |---|---|---|
 | `session_id` | string | Caller-provided unique ID |
 | `start_time` | ISO 8601 | Session start timestamp |
@@ -189,7 +182,7 @@ If the process is interrupted during ACCUMULATING or FINALIZING:
 | `point_count` | int | Total points accumulated |
 | `trajectory_poses` | int | Total trajectory poses |
 
-### 4.2 trajectory.csv Format
+### 4.2 trajectory.csv 格式
 
 ```csv
 timestamp_ns,x,y,z,qx,qy,qz,qw
@@ -198,10 +191,9 @@ timestamp_ns,x,y,z,qx,qy,qz,qw
 ...
 ```
 
-Each row is one LIO odometry pose. Timestamps are nanoseconds since epoch.
-Positions are in meters (ENU). Quaternions are (qx, qy, qz, qw).
+每一行表示一个 LIO 里程计位姿。时间戳是自纪元以来的纳秒数。位置单位为米（ENU）。四元数为（qx、qy、qz、qw）。
 
-### 4.3 manifest.json Schema
+### 4.3 manifest.json 模式
 
 ```json
 {
@@ -220,15 +212,13 @@ Positions are in meters (ENU). Quaternions are (qx, qy, qz, qw).
 
 ---
 
-## 5. Atomic Completion with .partial Staging
+## 5. 使用 .partial 暂存实现原子完成
 
-The archive uses a two-phase commit pattern, following the reference
-implementation in `ed_uav_verification/artifacts.py`.
+归档采用两阶段提交模式，遵循 `ed_uav_verification/artifacts.py` 中的参考实现。
 
-### 5.1 Reference Pattern
+### 5.1 参考模式
 
-From `artifacts.py`, the `EventArtifactWriter` and `FixtureBagBuilder` classes
-implement this exact pattern:
+`artifacts.py` 中的 `EventArtifactWriter` 和 `FixtureBagBuilder` 类实现了这一模式：
 
 ```python
 # From ed_uav_verification/artifacts.py (lines 46-62)
@@ -251,27 +241,27 @@ class EventArtifactWriter:
         return self.path
 ```
 
-### 5.2 Map Session Implementation Pattern
+### 5.2 地图会话实现模式
 
-The map session should follow the same two-phase commit:
+地图会话应遵循相同的两阶段提交流程：
 
-1. **Staging**: All files are written to `<session_id>.partial/`
+1. **暂存**：所有文件写入 `<session_id>.partial/`
    - `trajectory.csv` is appended incrementally
    - `pointcloud.pcd` is written in chunks
    - `metadata.json` is updated periodically
 
-2. **Validation**: On session stop
+2. **验证**：会话停止时
    - Compute SHA-256 for all files
    - Write `manifest.json` with checksums
    - Verify all checksums match
 
-3. **Commit**: Atomic rename
+3. **提交**：原子重命名
    - `partial.replace(final_path)` — POSIX atomic rename
    - No observer can see a half-complete archive
 
-### 5.3 Error Handling
+### 5.3 错误处理
 
-| Scenario | Behavior |
+| 场景 | 行为 |
 |---|---|
 | Process crash during staging | `.partial` directory remains, no final archive |
 | Disk full during staging | `.partial` directory remains, no final archive |
@@ -279,33 +269,32 @@ The map session should follow the same two-phase commit:
 | Stale `.partial` from previous run | Reject with `accepted=false, reason="stale partial"` |
 | Validation failure | `.partial` directory remains, no final archive |
 
-### 5.4 Cleanup Policy
+### 5.4 清理策略
 
-Stale `.partial` directories should be cleaned up by:
+过期的 `.partial` 目录应通过以下方式清理：
 - Age threshold (e.g., >1 hour old)
 - Manual cleanup script
 - Pre-flight check before starting new session
 
 ---
 
-## 6. Fresh-Map Rule
+## 6. 新地图规则
 
-**Position is available while mapping.** The LIO odometry stream is not gated
-by session completion.
+**建图期间位置仍然可用。** LIO 里程计流不受会话完成状态门控。
 
-### 6.1 Design Rationale
+### 6.1 设计理由
 
-The `/localization/lio/odom` topic is published by FAST-LIO independently of
-the map session system. This means:
+`/localization/lio/odom` 话题由 FAST-LIO 独立发布，与地图会话系统无关。因此：
+地图会话系统。因此：
 
 - Navigation can use LIO odometry during map accumulation
 - The map archive is a byproduct of flight, not a prerequisite
 - Each formal run may start a new session without waiting for archive completion
 - If the session fails, navigation is unaffected
 
-### 6.2 LIO Health During Session
+### 6.2 会话期间的 LIO 健康状态
 
-The LIO health monitor (`ed_uav_localization/lio_health.py`) evaluates:
+LIO 健康监测器（`ed_uav_localization/lio_health.py`）评估：
 
 ```python
 # From lio_health.py (lines 59-93)
@@ -321,18 +310,16 @@ def evaluate_health(
 ) -> LIOHealth:
 ```
 
-Health states:
-- `HEALTHY` — LIO odometry fresh and stable
-- `DEGRADED` — LIO odometry stale or time regression detected
-- `LOST` — LIO odometry absent or covariance blown up
+健康状态：
+- `HEALTHY`：LIO 里程计新鲜且稳定
+- `DEGRADED`：LIO 里程计过期或检测到时间回退
+- `LOST`：LIO 里程计缺失或协方差失控
 
-The session manager should monitor LIO health during accumulation but must NOT
-gate odometry publication on session state.
+会话管理器应在累积期间监测 LIO 健康状态，但不得根据会话状态门控里程计发布。
 
-### 6.3 Source Supervisor Integration
+### 6.3 与源监督器集成
 
-The source supervisor (`ed_uav_localization/source_supervisor.py`) manages
-LIO/visual source switching. Key thresholds:
+源监督器（`ed_uav_localization/source_supervisor.py`）管理 LIO/视觉源切换。关键阈值如下：
 
 | Parameter | Default | Description |
 |---|---|---|
@@ -341,24 +328,23 @@ LIO/visual source switching. Key thresholds:
 | `lost_timeout` | 1.0s | Seconds without odometry before LOST |
 | `covariance_blowup` | 1e6 | Diagonal covariance threshold |
 
-The session manager should log source state transitions but must NOT interfere
-with source switching decisions.
+会话管理器应记录源状态转换，但不得干预源切换决策。
 
 ---
 
-## 7. Implementation Roadmap
+## 7. 实现路线图
 
-### 7.1 Files to Create
+### 7.1 待创建文件
 
-| File | Purpose |
+| 文件 | 用途 |
 |---|---|
 | `ed_uav_localization/map_session.py` | Session manager node |
 | `ed_uav_localization/test/test_map_session.py` | Unit tests |
 | `ed_uav_localization/config/map_session.yaml` | Default parameters |
 
-### 7.2 Session Manager Node
+### 7.2 会话管理器节点
 
-The `map_session.py` node should:
+`map_session.py` 节点应：
 
 1. Register as service server for `/localization/start_map_session`
 2. Manage session lifecycle (START → ACCUMULATING → FINALIZING → COMPLETE)
@@ -367,9 +353,9 @@ The `map_session.py` node should:
 5. Write archives following the `.partial` staging pattern
 6. Monitor LIO health during accumulation
 
-### 7.3 Test Requirements
+### 7.3 测试要求
 
-From Task 13 acceptance criteria:
+根据任务 13 的验收标准：
 
 - Replay a deterministic timestamped lidar/IMU fixture at real-time factor ≥1
 - `/localization/lio/odom` is finite, monotonic and available before session completion
@@ -379,11 +365,11 @@ From Task 13 acceptance criteria:
 
 ---
 
-## 8. Acceptance Criteria
+## 8. 验收标准
 
-From Task 13:
+根据任务 13：
 
-| Criterion | Verification |
+| 标准 | 验证方式 |
 |---|---|
 | LIO odometry available before session completion | Replay fixture, check `/localization/lio/odom` publishes |
 | LIO odometry finite and monotonic | Validate timestamps in fixture replay |
@@ -394,7 +380,7 @@ From Task 13:
 
 ---
 
-## 9. Related Documentation
+## 9. 相关文档
 
 - `docs/localization/LOCALIZATION_AND_FAILOVER.md` — Source switching and failover
 - `docs/architecture/ROS2_CONTRACTS.md` — Frozen ROS graph contract
@@ -403,7 +389,7 @@ From Task 13:
 
 ---
 
-## 10. References
+## 10. 参考资料
 
 - `ed_uav_interfaces/srv/StartMapSession.srv` — Service definition
 - `ed_uav_interfaces/contracts/ros2_contract_manifest.json` — Contract manifest

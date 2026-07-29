@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from ed_uav_interfaces.msg import FcuState
 from ed_uav_mission.executor import PreflightCode, bounded_failure_reason, validate_preflight
+
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_executor_requires_valid_start() -> None:
@@ -136,3 +140,45 @@ def test_failure_reason_fits_action_boundary() -> None:
 
 def test_empty_failure_reason_uses_exception_type() -> None:
     assert bounded_failure_reason(RuntimeError()) == "RuntimeError"
+
+
+def test_d_task_ros_surface_uses_typed_inputs_status_and_selection_service() -> None:
+    # Given: the production executor and its split D-task ROS boundary.
+    executor_source = (PACKAGE_ROOT / "ed_uav_mission" / "executor.py").read_text(
+        encoding="utf-8"
+    )
+    boundary_path = PACKAGE_ROOT / "ed_uav_mission" / "d_task_ros.py"
+
+    # When/Then: all external state crosses typed ROS contracts owned by mission.
+    assert boundary_path.is_file()
+    boundary_source = boundary_path.read_text(encoding="utf-8")
+    for contract in (
+        "VehicleTelemetry",
+        "TargetObservation",
+        "PayloadContactState",
+        "MissionStatus",
+        "SelectDTaskMission",
+    ):
+        assert contract in boundary_source
+    assert '"/vehicle/telemetry"' in boundary_source
+    assert '"/target/observation"' in boundary_source
+    assert '"/payload/contact_state"' in boundary_source
+    assert '"/mission/status"' in boundary_source
+    assert '"/mission/select_d_task"' in boundary_source
+    assert "DTaskRosBoundary(" in executor_source
+
+
+def test_field_d_task_preflight_requires_verified_programmable_capability() -> None:
+    # Given: the executor's pure preflight and capability boundary source.
+    executor_source = (PACKAGE_ROOT / "ed_uav_mission" / "executor.py").read_text(
+        encoding="utf-8"
+    )
+    capability_path = PACKAGE_ROOT / "ed_uav_mission" / "d_task_capability.py"
+
+    # When/Then: field mode fails closed while simulation may use its fake path.
+    assert capability_path.is_file()
+    capability_source = capability_path.read_text(encoding="utf-8")
+    assert "require_programmable_capability" in capability_source
+    assert "capability_trust_from_environment" in capability_source
+    assert "CAPABILITY_BLOCKED" in executor_source
+    assert "capability_ready" in executor_source

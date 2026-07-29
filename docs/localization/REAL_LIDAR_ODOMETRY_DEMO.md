@@ -1,13 +1,13 @@
 # Livox Mid-360 实机里程计演示
 
-本流程只采集实机相对里程计表现，不控制飞行器。仓库当前没有实世界 ground truth，
+本流程只采集实机相对里程计表现，不控制飞行器。仓库当前没有真实世界的基准真值，
 所以 `status: passed` 只表示采集按配置完成，不表示精度合格。报告中的 covariance、静止
 漂移、回环残差和尺度误差都不能单独证明绝对精度。
 
 ## 一条命令运行
 
-先在另一终端启动并确认现场已 provisioned 的 Livox、ROS 2 FAST-LIO 和 localization 输出链。
-本 runner 不启动 Livox、FAST-LIO、FCU、mission、actions 或 Gazebo；它只构建
+先在另一终端启动并确认现场已完成部署的 Livox、ROS 2 FAST-LIO 和定位输出链。
+本运行器不启动 Livox、FAST-LIO、FCU、任务、动作或 Gazebo；它只构建
 `ed_uav_localization`、验证 odom 并采集结果。从仓库根目录执行：
 
 ```bash
@@ -43,7 +43,7 @@ ODOM_TOPIC=/localization/odom \
 ED_ODOMETRY_DEMO_SKIP_BUILD=1 ./tools/run_lidar_odometry.sh
 ```
 
-若 overlay 不存在，去掉 `ED_ODOMETRY_DEMO_SKIP_BUILD=1` 重新运行以构建 `ed_uav_localization`。
+若 overlay 工作空间不存在，去掉 `ED_ODOMETRY_DEMO_SKIP_BUILD=1` 重新运行以构建 `ed_uav_localization`。
 
 ## 1. 安全边界
 
@@ -77,7 +77,7 @@ ros2 pkg executables livox_ros_driver2
 
 ## 3. Mid-360 启动骨架
 
-仓库内的 `config/lidar.yaml` 和 `config/mid360_driver.json` 是 placeholder，禁止实机使用。
+仓库内的 `config/lidar.yaml` 和 `config/mid360_driver.json` 是占位配置，禁止实机使用。
 准备另一份现场 JSON，其中设备 IP、主机网卡 IP、端口和其他 Livox 字段均已按该台设备验证。
 启动参数中的 serial、IP、firmware 必须来自设备标签、设备工具或现场记录，不能猜测。
 
@@ -102,11 +102,11 @@ ros2 launch ed_uav_lidar lidar.launch.py \
 `time_authority:=host` 只会报告 `HOST_TIME_UNVERIFIED`，不证明时间同步。若现场已独立配置并测量
 PTP，可按已验证方案改为 `ptp`，但 `PTP_CONFIGURED_UNVERIFIED` 本身也不是测量证据。
 
-该 launch 提供 `/livox/lidar` 和 `/livox/imu`，不会启动 FAST-LIO。继续前，现场 FAST-LIO、
-实测外参适配和 localization 输出链必须已经 provisioned，最终输出必须是规范话题
-`/localization/odom`。不要为了本演示启动 FCU bridge、mission 或 actions。
+该启动文件提供 `/livox/lidar` 和 `/livox/imu`，不会启动 FAST-LIO。继续前，现场 FAST-LIO、
+实测外参适配和定位输出链必须已经完成部署，最终输出必须是规范话题
+`/localization/odom`。不要为了本演示启动 FCU bridge、任务或动作。
 
-## 4. Preflight
+## 4. 预检
 
 在另一个已 source 同一 workspace 的终端执行：
 

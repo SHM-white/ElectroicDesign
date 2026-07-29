@@ -44,12 +44,24 @@ def create_workspace(tmp_path: Path) -> Workspace:
         """#!/usr/bin/env python3
 import json, os, sys, time
 path = os.environ['FAKE_ROS2_EVENT_LOG']
+argv = sys.argv[1:]
+topic = next((value for value in argv if value.startswith('/')), '')
+required_starts = 1
+if os.environ.get('FAKE_FIELD_MODE') == '1':
+    required_starts = {'/livox/lidar': 1, '/fast_lio/odometry': 2, '/localization/odom': 3}.get(topic, 1)
+deadline = time.monotonic() + 5.0
+while True:
+    events = []
+    if os.path.exists(path):
+        with open(path, encoding='utf-8') as stream:
+            events = [json.loads(line) for line in stream if line.strip()]
+    if sum(event.get('event') == 'start' for event in events) >= required_starts:
+        break
+    if time.monotonic() >= deadline:
+        raise SystemExit(92)
+    time.sleep(0.02)
 with open(path, 'a', encoding='utf-8') as stream:
-    stream.write(json.dumps({'event': 'ros2', 'argv': sys.argv[1:], 'stamp': time.monotonic()}) + '\\n')
-if len(sys.argv) > 2 and sys.argv[2] == '/localization/odom':
-    ready = os.environ.get('FAKE_MONITOR_READY')
-    if ready:
-        open(ready, 'a').close()
+    stream.write(json.dumps({'event': 'ros2', 'argv': argv, 'stamp': time.monotonic()}) + '\\n')
 """,
         encoding="utf-8",
     )
@@ -225,6 +237,7 @@ def test_field_starts_lidar_before_fast_lio_before_localization_and_gates_monito
     env["FAKE_ROS2_EVENT_LOG"] = str(workspace.event_log)
     env["FAKE_EVENT_LOG"] = str(workspace.event_log)
     env["FAKE_MONITOR_READY"] = str(workspace.ready)
+    env["FAKE_FIELD_MODE"] = "1"
     env["ED_LIDAR_ODOMETRY_MONITOR_HEALTH_CMD"] = f"touch {shlex.quote(str(workspace.ready))}"
     for key in (
         "ED_LIDAR_ODOMETRY_LIDAR_HEALTH_CMD",
@@ -234,7 +247,7 @@ def test_field_starts_lidar_before_fast_lio_before_localization_and_gates_monito
         env.pop(key, None)
     result = run_launcher(workspace, "field-mid360\n", env=env)
     assert result.returncode == 0, result.stderr + result.stdout
-    rows = wait_for_children(workspace, count=2)
+    rows = wait_for_children(workspace, count=4)
     assert [row["label"] for row in rows] == ["field_lidar", "field_fast_lio", "field_localization", "field_monitor"]
     assert result.stdout.count("ODOMETRY_ACCURACY_LIVE ") == 2
     assert result.stdout.count("ODOMETRY_ACCURACY_RESULT=") == 1
@@ -245,13 +258,14 @@ def test_field_starts_lidar_before_fast_lio_before_localization_and_gates_monito
                 return index
         raise AssertionError('matching event not found')
 
+    start_field_lidar = first_index(lambda event: event.get('event') == 'start' and event.get('label') == 'field_lidar')
     health_livox = first_index(lambda event: event.get('event') == 'ros2' and '/livox/lidar' in event.get('argv', []))
     start_field_fast_lio = first_index(lambda event: event.get('event') == 'start' and event.get('label') == 'field_fast_lio')
     health_fast_lio = first_index(lambda event: event.get('event') == 'ros2' and '/fast_lio/odometry' in event.get('argv', []))
     start_field_localization = first_index(lambda event: event.get('event') == 'start' and event.get('label') == 'field_localization')
     health_localization = first_index(lambda event: event.get('event') == 'ros2' and '/localization/odom' in event.get('argv', []))
     start_field_monitor = first_index(lambda event: event.get('event') == 'start' and event.get('label') == 'field_monitor')
-    assert health_livox < start_field_fast_lio < health_fast_lio < start_field_localization < health_localization < start_field_monitor
+    assert start_field_lidar < health_livox < start_field_fast_lio < health_fast_lio < start_field_localization < health_localization < start_field_monitor
     assert health_localization > start_field_localization
     assert_dead([int(row["pid"]) for row in rows])
 
@@ -274,6 +288,20 @@ def test_invalid_field_manifest_fails_before_spawn(
     result = run_launcher(workspace, "field-mid360\n")
     assert result.returncode != 0
     assert reason in result.stderr
+    assert not workspace.child_log.exists()
+    assert not workspace.state.exists()
+
+
+def test_unapproved_fast_lio_launch_fails_before_spawn(tmp_path: Path) -> None:
+    workspace = create_workspace(tmp_path)
+    fields = workspace.root / "ros2_ws/src/ed_uav_lidar/config/fields"
+    (fields / "rogue.launch.py").write_text("{}\n", encoding="utf-8")
+    write_manifest(workspace, fast_lio_launch="rogue.launch.py")
+
+    result = run_launcher(workspace, "field-mid360\n")
+
+    assert result.returncode != 0
+    assert "disallowed_fast_lio_launch" in result.stderr
     assert not workspace.child_log.exists()
     assert not workspace.state.exists()
 

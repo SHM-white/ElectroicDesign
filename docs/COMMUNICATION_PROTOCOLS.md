@@ -1,7 +1,7 @@
 # 当前实现说明（2026-07）
 
-当前树莓派通过 USB-TTL 以 500000bps 直连凌霄 IMU 串口2，使用匿名通信
-协议V7原生帧 `AA D_ADDR ID LEN DATA SC AC`。本文中早期设计的 STM32F4
+当前树莓派通过 USB-TTL 以 500000 bps 直连凌霄 IMU 串口 2，使用匿名通信
+协议 V7 原生帧 `AA D_ADDR ID LEN DATA SC AC`。本文中早期设计的 STM32F4
 桥接帧 `0xAA/0xBB/0xCC`、查询帧和自定义心跳不再由 `drone/` 主程序使用，
 仅供历史固件设计参考。
 
