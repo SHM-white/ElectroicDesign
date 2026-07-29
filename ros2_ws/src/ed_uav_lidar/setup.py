@@ -1,5 +1,6 @@
 """Setuptools metadata for the optional ED UAV lidar package."""
 
+from pathlib import Path
 from glob import glob
 
 from setuptools import setup
@@ -7,6 +8,8 @@ from setuptools import setup
 
 PACKAGE_NAME = "ed_uav_lidar"
 
+# Only include regular files from config/ (skip subdirectories like fields/)
+config_files = [str(p) for p in Path("config").iterdir() if p.is_file()]
 
 setup(
     name=PACKAGE_NAME,
@@ -16,7 +19,7 @@ setup(
         ("share/ament_index/resource_index/packages", [f"resource/{PACKAGE_NAME}"]),
         (f"share/{PACKAGE_NAME}", ["package.xml"]),
         (f"share/{PACKAGE_NAME}/launch", glob("launch/*.launch.py")),
-        (f"share/{PACKAGE_NAME}/config", glob("config/*")),
+        (f"share/{PACKAGE_NAME}/config", config_files),
     ],
     install_requires=["setuptools"],
     zip_safe=True,

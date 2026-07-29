@@ -1,0 +1,16 @@
+# Field calibration for MID-360 lidar extrinsics (base_link -> lidar_link).
+# Update xyz_m and rpy_rad after physical measurement.
+schema_version: 1
+calibration_id: FIELD-MID360-MANUAL
+calibration_status: MANUAL
+calibration_hash: manual
+sensor_serials:
+  camera_narrow: UNSET
+  camera_wide: UNSET
+  lidar: MWLDA24001H3J22
+transforms:
+  fcu_link: {xyz_m: [0.0, 0.0, 0.0], rpy_rad: [0.0, 0.0, 0.0]}
+  lidar_link: {xyz_m: [0.0, 0.0, 0.0], rpy_rad: [0.0, 0.0, 0.0]}
+  camera_narrow_optical_frame: {xyz_m: [0.0, 0.0, 0.0], rpy_rad: [0.0, 0.0, 0.0]}
+  camera_wide_optical_frame: {xyz_m: [0.0, 0.0, 0.0], rpy_rad: [0.0, 0.0, 0.0]}
+  rangefinder_link: {xyz_m: [0.0, 0.0, 0.0], rpy_rad: [0.0, 0.0, 0.0]}
