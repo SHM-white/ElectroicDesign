@@ -102,9 +102,18 @@ class PayloadParams(BaseModel):
 class CompetitionParams(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    mission_profile_id: Identifier
+    deployment_preset_id: Identifier
+    target_revision: Literal["d2026-circle-cross-v1"]
     altitude_m: FiniteFloat = Field(default=1.5, gt=0.0)
     forward_distance_m: FiniteFloat = Field(default=2.0, gt=0.0, le=50.0)
-    hover_sec: FiniteFloat = Field(default=1.0, ge=0.0, le=30.0)
+    stable_sec: FiniteFloat = Field(default=3.0, ge=3.0, le=3.0)
+    start_deadline_s: FiniteFloat = Field(default=15.0, gt=0.0, le=15.0)
+    b_deadline_s: FiniteFloat = Field(default=45.0, gt=15.0, lt=75.0)
+    d_deadline_s: FiniteFloat = Field(default=75.0, gt=45.0, lt=90.0)
+    vehicle_freshness_s: FiniteFloat = Field(default=0.5, gt=0.0, le=0.5)
+    target_freshness_s: FiniteFloat = Field(default=0.2, gt=0.0, le=0.2)
+    maximum_relative_error_m: FiniteFloat = Field(default=2.0, gt=0.0, le=5.0)
     planner_timeout_sec: FiniteFloat = Field(default=5.0, gt=0.0, le=30.0)
 
 
@@ -154,6 +163,10 @@ class MissionConfig(BaseModel):
             case MissionType.COMPETITION:
                 if self.competition is None:
                     raise ValueError("competition mission requires competition params")
+                if self.takeoff_altitude_m != 1.5 or self.timeout_sec != 90.0:
+                    raise ValueError(
+                        "2026 competition missions require 1.5 m takeoff altitude and 90 s deadline"
+                    )
         return self
 
 

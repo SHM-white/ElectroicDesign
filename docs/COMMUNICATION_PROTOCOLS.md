@@ -290,7 +290,7 @@ AA FF E0 0B 10 02 03 F4 01 64 00 2D 00 00 00 [SC] [AC]
 
 ### 3.2 主控 → MCU 帧
 
-#### Type A: IMU指令转发帧
+#### 类型 A：IMU 指令转发帧
 
 主控将凌霄IMU API帧封装后发送给MCU, 由MCU转发至IMU。
 
@@ -317,7 +317,7 @@ AA FF E0 0B 10 02 03 F4 01 64 00 2D 00 00 00 [SC] [AC]
 SUM = (0xAA + CMD_LEN + 0x01 + IMU_API_FRAME[0] + ... + IMU_API_FRAME[N-1]) & 0xFFFF
 ```
 
-#### Type B: 查询帧
+#### 类型 B：查询帧
 
 ```
  0    1
@@ -473,7 +473,7 @@ XOR = `0x11 ⊕ 0x02 ⊕ 0x01 ⊕ 0x01` = `0x13`
 | 命令 | CMD     | `0x03`                                             |
 | 命令 | LEN     | `0x03`                                             |
 | 命令 | PAYLOAD | `[COUNT] [PERIOD_LO] [PERIOD_HI]`                  |
-| 响应 | **无**  | 点火即忘 (fire-and-forget)                         |
+| 响应 | **无**  | 发出后不等待响应                         |
 
 
 | 参数   | 说明                      |

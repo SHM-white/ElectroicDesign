@@ -13,15 +13,13 @@
 | `home_cross_center`、`start_marker_center`、`gray_marker_center` | 像素 `(u, v)` | 相机图像像素 | 绝不能视为世界位姿；应使用 `sensor_msgs/Image`、标准检测结果或部分观测。 |
 | `gray_marker_box` | 像素 `(u, v, width, height)` | 相机图像像素 | 标准检测框保留此表示方式。 |
 | 视觉置信度字段 | `float`，比值 `[0, 1]` | 检测器得分 | 不是位置协方差。 |
-| `MCUSerial._of_pos_x`, `_of_pos_y`, `_of_dx`, `_of_dy` | `float`, cm | V7 position relative to takeoff; legacy X forward, Y right | `ed_uav_fcu_bridge` alone converts to meters and ROS ENU. `0x08` is the continuous source. |
-| `MCUSerial._altitude` | signed integer, cm | V7 altitude | `ed_uav_fcu_bridge` alone converts to meters. |
-| `MCUSerial._voltage_mv` | integer, mV | battery electrical value | Publish standard `sensor_msgs/BatteryState` in volts. |
-| `MCUSerial._mode`, `_locked`, `_aux6` | integer/bit/pulse us | V7 mode; `locked=1` means unlocked | Normalize to typed FCU state; preserve source sequence and acquisition time. |
-| `cmd_move(distance_cm, speed_cmps, direction_deg)` | cm, cm/s, degrees | body-relative: 0 is nose-forward, clockwise positive | Only `ed_uav_fcu_bridge` converts an approved SI/ENU command to V7. |
+| `MCUSerial._of_pos_x`、`_of_pos_y`、`_of_dx`、`_of_dy` | `float`，cm | V7 相对于起飞点的位置；旧约定为 X 向前、Y 向右 | 仅 `ed_uav_fcu_bridge` 将其转换为米和 ROS ENU。`0x08` 是连续位置源。 |
+| `MCUSerial._altitude` | 有符号整数，cm | V7 高度 | 仅 `ed_uav_fcu_bridge` 将其转换为米。 |
+| `MCUSerial._voltage_mv` | 整数，mV | 电池电压值 | 以伏为单位发布标准 `sensor_msgs/BatteryState`。 |
+| `MCUSerial._mode`、`_locked`、`_aux6` | 整数/位/脉冲 us | V7 模式；`locked=1` 表示未解锁 | 规范化为带类型的 FCU 状态，并保留源序列号和采集时间。 |
+| `cmd_move(distance_cm, speed_cmps, direction_deg)` | cm、cm/s、度 | 相对于机体：0 为机头前方，顺时针为正 | 仅 `ed_uav_fcu_bridge` 将获批准的 SI/ENU 命令转换为 V7。 |
 
-Legacy `DroneStateMachine` is the current actuator arbiter. ROS replaces that
-ownership with exactly one action-server owner, `ed_uav_fcu_bridge`; mission and
-safety clients never open the FCU endpoint. V7 `0x41` is excluded.
+旧版 `DroneStateMachine` 是当前的执行器仲裁器。ROS 将其所有权替换为唯一的动作服务端所有者 `ed_uav_fcu_bridge`；任务客户端和安全客户端从不打开 FCU 端点。V7 `0x41` 被排除。
 
 ## 图契约
 
@@ -47,53 +45,37 @@ safety clients never open the FCU endpoint. V7 `0x41` is excluded.
 | `/d_task/mission_status` | `MissionStatus` | mission | `map` ENU | `state_reliable`, 1.00 s |
 | `/d_task/payload_contact_state` | `PayloadContactState` | payload bridge | `base_link` | `state_reliable`, 0.20 s |
 
-`/localization/start_map_session` is owned only by the map archive and uses
-`StartMapSession`; saved-map loading/relocalization is excluded. `/fcu/flight_command`
-is owned only by the FCU bridge and uses `FlightCommand`. `/mission/execute` is
-owned only by the mission package and uses `ExecuteMission`.
-`/d_task/pre_arm/select_mission` is also owned only by the mission package and
-accepts `SelectDTaskMission` requests only before arming.
+`/localization/start_map_session` 仅由地图归档拥有，并使用 `StartMapSession`；不包含已保存地图加载或重新定位。
+`/fcu/flight_command` 仅由 FCU bridge 拥有，并使用 `FlightCommand`。`/mission/execute` 仅由任务软件包拥有，并使用 `ExecuteMission`。
+`/d_task/pre_arm/select_mission` 也仅由任务软件包拥有，只接受解锁前的 `SelectDTaskMission` 请求。
 
 ### 仅仿真图
 
-The following entries are approved only for the simulation-only Gazebo FAST-LIO
-and planner-only graph: `/fast_lio/odometry`, `/fast_lio/cloud_registered`,
-`/fast_lio/laser_map`, `/fast_lio/path`, and `/fast_lio/tf`; canonical adapter
-outputs `/localization/lio/cloud_registered`, `/localization/lio/map`, and
-`/localization/lio/path`; the Nav2 `/map` topic; and the
-`/compute_path_to_pose` action. FAST-LIO raw topics remain private to the
-simulation graph. `/fast_lio/tf` is a private `TFMessage` topic, not a global
-TF edge. The adapter relabels the LIO `camera_init` world frame to `odom` for
-the canonical visualization outputs without publishing TF.
+以下条目仅获准用于仅仿真的 Gazebo FAST-LIO 和仅规划器图：`/fast_lio/odometry`、`/fast_lio/cloud_registered`、
+`/fast_lio/laser_map`、`/fast_lio/path` 和 `/fast_lio/tf`；规范适配器输出
+`/localization/lio/cloud_registered`、`/localization/lio/map` 和
+`/localization/lio/path`；Nav2 的 `/map` 话题；以及
+`/compute_path_to_pose` 动作。FAST-LIO 原始话题仍是仿真图的私有内容。`/fast_lio/tf` 是私有的 `TFMessage` 话题，不是全局 TF 边。适配器将 LIO 的 `camera_init` 世界坐标系重命名为 `odom`，用于规范可视化输出，但不发布 TF。
 
 所有名称均为绝对名称，并位于固定的 `/fcu`、`/rangefinder`、
-`/camera/narrow`, `/camera/wide`, `/lidar`, `/localization`, `/perception`,
-`/mission`, `/d_task`, and `/diagnostics` namespaces. `/tf` and `/tf_static` carry only
-the authorities named below; they are not alternative data interfaces.
+`/camera/narrow`、`/camera/wide`、`/lidar`、`/localization`、`/perception`、
+`/mission`、`/d_task` 和 `/diagnostics` 命名空间。`/tf` 和 `/tf_static` 只承载下文指定的权威来源，不是备用数据接口。
 
 所有物理量均使用 SI，所有世界坐标和机体坐标均按 REP-103 使用 ENU。图像值在其光学坐标系中仍为像素。
 消息头和采集时间戳使用设备或数据源的 ROS 时间。新鲜度始终使用本地 steady clock 测量，绝不能用可能回退的 ROS 时间相减。
 
-QoS 配置固定如下：`sensor_data_best_effort` 表示 keep-last 5、
-best-effort, volatile; `state_reliable` means keep-last 10, reliable, volatile;
-`latched_reliable` means keep-last 1, reliable, transient-local; and
-`command_reliable` means keep-last 10, reliable, volatile. The exact profile
-name, acquisition clock, and freshness deadline are mandatory manifest fields.
+QoS 配置固定如下：`sensor_data_best_effort` 表示 keep-last 5、best-effort、volatile；
+`state_reliable` 表示 keep-last 10、reliable、volatile；`latched_reliable` 表示 keep-last 1、reliable、transient-local；
+`command_reliable` 表示 keep-last 10、reliable、volatile。确切的配置名称、采集时钟和新鲜度期限是清单中的必填字段。
 
-`map -> odom` has exactly one publisher, `ed_uav_localization.field_anchor`.
-`odom -> base_link` has exactly one publisher,
-`ed_uav_localization.source_supervisor`.
-`ed_uav_description.robot_state_publisher` publishes the static `base_link`
-edges to `fcu_link`, `lidar_link`, `camera_narrow_optical_frame`,
-`camera_wide_optical_frame`, and `rangefinder_link`. No other component may
-publish those edges.
+`map -> odom` 只有一个发布者，即 `ed_uav_localization.field_anchor`。
+`odom -> base_link` 只有一个发布者，即 `ed_uav_localization.source_supervisor`。
+`ed_uav_description.robot_state_publisher` 发布从静态 `base_link` 到
+`fcu_link`、`lidar_link`、`camera_narrow_optical_frame`、
+`camera_wide_optical_frame` 和 `rangefinder_link` 的边。任何其他组件都不得发布这些边。
 
-清单规定了生命周期激活顺序：bridge 和传感器先获取
-exclusive hardware ownership first; localization waits for fresh eligible input;
-mission waits for valid calibration/profile, active localization, a fresh start
-event, and FCU control authority. On total localization loss the later safety
-owner commands hover then controlled land; it never automatically locks motors
-in air.
+清单规定了生命周期激活顺序：bridge 和传感器先获取硬件独占所有权；定位等待新鲜且符合条件的输入；
+任务等待有效标定/配置、已激活定位、新鲜的启动事件和 FCU 控制权。定位完全丢失时，后续的安全所有者先命令悬停，再控制降落；绝不会在空中自动加锁电机。
 
 ## 接口规则
 
@@ -103,36 +85,13 @@ in air.
 使用有长度上限的关联、身份和原因字段。`StartMapSession` 使用有长度上限的 ID 和路径。
 自定义接口不得使用无长度上限的字符串或序列。
 
-Every D-task custom message and pre-arm request carries contract version 1.
-`VehicleTelemetry` carries the start stamp/event, heartbeat, acquisition time,
-source sequence, CRC-16, displacement or wheel speed in SI, turn class,
-CCW-positive heading in radians, signed yaw rate in radians/second, and the
-ordered START/B/D/A/COMPLETE state. Heading is vehicle x-forward relative to
-the message `vehicle_start` frame. `TargetObservation` names the approved
-`d2026-circle-cross-v1` geometry and its camera acquisition frame; it publishes
-valid/rejected status, candidate count, reprojection RMS, quality, covariance,
-and a bounded rejection reason for every processed image. `MissionStatus` and
-`PayloadContactState` expose bounded operator and contact/payload states with a
-single publisher owner. Consumers measure freshness on a local steady clock;
-ROS acquisition stamps provide provenance and are never used as an age clock.
-Vehicle and ESP32 source sequences use uint32 serial-number arithmetic: modulo
-deltas `1..2^31-1` advance, zero is duplicate, and deltas `2^31..2^32-1` are
-stale. Therefore `UINT32_MAX -> 0` is a valid wrap while `8 -> 7` is rejected.
+每个 D-task 自定义消息和解锁前请求都携带契约版本 1。`VehicleTelemetry` 携带启动时间戳/事件、心跳、采集时间、源序列号、CRC-16、SI 单位的位移或轮速、转弯类别、弧度单位且逆时针为正的航向、弧度/秒单位的有符号偏航角速度，以及有序的 START/B/D/A/COMPLETE 状态。航向以车辆 x 轴前方相对于 `vehicle_start` 消息坐标系表示。`TargetObservation` 指定获批准的 `d2026-circle-cross-v1` 几何和相机采集坐标系；对每幅处理过的图像发布有效/拒绝状态、候选数量、重投影 RMS、质量、协方差和有长度上限的拒绝原因。`MissionStatus` 和 `PayloadContactState` 发布有长度上限的操作员及接触/载荷状态，并且各自只有一个发布者。消费者使用本地 steady clock 测量新鲜度；ROS 采集时间戳只提供来源信息，绝不用于计算年龄。Vehicle 和 ESP32 源序列使用 uint32 序列号算法：模差 `1..2^31-1` 表示前进，零表示重复，模差 `2^31..2^32-1` 表示过期。因此 `UINT32_MAX -> 0` 是有效回绕，而 `8 -> 7` 会被拒绝。
 
 严格的 D-task 模式和不含凭据的示例位于
-`ed_uav_interfaces/contracts/d_task`. Real Mid-360 serial, sensor/host IP,
-firmware, and ground-station peer values are permitted only in the gitignored
-`deployment_preset.local.yaml`; field loading rejects placeholders and RFC 5737
-documentation addresses rather than substituting defaults.
+`ed_uav_interfaces/contracts/d_task`。真实 Mid-360 序列号、传感器/主机 IP、固件和地面站对端值只允许出现在被 git 忽略的 `deployment_preset.local.yaml` 中；现场加载会拒绝占位值和 RFC 5737 文档地址，不会用默认值替代。
 
 `.msg` 和 `.action` 源文件中的枚举值已冻结：FCU 来源为 V7 或
-simulator; FCU mode is stabilize (0), altitude hold (1), position hold (2), or
-program (3). Localization source is none, LIO, visual boundary, or fused and
-state is uninitialized, active, degraded, or lost. Boundary mask bits are X=1,
-Y=2, Z=4, roll=8, pitch=16, and yaw=32. Flight commands are arm, disarm, mode,
-takeoff, move, hover, and land, with succeeded/rejected/timeout/FCU-error
-results. Mission results are succeeded, rejected, aborted, or timeout. No enum
-maps to V7 `0x41`.
+仿真器；FCU 模式为 stabilize（0）、altitude hold（1）、position hold（2）或 program（3）。定位源为 none、LIO、visual boundary 或 fused，状态为 uninitialized、active、degraded 或 lost。边界掩码位为 X=1、Y=2、Z=4、roll=8、pitch=16、yaw=32。飞行动作为 arm、disarm、mode、takeoff、move、hover 和 land，结果为 succeeded/rejected/timeout/FCU-error。任务结果为 succeeded、rejected、aborted 或 timeout。没有任何枚举映射到 V7 `0x41`。
 
 使用以下命令运行独立检查：
 

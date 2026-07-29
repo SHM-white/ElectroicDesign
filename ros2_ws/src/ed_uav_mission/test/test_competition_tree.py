@@ -9,7 +9,6 @@ from ed_uav_mission import competition_tree
 from ed_uav_mission.competition_tree import (
     CompetitionStep,
     MapPose,
-    competition_sequence,
     forward_goal,
     moves_from_planner_path,
     return_goal,
@@ -37,18 +36,17 @@ def test_competition_tree_declares_two_immutable_2026_task_branches() -> None:
 
 
 def test_competition_tree_has_the_required_terminal_sequence() -> None:
-    # Given: the deterministic competition tree.
-    # When: its ordered states are requested.
-    steps = competition_sequence()
+    # Given: both immutable 2026 competition branches.
+    branches = tuple(competition_tree.D_TASK_BRANCHES.values())
 
-    # Then: it has exactly one forward and one return leg before terminal actions.
-    assert steps == (
-        CompetitionStep.TAKEOFF,
-        CompetitionStep.HOVER,
-        CompetitionStep.NAVIGATE_FORWARD,
-        CompetitionStep.NAVIGATE_RETURN,
-        CompetitionStep.LAND,
-        CompetitionStep.DISARM,
+    # When/Then: both return to H, land there, and terminate successfully.
+    assert all(
+        branch.nominal_phases[-3:] == (
+            CompetitionStep.RETURNING_HOME,
+            CompetitionStep.LANDING_HOME,
+            CompetitionStep.SUCCEEDED,
+        )
+        for branch in branches
     )
 
 
@@ -186,6 +184,9 @@ def test_competition_ros_integration_remains_planner_only_and_flight_command_onl
     runtime_path = PACKAGE_ROOT / "ed_uav_mission" / "competition_runtime.py"
     assert runtime_path.is_file()
     runtime_source = runtime_path.read_text(encoding="utf-8")
+    planner_path = PACKAGE_ROOT / "ed_uav_mission" / "competition_planner.py"
+    assert planner_path.is_file()
+    planner_source = planner_path.read_text(encoding="utf-8")
     package_source = (PACKAGE_ROOT / "package.xml").read_text(encoding="utf-8")
     setup_source = (PACKAGE_ROOT / "setup.py").read_text(encoding="utf-8")
     sim_launch_source = (
@@ -194,46 +195,37 @@ def test_competition_ros_integration_remains_planner_only_and_flight_command_onl
 
     # When: their planner and control-path boundaries are inspected.
     # Then: Nav2 only supplies paths and all movement remains FlightCommand based.
-    assert "from ed_uav_mission.competition_runtime import CompetitionCallbacks, CompetitionRuntime" in executor_source
+    assert "from ed_uav_mission.competition_runtime import (" in executor_source
     assert "self._competition_runtime = CompetitionRuntime(" in executor_source
     assert "CompetitionCallbacks(" in executor_source
     assert "execute_takeoff=self._execute_takeoff" in executor_source
     assert "send_hover=self._send_hover" in executor_source
-    assert "send_move=self._send_move" in executor_source
-    assert "execute_landing=self._execute_landing" in executor_source
-    assert "send_disarm=self._send_disarm" in executor_source
-    assert "raise_if_cancelled=self._raise_if_cancelled" in executor_source
-    assert "transition=self._fsm.transition" in executor_source
+    assert "track_target=self._track_d_task_target" in executor_source
+    assert "release_payload=self._release_d_task_payload" in executor_source
+    assert "descend_to_vehicle=self._descend_to_vehicle" in executor_source
+    assert "return_home=self._return_d_task_home" in executor_source
+    assert "land_home=self._land_d_task_home" in executor_source
     assert "class CompetitionCallbacks" in runtime_source
     assert "class CompetitionRuntime" in runtime_source
-    assert "def __init__(self, node: Node, callbacks: CompetitionCallbacks)" in runtime_source
-    assert "from nav2_msgs.action import ComputePathToPose" in runtime_source
-    assert "from action_msgs.msg import GoalStatus" in runtime_source
-    assert "ComputePathToPose" in runtime_source
-    assert "from geometry_msgs.msg import PoseStamped" in runtime_source
-    assert "from nav_msgs.msg import Path as NavPath" in runtime_source
-    assert "from rclpy.time import Time" in runtime_source
-    assert "from tf2_ros import Buffer, TransformException, TransformListener" in runtime_source
+    assert "DTaskRuntime(" in runtime_source
+    assert "from nav2_msgs.action import ComputePathToPose" in planner_source
+    assert "from action_msgs.msg import GoalStatus" in planner_source
+    assert "from geometry_msgs.msg import PoseStamped" in planner_source
+    assert "from nav_msgs.msg import Path as NavPath" in planner_source
+    assert "from rclpy.time import Time" in planner_source
+    assert "from tf2_ros import Buffer, TransformException, TransformListener" in planner_source
     assert "from typing_extensions import assert_never" in runtime_source
-    assert "FlightCommand" not in runtime_source
+    assert "from ed_uav_interfaces.action import FlightCommand" not in runtime_source
+    assert "FlightCommand.Goal" not in runtime_source
+    assert "from ed_uav_interfaces.action import FlightCommand" not in planner_source
+    assert "FlightCommand.Goal" not in planner_source
     assert "from nav2_msgs.action import ComputePathToPose" not in executor_source
     assert "from action_msgs.msg import GoalStatus" in executor_source
     assert "from geometry_msgs.msg import PoseStamped" not in executor_source
     assert "from nav_msgs.msg import Path as NavPath" not in executor_source
     assert "from rclpy.time import Time" not in executor_source
     assert "from tf2_ros import Buffer, TransformException, TransformListener" not in executor_source
-    assert not any(
-        f"def {method_name}" in executor_source
-        for method_name in (
-            "_execute_competition",
-            "_capture_map_pose",
-            "_planned_moves",
-            "_send_moves",
-            "_request_planner_path",
-            "_map_pose_stamped",
-            "_planner_path_to_map_poses",
-        )
-    )
+    assert "def _capture_map_pose" not in executor_source
     assert "_planner_client" not in executor_source
     assert "_tf_buffer" not in executor_source
     assert "_tf_listener" not in executor_source
@@ -242,21 +234,22 @@ def test_competition_ros_integration_remains_planner_only_and_flight_command_onl
     assert "goal.target_pose.pose.position.z = config.takeoff_altitude_m" in executor_source
     assert "import asyncio" not in executor_source
     assert "asyncio." not in executor_source
-    assert "await wait_with_deadline" in runtime_source
-    assert "self._planner_client.send_goal_async(request)" in runtime_source
-    assert "goal_handle.get_result_async()" in runtime_source
-    assert "GoalStatus.STATUS_SUCCEEDED" in runtime_source
-    assert runtime_source.index("forward_moves = await self._planned_moves") < runtime_source.index(
-        "await self._send_moves(forward_moves)"
-    ) < runtime_source.index("return_start = self._capture_map_pose()") < runtime_source.index(
-        "return_moves = await self._planned_moves"
-    ) < runtime_source.index("await self._send_moves(return_moves)")
-    competition_source = runtime_source[runtime_source.index("    async def run("):]
-    assert "start.y_m,\n                        False," in competition_source
-    assert "await self._callbacks.send_disarm()" in competition_source
+    assert "await wait_with_deadline" in planner_source
+    assert "self._planner_client.send_goal_async(request)" in planner_source
+    assert "handle.get_result_async()" in planner_source
+    assert "GoalStatus.STATUS_SUCCEEDED" in planner_source
+    assert "DTaskEffect.RELEASE_PAYLOAD" in runtime_source
+    assert "DTaskEffect.DESCEND_TO_VEHICLE" in runtime_source
     assert not any(
         token in executor_source.lower()
-        for token in ("cmd_vel", "controller_server", "bt_navigator")
+        for token in (
+            "cmd_vel",
+            "controller_server",
+            "bt_navigator",
+            "import serial",
+            "import gpio",
+            "0x41",
+        )
     )
     assert {"action_msgs", "nav2_msgs", "nav_msgs", "tf2_ros"} <= {
         line.split(">", 1)[1].split("<", 1)[0]

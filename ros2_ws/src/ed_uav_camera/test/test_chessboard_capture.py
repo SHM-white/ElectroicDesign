@@ -103,6 +103,7 @@ def test_direct_v4l2_capture_requests_mjpg_at_30_fps(monkeypatch) -> None:
         (cv2.CAP_PROP_FRAME_WIDTH, 1280.0),
         (cv2.CAP_PROP_FRAME_HEIGHT, 720.0),
         (cv2.CAP_PROP_FPS, 30.0),
+        (cv2.CAP_PROP_AUTOFOCUS, 1.0),
     ]
 
 
@@ -208,6 +209,7 @@ def test_direct_v4l2_preview_draws_corners_and_closes(monkeypatch) -> None:
                 target_observations=1,
                 minimum_coverage_cells=1,
                 minimum_area_span=0.0,
+                autofocus_settle_seconds=0,
             ),
         )
     )

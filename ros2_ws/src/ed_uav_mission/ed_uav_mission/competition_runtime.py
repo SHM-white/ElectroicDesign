@@ -1,235 +1,184 @@
-"""Nav2 and TF runtime for the planner-only competition mission."""
+"""Action adapter that executes the immutable D-task reducer effects."""
 
 from __future__ import annotations
 
-import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing_extensions import assert_never
 
-from action_msgs.msg import GoalStatus
-from geometry_msgs.msg import PoseStamped
-from nav2_msgs.action import ComputePathToPose
-from nav_msgs.msg import Path as NavPath
-from rclpy.action import ActionClient
-from rclpy.node import Node
-from rclpy.time import Time
-from tf2_ros import Buffer, TransformException, TransformListener
-
 from ed_uav_interfaces.action import ExecuteMission
-from ed_uav_mission.competition_tree import (
-    CompetitionStep,
-    MapPose,
-    competition_sequence,
-    forward_goal,
-    moves_from_planner_path,
-    return_goal,
-    yaw_from_quaternion,
+from ed_uav_mission.action_lifecycle import MissionCancelled, MissionTimeout
+from ed_uav_mission.d_task_events import (
+    CommandCompleted,
+    CommandFailed,
+    DTaskEvent,
+    DTaskRuntimeConfig,
+    SafetyInterrupted,
+    TargetObserved,
+    TargetSnapshot,
+    Tick,
+    VehicleObserved,
+    VehicleSnapshot,
 )
-from ed_uav_mission.mission_model import CompetitionParams, Waypoint
-from ed_uav_mission.state_machine import MissionState
-from ed_uav_mission.action_lifecycle import (
-    MissionCancelled,
-    MissionDeadline,
-    MissionTimeout,
-    steady_now_sec,
-    wait_with_deadline,
+from ed_uav_mission.d_task_model import (
+    DTaskEffect,
+    DTaskFault,
+    DTaskPhase,
+    DTaskSelection,
+    DTaskTransition,
 )
+from ed_uav_mission.d_task_reducer import DTaskRuntime
+from ed_uav_mission.mission_model import CompetitionParams
+from ed_uav_mission.payload_config import PayloadBoundaryConfig
+
+
+class DTaskMissionAborted(RuntimeError):
+    """The reducer completed its explicit safe recovery chain."""
 
 
 @dataclass(frozen=True, slots=True)
 class CompetitionCallbacks:
-    """Executor-owned operations exposed to the competition runtime."""
-
     execute_takeoff: Callable[[ExecuteMission.Feedback], Awaitable[None]]
     send_hover: Callable[[float], Awaitable[None]]
-    send_move: Callable[[Waypoint], Awaitable[None]]
-    execute_landing: Callable[[ExecuteMission.Feedback, float, float, bool], Awaitable[None]]
-    send_disarm: Callable[[], Awaitable[None]]
-    raise_if_cancelled: Callable[[], None]
-    deadline_for_timeout: Callable[[float], MissionDeadline]
-    transition: Callable[[MissionState, str], None]
+    track_target: Callable[[TargetSnapshot, VehicleSnapshot, float], Awaitable[None]]
+    release_payload: Callable[[TargetSnapshot, VehicleSnapshot], Awaitable[None]]
+    descend_to_vehicle: Callable[[TargetSnapshot, VehicleSnapshot], Awaitable[None]]
+    return_home: Callable[[], Awaitable[None]]
+    land_home: Callable[[ExecuteMission.Feedback], Awaitable[None]]
+    capture_home: Callable[[], None]
+    next_event: Callable[[], Awaitable[DTaskEvent]]
+    publish_transition: Callable[[DTaskTransition, ExecuteMission.Feedback], None]
+    now_s: Callable[[], float]
 
 
 class CompetitionRuntime:
-    """Execute the competition tree using Nav2 paths and TF poses."""
+    """Drive both D-task branches through one reducer and callback surface."""
 
-    def __init__(self, node: Node, callbacks: CompetitionCallbacks) -> None:
-        self._node = node
+    def __init__(
+        self,
+        callbacks: CompetitionCallbacks,
+        payload_config: PayloadBoundaryConfig,
+    ) -> None:
         self._callbacks = callbacks
-        self._planner_client = ActionClient(node, ComputePathToPose, "/compute_path_to_pose")
-        self._active_planner_goal = None
-        self._tf_buffer = Buffer()
-        self._tf_listener = TransformListener(self._tf_buffer, node)
+        self._payload_config = payload_config
+
+    def cancel_active(self) -> None:
+        """Planner and FlightCommand cancellation remain executor-owned."""
 
     async def run(
         self,
         params: CompetitionParams | None,
+        selection: DTaskSelection,
         feedback: ExecuteMission.Feedback,
     ) -> None:
         if params is None:
             raise RuntimeError("competition params not loaded")
-        start: MapPose | None = None
-        for step in competition_sequence():
-            self._raise_if_cancelled()
-            match step:
-                case CompetitionStep.TAKEOFF:
-                    self._callbacks.transition(MissionState.TAKEOFF, "preflight passed")
-                    await self._callbacks.execute_takeoff(feedback)
-                    self._callbacks.transition(MissionState.EXECUTING, "takeoff complete")
-                case CompetitionStep.HOVER:
-                    await self._callbacks.send_hover(params.hover_sec)
-                    start = self._capture_map_pose()
-                case CompetitionStep.NAVIGATE_FORWARD:
-                    if start is None:
-                        raise RuntimeError("competition start pose unavailable")
-                    forward = forward_goal(start, params.forward_distance_m)
-                    forward_moves = await self._planned_moves(
-                        start, forward, params, "competition_forward"
-                    )
-                    await self._send_moves(forward_moves)
-                case CompetitionStep.NAVIGATE_RETURN:
-                    if start is None:
-                        raise RuntimeError("competition return pose unavailable")
-                    return_start = self._capture_map_pose()
-                    return_moves = await self._planned_moves(
-                        return_start,
-                        return_goal(start),
-                        params,
-                        "competition_return",
-                    )
-                    await self._send_moves(return_moves)
-                case CompetitionStep.LAND:
-                    if start is None:
-                        raise RuntimeError("competition landing pose unavailable")
-                    self._callbacks.transition(
-                        MissionState.RETURNING, "competition return complete"
-                    )
-                    self._callbacks.transition(MissionState.LANDING, "landing sequence")
-                    await self._callbacks.execute_landing(
-                        feedback,
-                        start.x_m,
-                        start.y_m,
-                        False,
-                    )
-                case CompetitionStep.DISARM:
-                    await self._callbacks.send_disarm()
-                case unreachable:
-                    assert_never(unreachable)
-
-    def _raise_if_cancelled(self) -> None:
-        self._callbacks.raise_if_cancelled()
-
-    def cancel_active(self) -> None:
-        if self._active_planner_goal is not None:
-            self._active_planner_goal.cancel_goal_async()
-
-    def _capture_map_pose(self) -> MapPose:
-        try:
-            transform = self._tf_buffer.lookup_transform("map", "base_link", Time())
-        except TransformException as exc:
-            raise RuntimeError(f"map to base_link transform unavailable: {exc}") from exc
-        translation = transform.transform.translation
-        rotation = transform.transform.rotation
-        return MapPose(
-            x_m=translation.x,
-            y_m=translation.y,
-            yaw_rad=yaw_from_quaternion(rotation.x, rotation.y, rotation.z, rotation.w),
+        config = DTaskRuntimeConfig(
+            stable_s=params.stable_sec,
+            start_deadline_s=params.start_deadline_s,
+            b_deadline_s=params.b_deadline_s,
+            d_deadline_s=params.d_deadline_s,
+            mission_deadline_s=90.0,
+            vehicle_freshness_s=params.vehicle_freshness_s,
+            target_freshness_s=params.target_freshness_s,
+            maximum_relative_error_m=params.maximum_relative_error_m,
         )
-
-    async def _planned_moves(
-        self,
-        start: MapPose,
-        destination: MapPose,
-        params: CompetitionParams,
-        label: str,
-    ) -> tuple[Waypoint, ...]:
-        path = await self._request_planner_path(start, destination, params.planner_timeout_sec)
-        moves = moves_from_planner_path(path, altitude_m=params.altitude_m, label=label)
-        return tuple(
-            Waypoint(
-                x_m=move.x_m,
-                y_m=move.y_m,
-                altitude_m=move.altitude_m,
-                heading_rad=move.yaw_rad,
-                label=move.label,
+        runtime = DTaskRuntime(selection, config, self._payload_config)
+        latest_target: TargetSnapshot | None = None
+        latest_vehicle: VehicleSnapshot | None = None
+        self._callbacks.publish_transition(
+            DTaskTransition(state=runtime.state),
+            feedback,
+        )
+        while runtime.state.phase not in (DTaskPhase.SUCCEEDED, DTaskPhase.ABORTED):
+            event = await self._callbacks.next_event()
+            match event:
+                case TargetObserved(target=target):
+                    latest_target = target
+                case VehicleObserved(vehicle=vehicle):
+                    latest_vehicle = vehicle
+                case _:
+                    pass
+            transition = runtime.advance(event)
+            self._callbacks.publish_transition(transition, feedback)
+            transition = await self._execute_effect(
+                runtime,
+                transition,
+                latest_target,
+                latest_vehicle,
+                feedback,
             )
-            for move in moves
-        )
+        if runtime.state.phase is DTaskPhase.ABORTED:
+            raise DTaskMissionAborted(runtime.state.reason or "D-task aborted")
 
-    async def _send_moves(self, moves: tuple[Waypoint, ...]) -> None:
-        for move in moves:
-            self._raise_if_cancelled()
-            await self._callbacks.send_move(move)
-
-    async def _request_planner_path(
+    async def _execute_effect(
         self,
-        start: MapPose,
-        destination: MapPose,
-        timeout_sec: float,
-    ) -> tuple[MapPose, ...]:
-        deadline = self._callbacks.deadline_for_timeout(timeout_sec)
-        remaining_sec = deadline.remaining_sec(steady_now_sec())
-        if remaining_sec is None or not self._planner_client.wait_for_server(timeout_sec=remaining_sec):
-            raise MissionTimeout("ComputePathToPose action server not available before deadline")
-        self._raise_if_cancelled()
-        request = ComputePathToPose.Goal()
-        request.start = self._map_pose_stamped(start)
-        request.goal = self._map_pose_stamped(destination)
-        request.use_start = True
-        goal_handle = await wait_with_deadline(
-            self._node,
-            self._planner_client.send_goal_async(request),
-            deadline,
-            self.cancel_active,
-        )
-        if not goal_handle.accepted:
-            raise RuntimeError("ComputePathToPose rejected")
-        self._active_planner_goal = goal_handle
-        try:
-            result = await wait_with_deadline(
-                self._node,
-                goal_handle.get_result_async(),
-                deadline,
-                self.cancel_active,
-            )
-        finally:
-            self._active_planner_goal = None
-        if result.status == GoalStatus.STATUS_CANCELED:
-            raise MissionCancelled("ComputePathToPose canceled")
-        if result.status != GoalStatus.STATUS_SUCCEEDED:
-            raise RuntimeError(f"ComputePathToPose failed with status {result.status}")
-        return self._planner_path_to_map_poses(result.result.path)
-
-    def _map_pose_stamped(self, pose: MapPose) -> PoseStamped:
-        stamped = PoseStamped()
-        stamped.header.frame_id = "map"
-        stamped.header.stamp = self._node.get_clock().now().to_msg()
-        stamped.pose.position.x = pose.x_m
-        stamped.pose.position.y = pose.y_m
-        stamped.pose.orientation.z = math.sin(pose.yaw_rad / 2.0)
-        stamped.pose.orientation.w = math.cos(pose.yaw_rad / 2.0)
-        return stamped
-
-    def _planner_path_to_map_poses(self, path: NavPath) -> tuple[MapPose, ...]:
-        if path.header.frame_id != "map":
-            raise RuntimeError("ComputePathToPose path is not in map frame")
-        poses: list[MapPose] = []
-        for stamped in path.poses:
-            if stamped.header.frame_id and stamped.header.frame_id != "map":
-                raise RuntimeError("ComputePathToPose pose is not in map frame")
-            position = stamped.pose.position
-            orientation = stamped.pose.orientation
-            poses.append(
-                MapPose(
-                    x_m=position.x,
-                    y_m=position.y,
-                    yaw_rad=yaw_from_quaternion(
-                        orientation.x,
-                        orientation.y,
-                        orientation.z,
-                        orientation.w,
-                    ),
+        runtime: DTaskRuntime,
+        transition: DTaskTransition,
+        target: TargetSnapshot | None,
+        vehicle: VehicleSnapshot | None,
+        feedback: ExecuteMission.Feedback,
+    ) -> DTaskTransition:
+        effect = transition.effect
+        while effect is not None:
+            try:
+                await self._call_effect(effect, target, vehicle, feedback, runtime.config)
+                if transition.state.phase is DTaskPhase.STABILIZING:
+                    event = Tick(now_s=self._callbacks.now_s())
+                else:
+                    event = CommandCompleted(now_s=self._callbacks.now_s(), effect=effect)
+            except MissionCancelled as error:
+                event = SafetyInterrupted(
+                    now_s=self._callbacks.now_s(),
+                    fault=DTaskFault.CANCELLED,
+                    reason=str(error),
                 )
-            )
-        return tuple(poses)
+            except (MissionTimeout, RuntimeError) as error:
+                event = CommandFailed(
+                    now_s=self._callbacks.now_s(),
+                    effect=effect,
+                    reason=str(error),
+                )
+            transition = runtime.advance(event)
+            self._callbacks.publish_transition(transition, feedback)
+            effect = transition.effect
+        return transition
+
+    async def _call_effect(
+        self,
+        effect: DTaskEffect,
+        target: TargetSnapshot | None,
+        vehicle: VehicleSnapshot | None,
+        feedback: ExecuteMission.Feedback,
+        config: DTaskRuntimeConfig,
+    ) -> None:
+        match effect:
+            case DTaskEffect.TAKEOFF:
+                await self._callbacks.execute_takeoff(feedback)
+            case DTaskEffect.HOVER:
+                await self._callbacks.send_hover(config.stable_s)
+                self._callbacks.capture_home()
+            case DTaskEffect.TRACK_TARGET:
+                target_value, vehicle_value = self._required_tracking(target, vehicle)
+                await self._callbacks.track_target(target_value, vehicle_value, 1.5)
+            case DTaskEffect.RELEASE_PAYLOAD:
+                target_value, vehicle_value = self._required_tracking(target, vehicle)
+                await self._callbacks.release_payload(target_value, vehicle_value)
+            case DTaskEffect.DESCEND_TO_VEHICLE:
+                target_value, vehicle_value = self._required_tracking(target, vehicle)
+                await self._callbacks.descend_to_vehicle(target_value, vehicle_value)
+            case DTaskEffect.RETURN_HOME:
+                await self._callbacks.return_home()
+            case DTaskEffect.LAND_HOME:
+                await self._callbacks.land_home(feedback)
+            case unreachable:
+                assert_never(unreachable)
+
+    @staticmethod
+    def _required_tracking(
+        target: TargetSnapshot | None,
+        vehicle: VehicleSnapshot | None,
+    ) -> tuple[TargetSnapshot, VehicleSnapshot]:
+        if target is None or vehicle is None:
+            raise RuntimeError("fresh target and vehicle state are required")
+        return target, vehicle

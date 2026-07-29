@@ -49,17 +49,17 @@ string<=128 staging_uri
 
 | 字段 | 类型 | 约束 | 说明 |
 |---|---|---|---|
-| `session_id` | string | ≤64 chars | Caller-provided unique identifier |
-| `archive_root` | string | ≤128 chars | Filesystem root for archive storage |
-| `record_pointcloud` | bool | — | Whether to accumulate point cloud data |
+| `session_id` | string | ≤64 字符 | 调用方提供的唯一标识符 |
+| `archive_root` | string | ≤128 字符 | 归档存储的文件系统根目录 |
+| `record_pointcloud` | bool | — | 是否累积点云数据 |
 
 ### 响应字段
 
 | 字段 | 类型 | 约束 | 说明 |
 |---|---|---|---|
-| `accepted` | bool | — | Whether the session was started |
-| `reason` | string | ≤96 chars | Rejection reason if `accepted=false` |
-| `staging_uri` | string | ≤128 chars | Path to `.partial` staging directory |
+| `accepted` | bool | — | 会话是否已启动 |
+| `reason` | string | ≤96 字符 | `accepted=false` 时的拒绝原因 |
+| `staging_uri` | string | ≤128 字符 | `.partial` 暂存目录的路径 |
 
 ### 契约清单注册
 
@@ -92,9 +92,9 @@ START → ACCUMULATING → FINALIZING → COMPLETE
 ### 3.1 START
 
 客户端携带会话元数据调用 `StartMapSession`。服务验证：
-- `session_id` is unique (no active session with same ID)
-- `archive_root` is writable
-- `record_pointcloud` is consistent with current sensor state
+- `session_id` 唯一（不存在相同 ID 的活动会话）
+- `archive_root` 可写
+- `record_pointcloud` 与当前传感器状态一致
 
 验证通过后返回 `accepted=true`，并将 `staging_uri` 指向
 `<archive_root>/<session_id>.partial/`.
@@ -102,19 +102,19 @@ START → ACCUMULATING → FINALIZING → COMPLETE
 ### 3.2 ACCUMULATING
 
 LIO 里程计和点云暂存到 `.partial` 目录：
-- Point clouds are appended to `pointcloud.pcd` (if `record_pointcloud=true`)
-- Trajectory poses are appended to `trajectory.csv`
-- Metadata is updated periodically
+- 如果 `record_pointcloud=true`，则将点云追加到 `pointcloud.pcd`
+- 将轨迹位姿追加到 `trajectory.csv`
+- 定期更新元数据
 
 **关键不变量**：LIO 里程计不受会话状态门控。无论会话处于何种状态，`/localization/lio/odom` 话题都继续发布。这就是“新地图规则”，见第 6 节。
 
 ### 3.3 FINALIZING
 
 会话停止时（客户端调用或超时）：
-1. All buffered data is flushed
-2. Checksums are computed for all files
-3. `manifest.json` is written with SHA-256 hashes
-4. `metadata.json` is updated with `completion_status: "complete"`
+1. 刷新所有缓冲数据
+2. 计算所有文件的校验和
+3. 写入包含 SHA-256 哈希的 `manifest.json`
+4. 使用 `completion_status: "complete"` 更新 `metadata.json`
 
 ### 3.4 COMPLETE
 
@@ -128,9 +128,9 @@ LIO 里程计和点云暂存到 `.partial` 目录：
 ### 3.5 CANCELLED
 
 如果进程在 ACCUMULATING 或 FINALIZING 期间中断：
-- The `.partial` directory remains on disk
-- No final archive exists at the non-`.partial` path
-- Cleanup scripts can detect and remove stale partials by age
+- `.partial` 目录保留在磁盘上
+- 非 `.partial` 路径下不存在最终归档
+- 清理脚本可以按目录年龄检测并删除过期暂存目录
 
 ---
 
@@ -169,18 +169,18 @@ LIO 里程计和点云暂存到 `.partial` 目录：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `session_id` | string | Caller-provided unique ID |
-| `start_time` | ISO 8601 | Session start timestamp |
-| `end_time` | ISO 8601 | Session end timestamp |
-| `field_profile_id` | string | Active field profile |
-| `calibration_hash` | string | SHA-256 of active calibration |
-| `lidar_firmware` | string | Lidar firmware version |
-| `software_version` | string | ROS package versions |
-| `frame_conventions` | string | Coordinate frame conventions |
-| `completion_status` | string | "complete" or "partial" |
-| `record_pointcloud` | bool | Whether point cloud was recorded |
-| `point_count` | int | Total points accumulated |
-| `trajectory_poses` | int | Total trajectory poses |
+| `session_id` | string | 调用方提供的唯一 ID |
+| `start_time` | ISO 8601 | 会话开始时间戳 |
+| `end_time` | ISO 8601 | 会话结束时间戳 |
+| `field_profile_id` | string | 当前场地配置 |
+| `calibration_hash` | string | 当前标定的 SHA-256 哈希 |
+| `lidar_firmware` | string | LiDAR 固件版本 |
+| `software_version` | string | ROS 软件包版本 |
+| `frame_conventions` | string | 坐标系约定 |
+| `completion_status` | string | `"complete"` 或 `"partial"` |
+| `record_pointcloud` | bool | 是否记录点云 |
+| `point_count` | int | 累积点总数 |
+| `trajectory_poses` | int | 轨迹位姿总数 |
 
 ### 4.2 trajectory.csv 格式
 
@@ -246,35 +246,35 @@ class EventArtifactWriter:
 地图会话应遵循相同的两阶段提交流程：
 
 1. **暂存**：所有文件写入 `<session_id>.partial/`
-   - `trajectory.csv` is appended incrementally
-   - `pointcloud.pcd` is written in chunks
-   - `metadata.json` is updated periodically
+   - 增量追加写入 `trajectory.csv`
+   - 分块写入 `pointcloud.pcd`
+   - 定期更新 `metadata.json`
 
 2. **验证**：会话停止时
-   - Compute SHA-256 for all files
-   - Write `manifest.json` with checksums
-   - Verify all checksums match
+   - 计算所有文件的 SHA-256
+   - 写入包含校验和的 `manifest.json`
+   - 验证所有校验和匹配
 
 3. **提交**：原子重命名
-   - `partial.replace(final_path)` — POSIX atomic rename
-   - No observer can see a half-complete archive
+   - `partial.replace(final_path)`，执行 POSIX 原子重命名
+   - 任何观察者都不会看到未完成的归档
 
 ### 5.3 错误处理
 
 | 场景 | 行为 |
 |---|---|
-| Process crash during staging | `.partial` directory remains, no final archive |
-| Disk full during staging | `.partial` directory remains, no final archive |
-| Duplicate session_id | Reject with `accepted=false, reason="session exists"` |
-| Stale `.partial` from previous run | Reject with `accepted=false, reason="stale partial"` |
-| Validation failure | `.partial` directory remains, no final archive |
+| 暂存期间进程崩溃 | `.partial` 目录保留，不存在最终归档 |
+| 暂存期间磁盘已满 | `.partial` 目录保留，不存在最终归档 |
+| `session_id` 重复 | 以 `accepted=false, reason="session exists"` 拒绝 |
+| 上次运行遗留的过期 `.partial` | 以 `accepted=false, reason="stale partial"` 拒绝 |
+| 验证失败 | `.partial` 目录保留，不存在最终归档 |
 
 ### 5.4 清理策略
 
 过期的 `.partial` 目录应通过以下方式清理：
-- Age threshold (e.g., >1 hour old)
-- Manual cleanup script
-- Pre-flight check before starting new session
+- 年龄阈值（例如超过 1 小时）
+- 手动清理脚本
+- 启动新会话前的飞行前检查
 
 ---
 
@@ -285,12 +285,11 @@ class EventArtifactWriter:
 ### 6.1 设计理由
 
 `/localization/lio/odom` 话题由 FAST-LIO 独立发布，与地图会话系统无关。因此：
-地图会话系统。因此：
 
-- Navigation can use LIO odometry during map accumulation
-- The map archive is a byproduct of flight, not a prerequisite
-- Each formal run may start a new session without waiting for archive completion
-- If the session fails, navigation is unaffected
+- 建图累积期间，导航可以使用 LIO 里程计
+- 地图归档是飞行的副产物，不是前置条件
+- 每次正式运行都可以启动新会话，无需等待归档完成
+- 会话失败不会影响导航
 
 ### 6.2 会话期间的 LIO 健康状态
 
@@ -321,12 +320,12 @@ def evaluate_health(
 
 源监督器（`ed_uav_localization/source_supervisor.py`）管理 LIO/视觉源切换。关键阈值如下：
 
-| Parameter | Default | Description |
+| 参数 | 默认值 | 说明 |
 |---|---|---|
-| `lio_max_age_active` | 0.15s | Max LIO age for ACTIVE state |
-| `lio_max_age_degraded` | 0.50s | Max LIO age for DEGRADED state |
-| `lost_timeout` | 1.0s | Seconds without odometry before LOST |
-| `covariance_blowup` | 1e6 | Diagonal covariance threshold |
+| `lio_max_age_active` | 0.15s | ACTIVE 状态允许的最大 LIO 数据年龄 |
+| `lio_max_age_degraded` | 0.50s | DEGRADED 状态允许的最大 LIO 数据年龄 |
+| `lost_timeout` | 1.0s | 没有里程计数据达到该时长后进入 LOST |
+| `covariance_blowup` | 1e6 | 协方差对角线阈值 |
 
 会话管理器应记录源状态转换，但不得干预源切换决策。
 
@@ -338,30 +337,30 @@ def evaluate_health(
 
 | 文件 | 用途 |
 |---|---|
-| `ed_uav_localization/map_session.py` | Session manager node |
-| `ed_uav_localization/test/test_map_session.py` | Unit tests |
-| `ed_uav_localization/config/map_session.yaml` | Default parameters |
+| `ed_uav_localization/map_session.py` | 会话管理器节点 |
+| `ed_uav_localization/test/test_map_session.py` | 单元测试 |
+| `ed_uav_localization/config/map_session.yaml` | 默认参数 |
 
 ### 7.2 会话管理器节点
 
 `map_session.py` 节点应：
 
-1. Register as service server for `/localization/start_map_session`
-2. Manage session lifecycle (START → ACCUMULATING → FINALIZING → COMPLETE)
-3. Subscribe to `/localization/lio/odom` for trajectory
-4. Subscribe to `/lidar/points` for point cloud (if enabled)
-5. Write archives following the `.partial` staging pattern
-6. Monitor LIO health during accumulation
+1. 为 `/localization/start_map_session` 注册服务端
+2. 管理会话生命周期（START → ACCUMULATING → FINALIZING → COMPLETE）
+3. 订阅 `/localization/lio/odom` 获取轨迹
+4. 在启用时订阅 `/lidar/points` 获取点云
+5. 按照 `.partial` 暂存模式写入归档
+6. 在累积期间监测 LIO 健康状态
 
 ### 7.3 测试要求
 
 根据任务 13 的验收标准：
 
-- Replay a deterministic timestamped lidar/IMU fixture at real-time factor ≥1
-- `/localization/lio/odom` is finite, monotonic and available before session completion
-- Only the designated localization node owns `odom → base_link`
-- Successful stop atomically creates a complete manifest/archive
-- Simulated disk-full/interruption leaves a discoverable `.partial` archive
+- 以实时倍率 ≥1 回放带时间戳的确定性 lidar/IMU 固定数据
+- `/localization/lio/odom` 有限、单调，并在会话完成前可用
+- 只有指定的定位节点拥有 `odom → base_link`
+- 成功停止后以原子方式创建完整的清单/归档
+- 模拟磁盘已满或中断时留下可发现的 `.partial` 归档
 
 ---
 
@@ -371,29 +370,29 @@ def evaluate_health(
 
 | 标准 | 验证方式 |
 |---|---|
-| LIO odometry available before session completion | Replay fixture, check `/localization/lio/odom` publishes |
-| LIO odometry finite and monotonic | Validate timestamps in fixture replay |
-| Only localization node owns `odom → base_link` | TF authority check in `test_static_tf_ownership.py` |
-| Atomic archive creation | Stop session, verify no `.partial` remains |
-| Interruption recovery | Kill process during staging, verify `.partial` exists |
-| Deterministic replay | Same seed produces byte-identical archive |
+| 会话完成前 LIO 里程计可用 | 回放固定数据，检查 `/localization/lio/odom` 是否发布 |
+| LIO 里程计有限且单调 | 验证固定数据回放中的时间戳 |
+| 只有定位节点拥有 `odom → base_link` | 在 `test_static_tf_ownership.py` 中检查 TF 权限 |
+| 原子创建归档 | 停止会话，确认不存在 `.partial` |
+| 中断恢复 | 暂存期间终止进程，确认 `.partial` 存在 |
+| 确定性回放 | 相同种子生成字节完全一致的归档 |
 
 ---
 
 ## 9. 相关文档
 
-- `docs/localization/LOCALIZATION_AND_FAILOVER.md` — Source switching and failover
-- `docs/architecture/ROS2_CONTRACTS.md` — Frozen ROS graph contract
-- `docs/architecture/ROS2_ARCHITECTURE.md` — System architecture
-- `docs/testing/ACCEPTANCE.md` — Milestone acceptance criteria
+- `docs/localization/LOCALIZATION_AND_FAILOVER.md`：定位源切换和失效切换
+- `docs/architecture/ROS2_CONTRACTS.md`：冻结的 ROS 图契约
+- `docs/architecture/ROS2_ARCHITECTURE.md`：系统架构
+- `docs/testing/ACCEPTANCE.md`：里程碑验收标准
 
 ---
 
 ## 10. 参考资料
 
-- `ed_uav_interfaces/srv/StartMapSession.srv` — Service definition
-- `ed_uav_interfaces/contracts/ros2_contract_manifest.json` — Contract manifest
-- `ed_uav_verification/artifacts.py` — Reference `.partial` staging pattern
-- `ed_uav_localization/lio_health.py` — LIO health monitoring
-- `ed_uav_localization/source_supervisor.py` — Source switching logic
-- `ed_uav_localization/field_anchor.py` — map→odom TF broadcaster
+- `ed_uav_interfaces/srv/StartMapSession.srv`：服务定义
+- `ed_uav_interfaces/contracts/ros2_contract_manifest.json`：契约清单
+- `ed_uav_verification/artifacts.py`：`.partial` 暂存模式参考实现
+- `ed_uav_localization/lio_health.py`：LIO 健康监测
+- `ed_uav_localization/source_supervisor.py`：源切换逻辑
+- `ed_uav_localization/field_anchor.py`：map→odom TF 广播器

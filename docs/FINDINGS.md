@@ -23,7 +23,7 @@
 
 # 执行计划验证报告
 
-> 最近验证: 2026-07-14 | Windows Codex Python runtime | 测试: 170 项通过
+> 最近验证: 2026-07-14 | Windows Codex Python 运行时 | 测试: 170 项通过
 
 ---
 
@@ -33,11 +33,11 @@
 |------|------|------|
 | 整体架构设计 | ✅ 合理 | 树莓派主控 + MCU中继 + 凌霄IMU 的分层架构正确 |
 | 通信协议设计 | ⚠️ 部分验证 | 匿名V7内层帧已验证; 自定义MCU/H7桥接仍需对应固件联调 |
-| 路径规划逻辑 | ✅ 正确 | 蛇形全覆盖算法可计算, 但有见下文问题 |
+| 路径规划逻辑 | ✅ 正确 | 蛇形全覆盖算法可计算，但有见下文问题 |
 | 定位融合策略 | ✅ 合理 | 三层融合(光流+颜色+OCR)设计有效 |
 | 状态机设计 | ✅ 合理 | 状态转换覆盖完整任务流程 |
 | 异常处理 | ✅ 合理 | 覆盖了通信、高度、时间等主要风险 |
-| Python 实现 | ✅ 已验证 | 170 个单元测试全部通过, dry-run完整完成28块任务 |
+| Python 实现 | ✅ 已验证 | 170 个单元测试全部通过，模拟运行完整完成 28 块任务 |
 
 ---
 
@@ -64,7 +64,7 @@
 
 #### M1: 速度档位 `block_timeout` 过于激进
 
-- **位置**: 第12.1节 speed profiles
+- **位置**: 第 12.1 节速度配置
 - **现象**: `competition` 档的 `block_timeout=3秒` 意味每块从检测到撒药完成的窗口仅3秒, 对30cm/s累计移动(可能跨过空缺格子) 极为紧张
 - **建议**: `competition` 档将 `block_timeout` 提高到至少5秒, 或根据路径中实际的最大相邻距离动态计算
 - **状态**: ✅ **已修复** — `config.py` competition `block_timeout` 已从 3→5 秒
@@ -119,14 +119,14 @@
 | block_timeout | `config.py` | competition 档 3→5 秒 | ✅ |
 | 电池电压帧 | `lx_protocol.py`, `mcu_serial.py` | 新增 0xCC 0x03 帧解析 + `read_voltage()` 实现 | ✅ |
 | 心跳机制 | `lx_protocol.py`, `mcu_serial.py`, `main.py` | 新增 `build_heartbeat_query()` + `send_heartbeat()` + 主循环 500ms 间隔发送 | ✅ |
-| total_blocks | `path_plan.py`, `state_machine.py` | 按赛题原图恢复28块并排除占位下标计数 | ✅ |
-| dry-run闭环 | `mcu_serial.py`, `main.py` | 模拟解锁、起飞、移动、返航、降落及自动启动 | ✅ |
+| total_blocks | `path_plan.py`, `state_machine.py` | 按赛题原图恢复 28 块并排除占位下标计数 | ✅ |
+| 模拟运行闭环 | `mcu_serial.py`, `main.py` | 模拟解锁、起飞、移动、返航、降落及自动启动 | ✅ |
 | 非阻塞激光 | `laser_led.py` | 软件GPIO闪烁移至后台线程, 避免阻塞心跳 | ✅ |
 | hsv 类型 | `state_machine.py` | 移除 `hsv = 0` 占位, 仅在 detector 存在时计算 | ✅ |
 | import 清理 | `state_machine.py` | `import math` 移至模块顶部, 删除函数内重复导入 | ✅ |
 | DRY 重构 | `state_machine.py` | 提取 `_calc_move_to_target()` 消除 3 处重复代码 | ✅ |
 | 时间计算 | `laser_led.py` | `period_ms/2000.0` → `period_ms/1000.0/2.0` 更清晰 | ✅ |
-| 入口脚本 | `main.py` (新文件) | CLI 参数解析 + 组件初始化 + 20Hz 主循环 + 心跳 + 资源清理 | ✅ |
+| 入口脚本 | `main.py`（新文件） | 命令行参数解析 + 组件初始化 + 20 Hz 主循环 + 心跳 + 资源清理 | ✅ |
 | 日志保存 | `utils.py`, `main.py` | `setup_logging()` 新增 `save_logs` 参数, `--no-save-logs` 生效 | ✅ |
 | poll() 调用 | `state_machine.py` | `run_iteration()` 开始处调用 `self.mcu.poll()` 消费串口数据 | ✅ |
 
@@ -154,7 +154,7 @@
 3. **光流校准**: 起飞后先原地悬停3秒采集光流噪声基线
 4. **降落精度**: 在LAND状态加入光流闭环修正, 保持水平位置
 5. **日志系统**: 增加飞行数据记录(CSV格式), 用于赛后分析和调试
-6. **block_timeout**: competition档提高到5秒
+6. **block_timeout**：competition 档提高到 5 秒
 
 ---
 

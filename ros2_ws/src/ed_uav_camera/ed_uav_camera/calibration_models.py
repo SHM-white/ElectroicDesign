@@ -77,10 +77,15 @@ class CapturePolicy:
     """Deterministic image-quality and diversity thresholds."""
 
     minimum_observations: int = 15
-    target_observations: int = 24
-    maximum_frames: int = 600
+    target_observations: int = 30
+    maximum_frames: int = 0
+    """Maximum capture frames. 0 = unlimited (time-based only)."""
+    maximum_seconds: float = 9000
+    """Maximum capture wall-clock seconds. 0 = unlimited (frame-based only)."""
+    autofocus_settle_seconds: float = 20.0
+    """Seconds to drain frames while camera autofocus converges before real capture."""
     minimum_blur_variance: float = 80.0
-    duplicate_rms_fraction: float = 0.008
+    duplicate_rms_fraction: float = 0.015
     minimum_coverage_cells: int = 4
     minimum_area_span: float = 0.025
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, IntEnum
+from threading import Lock
 from types import MappingProxyType
 from typing import Final, Literal, Mapping
 
@@ -159,3 +160,28 @@ class SelectionRejected:
 
 
 SelectionResult = SelectionAccepted | SelectionRejected
+
+
+class SelectionStore:
+    """Atomically commit one immutable pre-arm selection for a mission run."""
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._selection: DTaskSelection | None = None
+
+    @property
+    def selection(self) -> DTaskSelection | None:
+        return self._selection
+
+    def commit(self, selection: DTaskSelection, *, pre_arm: bool) -> SelectionResult:
+        with self._lock:
+            if not pre_arm:
+                return SelectionRejected(reason="mission selection is pre-arm only")
+            if self._selection is not None:
+                return SelectionRejected(reason="mission selection is already committed")
+            self._selection = selection
+            return SelectionAccepted(selection=selection)
+
+    def clear_after_terminal(self) -> None:
+        with self._lock:
+            self._selection = None

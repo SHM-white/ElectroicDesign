@@ -5,9 +5,18 @@ field_profile_id: simulation-arena
 timeout_sec: 90.0
 takeoff_altitude_m: 1.5
 competition:
+  mission_profile_id: d2026-simulation
+  deployment_preset_id: simulation
+  target_revision: d2026-circle-cross-v1
   altitude_m: 1.5
   forward_distance_m: 2.0
-  hover_sec: 1.0
+  stable_sec: 3.0
+  start_deadline_s: 15.0
+  b_deadline_s: 45.0
+  d_deadline_s: 75.0
+  vehicle_freshness_s: 0.5
+  target_freshness_s: 0.2
+  maximum_relative_error_m: 2.0
   planner_timeout_sec: 5.0
 terminal_landing:
   land_altitude_m: 0.0

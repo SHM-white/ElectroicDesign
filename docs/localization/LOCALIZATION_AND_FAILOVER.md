@@ -129,14 +129,14 @@ Camera (wide) → /camera/wide/image_raw
 | Pitch | 16 | 俯仰角 |
 | Yaw | 32 | 航向角 |
 
-完整位姿（X、Y、Yaw）需要至少 2 个不平行的边界约束，且
-inter-line angle > 30°. Single line → yaw-only constraint (`DOF_YAW` mask).
+完整位姿（X、Y、Yaw）需要至少 2 个不平行的边界约束，且边界线夹角 > 30°。
+单条边界线只能提供航向约束（`DOF_YAW` 掩码）。
 
 ### 3.3 视觉稳定门
 
-`is_visual_stable()` requires:
-- ≥ `visual_consecutive_samples` (5) consecutive valid observations
-- Spanning ≥ `visual_stability_duration` (0.5 s)
+`is_visual_stable()` 要求：
+- 至少有 `visual_consecutive_samples`（5）个连续有效观测
+- 观测跨度至少为 `visual_stability_duration`（0.5 s）
 
 在通过此门之前，监督器**不会**将视觉源切换为主源。
 
@@ -146,8 +146,8 @@ inter-line angle > 30°. Single line → yaw-only constraint (`DOF_YAW` mask).
 
 ### 4.1 状态机
 
-实现于 `decide_source_switch()`，这是纯函数，并在
-`test_source_supervisor.py`.
+实现于 `decide_source_switch()`，这是纯函数；相关测试位于
+`test_source_supervisor.py`。
 
 ```
                     ┌─────────────┐

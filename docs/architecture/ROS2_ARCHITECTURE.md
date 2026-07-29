@@ -115,7 +115,7 @@
 | `/localization/lio/odom` | `Odometry` | LIO 适配器（外部 FAST-LIO） | state_reliable, 0.15 s |
 | `/localization/boundary_observation` | `BoundaryObservation` | 边界感知 | state_reliable, 0.20 s |
 | `/localization/status` | `LocalizationStatus` | source_supervisor | state_reliable, 0.20 s |
-| `/localization/odom` | `Odometry` | source_supervisor (→ EKF, future) | state_reliable, 0.15 s |
+| `/localization/odom` | `Odometry` | source_supervisor（→ EKF，后续实现） | state_reliable, 0.15 s |
 | `/localization/lio/health` | `DiagnosticArray` | lio_health_monitor | state_reliable |
 
 ### 3.5 感知
@@ -145,7 +145,7 @@
 | 动作 | 类型 | 服务端 | 客户端 |
 |---|---|---|---|
 | `/fcu/flight_command` | `FlightCommand` | `ed_uav_fcu_bridge` | `ed_uav_mission` |
-| `/mission/execute` | `ExecuteMission` | `ed_uav_mission` | (external) |
+| `/mission/execute` | `ExecuteMission` | `ed_uav_mission` | （外部） |
 
 ### FlightCommand 命令
 
@@ -266,7 +266,7 @@ ACTIVE → LOCALIZATION_LOST_HOVERING → LOCALIZATION_LOST_LANDING → CRITICAL
 | 7 | `generic_lidar_monitor` | ed_uav_lidar | 通用 PointCloud2 中继 |
 | 8 | `mid360_monitoring_adapter` | ed_uav_lidar | Livox CustomMsg → PointCloud2 适配器 |
 | 9 | `fake_image_device` | ed_uav_camera | 合成测试图像发布器 |
-| 10 | `robot_state_publisher` | (external) | URDF 静态 TF 发布器 |
+| 10 | `robot_state_publisher` | （外部） | URDF 静态 TF 发布器 |
 | 11 | `ed_uav_verify_ros` | ed_uav_verification | 确定性的虚拟时间发布器 |
 
 ---

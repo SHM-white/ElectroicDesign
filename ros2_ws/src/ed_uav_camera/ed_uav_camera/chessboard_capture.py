@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import itertools
 import math
 import os
+import time
 from types import TracebackType
 from typing import Literal
 
@@ -49,7 +51,19 @@ def capture_observations(session: CaptureSession) -> tuple[Observation, ...]:
         cv2.namedWindow(_PREVIEW_WINDOW, cv2.WINDOW_NORMAL)
     try:
         with _open_capture(session) as capture:
-            for frame_index in range(session.policy.maximum_frames):
+            # --- autofocus settle phase ---
+            _autofocus_settle(capture, session)
+            # --- main capture loop (unlimited frames unless capped, time-bounded) ---
+            start_monotonic = time.monotonic()
+            for frame_index in itertools.count():
+                # frame-count guard (0 = unlimited)
+                if session.policy.maximum_frames > 0 and frame_index >= session.policy.maximum_frames:
+                    break
+                # time guard (0 = unlimited)
+                if session.policy.maximum_seconds > 0:
+                    elapsed = time.monotonic() - start_monotonic
+                    if elapsed >= session.policy.maximum_seconds:
+                        break
                 available, frame = capture.read()
                 if not available:
                     break
@@ -77,9 +91,10 @@ def capture_observations(session: CaptureSession) -> tuple[Observation, ...]:
                     state = "accepted" if observation is not None and not is_duplicate else "duplicate"
                     if observation is None:
                         state = "blur" if blur_variance < session.policy.minimum_blur_variance else "not found"
+                    elapsed_s = time.monotonic() - start_monotonic
                     cv2.putText(
                         display,
-                        f"accepted {len(observations)}/{session.policy.target_observations}",
+                        f"accepted {len(observations)}/{session.policy.target_observations}  {elapsed_s:.0f}s",
                         (16, 30),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.7,
@@ -110,6 +125,35 @@ def capture_observations(session: CaptureSession) -> tuple[Observation, ...]:
     return tuple(observations)
 
 
+def _autofocus_settle(capture: cv2.VideoCapture, session: CaptureSession) -> None:
+    """Drain frames while camera autofocus converges; show progress in the preview."""
+    settle = session.policy.autofocus_settle_seconds
+    if settle <= 0 or not session.direct_v4l2:
+        return
+    deadline = time.monotonic() + settle
+    while time.monotonic() < deadline:
+        ok, frame = capture.read()
+        if not ok:
+            break
+        remaining = max(deadline - time.monotonic(), 0.0)
+        display = frame.copy()
+        cv2.rectangle(display, (0, 0), (480, 48), (0, 0, 0), -1)
+        cv2.putText(
+            display,
+            f"autofocus settling ... {remaining:.0f}s",
+            (16, 32),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 200, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.imshow(_PREVIEW_WINDOW, display)
+        key = cv2.waitKey(1) & 0xFF
+        if key in (ord("q"), 27):
+            raise CalibrationBootstrapError("capture cancelled by operator")
+
+
 def _open_capture(session: CaptureSession) -> _ManagedCapture:
     if session.direct_v4l2 and not os.access(session.source, os.R_OK | os.W_OK):
         raise CalibrationBootstrapError(
@@ -135,6 +179,8 @@ def _open_capture(session: CaptureSession) -> _ManagedCapture:
                         f"cannot configure capture source {session.source} for MJPG "
                         f"{session.selection.width}x{session.selection.height} at 30 fps"
                     )
+            # Enable camera autofocus so the lens can converge.
+            capture.set(cv2.CAP_PROP_AUTOFOCUS, 1.0)
         except (CalibrationBootstrapError, cv2.error):
             capture.release()
             raise

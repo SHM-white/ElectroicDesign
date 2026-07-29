@@ -1,0 +1,85 @@
+{
+  "board": {
+    "inner_corners": [
+      10,
+      7
+    ],
+    "physical_squares": [
+      11,
+      8
+    ],
+    "square_size_mm": 15.0
+  },
+  "calibration": {
+    "camera_info_url": "file:///home/shm-white/ed/calibration_data/narrow_1280x720_20260729T155820Z/camera_info.yaml",
+    "capture_provenance": "direct_v4l2",
+    "captured_at_ns": 1785340796844314977,
+    "height": 720,
+    "observed_by_id": "/dev/v4l/by-id/usb-DHZJ-250122-ZW_W19_HD_Webcam-video-index0",
+    "observed_serial": "usb-revision:0ac8:3460:0122",
+    "serial": "usb-revision:0ac8:3460:0122",
+    "valid_for_ns": 31536000000000000,
+    "width": 1280
+  },
+  "descriptor_hash": {
+    "algorithm": "ed-canonical-json-v1",
+    "sha256": "657af0f2c4b51b5aa675ade771c1889d49f0de183239e3e9a2c547ed29d243fd"
+  },
+  "device": {
+    "by_id": "/dev/v4l/by-id/usb-DHZJ-250122-ZW_W19_HD_Webcam-video-index0",
+    "serial": "usb-revision:0ac8:3460:0122"
+  },
+  "metrics": {
+    "holdout_max_px": 0.3651121258735657,
+    "holdout_mean_px": 0.21673130244016647,
+    "holdout_observations": 6,
+    "train_mean_px": 0.2095985027650992,
+    "train_observations": 24
+  },
+  "provenance": {
+    "accepted_frame_indices": [
+      0,
+      16,
+      39,
+      58,
+      158,
+      177,
+      326,
+      397,
+      407,
+      431,
+      435,
+      443,
+      454,
+      469,
+      580,
+      903,
+      911,
+      928,
+      938,
+      956,
+      964,
+      1038,
+      1615,
+      1676,
+      1694,
+      1698,
+      1700,
+      1705,
+      1752,
+      1776
+    ],
+    "camera_info_sha256": "ed6b47b67848a129c5d7c574dbe3250d42be55c435a227666090849c815a6b80",
+    "kind": "direct_v4l2",
+    "observed_by_id": "/dev/v4l/by-id/usb-DHZJ-250122-ZW_W19_HD_Webcam-video-index0",
+    "observed_serial": "usb-revision:0ac8:3460:0122",
+    "production_eligible": true,
+    "source": "/dev/v4l/by-id/usb-DHZJ-250122-ZW_W19_HD_Webcam-video-index0"
+  },
+  "raster": {
+    "height": 720,
+    "width": 1280
+  },
+  "role": "narrow",
+  "schema_version": 2
+}
