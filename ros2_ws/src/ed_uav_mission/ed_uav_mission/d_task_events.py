@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from typing_extensions import assert_never
+
 from ed_uav_mission.d_task_model import (
     DTaskEffect,
     DTaskFault,
@@ -102,3 +104,17 @@ DTaskEvent = (
     | ContactObserved
     | SafetyInterrupted
 )
+
+
+def event_time(event: DTaskEvent) -> float:
+    match event:
+        case ContactObserved(update=update):
+            return update.now_monotonic_s
+        case Tick(now_s=now_s) | VehicleObserved(now_s=now_s) | TargetObserved(now_s=now_s):
+            return now_s
+        case CommandCompleted(now_s=now_s) | CommandFailed(now_s=now_s):
+            return now_s
+        case SafetyInterrupted(now_s=now_s):
+            return now_s
+        case unreachable:
+            assert_never(unreachable)

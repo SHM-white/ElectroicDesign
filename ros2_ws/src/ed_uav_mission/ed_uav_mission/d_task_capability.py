@@ -38,7 +38,7 @@ def evaluate_d_task_capability(
             device_identity,
             environment,
         )
-        require_programmable_capability(True, trust)
+        _ = require_programmable_capability(True, trust)
     except ProgrammableCapabilityError as error:
         return CapabilityDecision(ready=False, reason=str(error))
     return CapabilityDecision(ready=True, reason="verified programmable capability")

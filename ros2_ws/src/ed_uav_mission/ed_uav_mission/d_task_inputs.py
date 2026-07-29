@@ -36,13 +36,13 @@ def adapt_vehicle_telemetry(
         raise DTaskInputError("vehicle route stage is invalid") from error
     return VehicleSnapshot(
         observed_at_s=observed_at_s,
-        sequence=message.source_sequence,
-        started=message.start_event,
-        heartbeat_alive=message.heartbeat_alive,
-        speed_m_s=abs(message.wheel_speed_m_s),
-        displacement_m=message.displacement_m,
-        heading_rad=message.heading_rad,
-        yaw_rate_rad_s=message.yaw_rate_rad_s,
+        sequence=int(message.source_sequence),
+        started=bool(message.start_event),
+        heartbeat_alive=bool(message.heartbeat_alive),
+        speed_m_s=abs(float(message.wheel_speed_m_s)),
+        displacement_m=float(message.displacement_m),
+        heading_rad=float(message.heading_rad),
+        yaw_rate_rad_s=float(message.yaw_rate_rad_s),
         route_stage=stage,
     )
 
@@ -63,11 +63,11 @@ def adapt_target_observation(
         raise DTaskInputError("target observation contains nonfinite values")
     return TargetSnapshot(
         observed_at_s=observed_at_s,
-        sequence=message.source_sequence,
-        valid=message.valid and message.status == TargetObservation.STATUS_VALID,
-        relative_x_m=position.x,
-        relative_y_m=position.y,
-        relative_z_m=position.z,
-        relative_error_m=math.hypot(position.x, position.y),
-        rejection_reason=message.rejection_reason,
+        sequence=int(message.source_sequence),
+        valid=bool(message.valid and message.status == TargetObservation.STATUS_VALID),
+        relative_x_m=float(position.x),
+        relative_y_m=float(position.y),
+        relative_z_m=float(position.z),
+        relative_error_m=math.hypot(float(position.x), float(position.y)),
+        rejection_reason=str(message.rejection_reason),
     )

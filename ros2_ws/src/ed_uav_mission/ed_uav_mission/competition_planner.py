@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
+from typing import Protocol
 
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import ComputePathToPose
-from nav_msgs.msg import Path as NavPath
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.time import Time
@@ -28,6 +28,19 @@ from ed_uav_mission.competition_tree import (
 )
 from ed_uav_mission.d_task_events import TargetSnapshot, VehicleSnapshot
 from ed_uav_mission.mission_model import CompetitionParams, Waypoint
+
+
+class HeaderLike(Protocol):
+    @property
+    def frame_id(self) -> str: ...
+
+
+class NavPathLike(Protocol):
+    @property
+    def header(self) -> HeaderLike: ...
+
+    @property
+    def poses(self) -> Sequence[PoseStamped]: ...
 
 
 class CompetitionPlanner:
@@ -176,7 +189,7 @@ class CompetitionPlanner:
         return stamped
 
     @staticmethod
-    def _path_poses(path: NavPath) -> tuple[MapPose, ...]:
+    def _path_poses(path: NavPathLike) -> tuple[MapPose, ...]:
         if path.header.frame_id != "map":
             raise RuntimeError("ComputePathToPose path is not in map frame")
         poses = []

@@ -69,7 +69,7 @@ class DTaskRosBoundary:
         self._localization_valid = localization_valid
         self._selection_store = SelectionStore()
         self._events: deque[DTaskEvent] = deque(maxlen=256)
-        self._waiter: Future | None = None
+        self._waiter: Future[DTaskEvent] | None = None
         self._latest_vehicle: VehicleSnapshot | None = None
         self._latest_target: TargetSnapshot | None = None
         self._latest_contact: ContactObservation | None = None
@@ -138,7 +138,7 @@ class DTaskRosBoundary:
     async def next_event(self) -> DTaskEvent:
         if self._events:
             return self._events.popleft()
-        waiter = Future()
+        waiter = Future[DTaskEvent]()
         self._waiter = waiter
         try:
             return await waiter
@@ -226,11 +226,11 @@ class DTaskRosBoundary:
             response.reason = reason[:96]
             return response
         selection = DTaskSelection(
-            mission_id=request.mission_id,
-            mission_profile_id=request.mission_profile_id,
-            deployment_preset_id=request.deployment_preset_id,
-            target_revision=request.target_revision,
-            task=DTaskKind(request.task),
+            mission_id=str(request.mission_id),
+            mission_profile_id=str(request.mission_profile_id),
+            deployment_preset_id=str(request.deployment_preset_id),
+            target_revision=str(request.target_revision),
+            task=DTaskKind(int(request.task)),
             committed_at_s=steady_now_sec(),
         )
         result = self._selection_store.commit(selection, pre_arm=self._is_pre_arm())

@@ -167,7 +167,7 @@ class SelectionStore:
     """Atomically commit one immutable pre-arm selection for a mission run."""
 
     def __init__(self) -> None:
-        self._lock = Lock()
+        self._lock: Lock = Lock()
         self._selection: DTaskSelection | None = None
 
     @property

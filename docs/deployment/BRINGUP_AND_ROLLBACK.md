@@ -1,6 +1,6 @@
 # 启动与回滚运行手册
 
-> Source: `ros2_ws/src/ed_uav_bringup/`, `ros2_ws/src/ed_uav_verification/`,
+> 来源：`ros2_ws/src/ed_uav_bringup/`、`ros2_ws/src/ed_uav_verification/`、
 > `ros2_ws/src/ed_uav_fcu_bridge/`, `tools/run_humble.sh`,
 > `.github/workflows/ros2-ci.yml`, `tools/test_rollback.py`,
 > `tools/parity_check.py`.
@@ -45,7 +45,7 @@
 
 ### 2.1 门控 1：CI 构建与测试
 
-**File**: `.github/workflows/ros2-ci.yml`
+**文件**：`.github/workflows/ros2-ci.yml`
 
 ```yaml
 # Triggered on: push to main, PRs
@@ -62,20 +62,20 @@ steps:
       colcon test-result --all --verbose'
 ```
 
-**Runner selection** (`tools/run_humble.sh`):
-- Ubuntu 22.04 with `/opt/ros/humble` → native execution
-- All other hosts → Docker/Podman container (digest-pinned `ros:humble-ros-base-jammy`)
-- Validates pinned base image label `io.ed.humble.base-ref`
-- 900 s timeout on container operations
-- Mutual-exclusion lock prevents concurrent runs
+**运行器选择**（`tools/run_humble.sh`）：
+- 安装 `/opt/ros/humble` 的 Ubuntu 22.04 → 原生执行
+- 其他主机 → Docker/Podman 容器（摘要固定的 `ros:humble-ros-base-jammy`）
+- 验证固定的基础镜像标签 `io.ed.humble.base-ref`
+- 容器操作超时 900 s
+- 互斥锁阻止并发运行
 
 **验收**：所有 `colcon test` 通过，且 `colcon test-result` 显示 0 个失败。
 
 ### 2.2 门控 2：启动面验证
 
-**File**: `ros2_ws/src/ed_uav_bringup/tools/verify_launch_surface.py`
+**文件**：`ros2_ws/src/ed_uav_bringup/tools/verify_launch_surface.py`
 
-Static AST analysis (no ROS runtime required):
+静态 AST 分析（不需要 ROS 运行时）：
 
 ```bash
 python3 ros2_ws/src/ed_uav_bringup/tools/verify_launch_surface.py \
@@ -83,17 +83,17 @@ python3 ros2_ws/src/ed_uav_bringup/tools/verify_launch_surface.py \
 ```
 
 **检查项**：
-1. Exactly 7 P06 launch arguments declared
-2. Exactly 4 P06 profiles exist (`offline`, `camera_only`, `lidar`, `competition`)
-3. `validate_for_profile()` called **before** `Node()` construction
-4. No forbidden TF authorities (`static_transform_publisher`, `map → odom`,
+1. 准确定义 7 个 P06 启动参数
+2. 准确存在 4 个 P06 配置（`offline`、`camera_only`、`lidar`、`competition`）
+3. `Node()` 构造**之前**调用 `validate_for_profile()`
+4. 不得存在禁止的 TF 权威（`static_transform_publisher`、`map → odom`、
    `odom → base_link` as static joints)
 
 **输出**：`BRINGUP: GREEN` 或 `BRINGUP: RED: <reason>`
 
 ### 2.3 门控 3：标定验证
 
-**File**: `ros2_ws/src/ed_uav_description/tools/validate_calibration.py`
+**文件**：`ros2_ws/src/ed_uav_description/tools/validate_calibration.py`
 
 ```bash
 python3 ros2_ws/src/ed_uav_description/tools/validate_calibration.py \
@@ -101,26 +101,25 @@ python3 ros2_ws/src/ed_uav_description/tools/validate_calibration.py \
 ```
 
 **检查项**：
-- Schema version valid
-- Calibration hash matches recomputed hash
-- All required transforms present
-- Competition profile: status must be `CALIBRATED`, serials must not be `UNSET`/`SYNTHETIC-*`
+- Schema version 有效
+- 标定哈希与重新计算的哈希匹配
+- 所有必需变换均存在
+- 竞赛配置：状态必须为 `CALIBRATED`，序列号不得为 `UNSET`/`SYNTHETIC-*`
 
 ### 2.4 门控 4：ROS 2 契约验证
 
-**File**: `ros2_ws/src/ed_uav_interfaces/tools/check_contract.py`
+**文件**：`ros2_ws/src/ed_uav_interfaces/tools/check_contract.py`
 
 ```bash
 ./.venv/bin/python ros2_ws/src/ed_uav_interfaces/tools/check_contract.py \
   ros2_ws/src/ed_uav_interfaces/contracts/ros2_contract_manifest.json
 ```
 
-Validates all approved topics, services, actions, TF edges, QoS profiles,
-freshness deadlines, lifecycle ordering, and enum values.
+验证所有批准的主题、服务、动作、TF 边、QoS 配置、新鲜度截止时间、生命周期顺序和枚举值。
 
 ### 2.5 门控 5：确定性场景验证
 
-**File**: `ros2_ws/src/ed_uav_verification/ed_uav_verification/cli.py`
+**文件**：`ros2_ws/src/ed_uav_verification/ed_uav_verification/cli.py`
 
 ```bash
 # Run 60-second deterministic scenario
@@ -128,58 +127,58 @@ ed-uav-verify --output scenario_events.json
 ```
 
 **功能**：
-- Virtual monotonic clock (no real time dependency)
-- 8 synthetic sensor streams at 20 Hz
-- 6 fault injection modes: DROP, FREEZE, CORRUPTION, LATENCY, TIME_REGRESSION, PROCESS_DEATH
-- Atomic event artifact writing
-- Fault matrix assertion: every fault → activation + degradation + recovery + stream recovery
+- 虚拟单调时钟（不依赖真实时间）
+- 8 路 20 Hz 合成传感器流
+- 6 种故障注入模式：DROP、FREEZE、CORRUPTION、LATENCY、TIME_REGRESSION、PROCESS_DEATH
+- 原子写入事件 artifact
+- 故障矩阵断言：每个故障都必须完成激活 + 降级 + 恢复 + 流恢复
 
 **输出**：`SCENARIO: GREEN {sha256, duration, ticks}`
 
 ### 2.6 门控 6：旧版一致性检查
 
-**File**: `tools/parity_check.py`
+**文件**：`tools/parity_check.py`
 
 ```bash
 python3 tools/parity_check.py
 ```
 
-Verifies SHA-256 integrity of protected legacy files:
+验证受保护旧版文件的 SHA-256 完整性：
 - `drone/start.sh`
 - `drone/debug_start.sh`
 - `drone/field_test.sh`
 
-Hashes are pinned in `docs/testing/LEGACY_BASELINE.md`.
+哈希固定在 `docs/testing/LEGACY_BASELINE.md` 中。
 
 ### 2.7 门控 7：第三方来源验证
 
-**File**: `tools/check_third_party.py`
+**文件**：`tools/check_third_party.py`
 
 ```bash
 python3 tools/check_third_party.py --strict
 ```
 
-Validates:
-- Pinned git revisions (no floating refs)
-- License file hashes match cached copies
-- Dataset manifest: `policy.model_weight_downloads: "prohibited"`
-- No forbidden copy markers under `ed_*` packages
+验证：
+- Git 修订版本已固定（无浮动引用）
+- 许可证文件哈希与缓存副本匹配
+- 数据集清单：`policy.model_weight_downloads: "prohibited"`
+- `ed_*` 包下不存在禁止的复制标记
 
 ### 2.8 门控 8：回滚验证
 
-**File**: `tools/test_rollback.py`
+**文件**：`tools/test_rollback.py`
 
 ```bash
 pytest tools/test_rollback.py -v
 ```
 
 **检查项**：
-1. **Legacy imports**: 7 core modules importable (`lx_protocol`, `path_plan`, `state_machine`, `mcu_serial`, `config`, `localization`, `vision`)
-2. **Legacy command builders**: All 6 V7 commands produce valid checksummed frames
-3. **Legacy path and state**: Grid has 28 blocks, path covers all, `FlightState` has 10+ states
-4. **Legacy test discovery**: pytest discovers legacy test suite
-5. **Mutual exclusion**: POSIX `fcntl.lockf(LOCK_EX|LOCK_NB)` proves two processes cannot claim the same endpoint
-6. **Serial exclusive open**: `TIOCEXCL` ioctl available on kernel
+1. **旧版导入**：7 个核心模块可导入（`lx_protocol`、`path_plan`、`state_machine`、`mcu_serial`、`config`、`localization`、`vision`）
+2. **旧版命令构建器**：全部 6 个 V7 命令生成有效校验和帧
+3. **旧版路径和状态**：网格有 28 个区块，路径覆盖全部区块，`FlightState` 有 10+ 个状态
+4. **旧版测试发现**：pytest 能发现旧版测试套件
+5. **互斥**：POSIX `fcntl.lockf(LOCK_EX|LOCK_NB)` 证明两个进程不能声明同一端点
+6. **串口独占打开**：内核提供 `TIOCEXCL` ioctl
 
 ---
 
@@ -239,57 +238,48 @@ ros2 launch ed_uav_verification verification_harness.launch.py \
 
 ### 3.6 一键离线集成
 
-Run these commands from the repository root. Each script creates a timestamped
-directory below `.omo/evidence/offline-integration/scripts/` and writes a
-stage-specific `SUCCESS` marker there. A failed run writes `FAILED` with the
-exit code. Retain the directories as debugging evidence.
+从仓库根目录运行这些命令。每个脚本都会在 `.omo/evidence/offline-integration/scripts/`
+下创建时间戳目录，并在其中写入阶段专用的 `SUCCESS` 标记。失败运行会写入带退出码的
+`FAILED`。保留这些目录作为调试证据。
 
-| Stage | Exact command | Pass marker and evidence | Debugging phase |
+| 阶段 | 精确命令 | 通过标记和证据 | 调试阶段 |
 |---|---|---|---|
-| Static contract surface | `bash tools/run_offline_static.sh` | `STATIC_OFFLINE_GREEN` in `SUCCESS`; focused pytest, launch-surface, replay-profile, interface-contract, parity, and runner logs | First check for environment, launch, interface, and legacy-parity regressions before starting processes |
-| Live simulation | `bash tools/run_offline_sim.sh` | `SIM_OFFLINE_GREEN` in `SUCCESS`; build, simulation, colcon, and runner logs | Check the live offline graph and deterministic synthetic sensor flow |
-| WSLg visualization | `bash tools/run_offline_rviz.sh` | `RVIZ_OFFLINE_GREEN` in `SUCCESS`; packaged config, RViz, build, and runner logs | Check WSLg display startup, visualization topics, and RViz process lifetime |
-| FCU bridge dry run | `bash tools/run_offline_fcu_dry_run.sh` | `FCU_DRY_RUN_GREEN` in `SUCCESS`; FCU, build, and runner logs | Check telemetry, bridge framing, PTY cleanup, and shutdown |
-| Event replay | `bash tools/run_offline_full_replay.sh` | `FULL_REPLAY_GREEN` in `SUCCESS`; event creation, bag info, replay, test, build, and runner logs | Check event artifact creation, event-only rosbag shape, and replay lifecycle |
+| 静态契约面 | `bash tools/run_offline_static.sh` | `SUCCESS` 中的 `STATIC_OFFLINE_GREEN`；聚焦 pytest、启动面、回放配置、接口契约、一致性和运行器日志 | 启动进程前首先检查环境、启动、接口和旧版一致性回归 |
+| 实时模拟 | `bash tools/run_offline_sim.sh` | `SUCCESS` 中的 `SIM_OFFLINE_GREEN`；构建、模拟、colcon 和运行器日志 | 检查实时离线图和确定性合成传感器流 |
+| WSLg 可视化 | `bash tools/run_offline_rviz.sh` | `SUCCESS` 中的 `RVIZ_OFFLINE_GREEN`；打包配置、RViz、构建和运行器日志 | 检查 WSLg 显示启动、可视化主题和 RViz 进程生命周期 |
+| FCU 桥接空运行 | `bash tools/run_offline_fcu_dry_run.sh` | `SUCCESS` 中的 `FCU_DRY_RUN_GREEN`；FCU、构建和运行器日志 | 检查遥测、桥接帧、PTY 清理和关闭 |
+| 事件回放 | `bash tools/run_offline_full_replay.sh` | `SUCCESS` 中的 `FULL_REPLAY_GREEN`；事件创建、包信息、回放、测试、构建和运行器日志 | 检查事件 artifact 创建、仅事件 rosbag 形状和回放生命周期 |
 
-The live deterministic simulation is wall-time only. It does not publish
-`/clock`, so `use_sim_time=true` is rejected for this surface. The one-click
-simulation and visualization commands use `use_sim_time:=false`.
+实时确定性模拟仅使用墙上时钟。它不发布 `/clock`，因此该表面拒绝
+`use_sim_time=true`。一键模拟和可视化命令使用 `use_sim_time:=false`。
 
-The RViz stage uses WSLg through `HUMBLE_GUI=1`. It displays synthetic,
-visualization-only robot geometry, TF, lidar points, and two images. Odometry
-displays are intentionally absent until an authorized TF owner exists.
+RViz 阶段通过 `HUMBLE_GUI=1` 使用 WSLg。它显示仅用于可视化的合成机器人几何体、TF、
+激光雷达点和两幅图像。在存在授权 TF 所有者前，故意不显示里程计。
 
-The rosbag stage is event-only. Its approved topic is `/verification/events`;
-it is not a sensor replay and it is not a flight replay. The FCU dry-run uses a
-fake PTY with the real bridge. It does not open `/dev/ttyUSB*` and makes no HIL,
-hardware, or flight claim.
-Standalone CLI command tests remain offline-only and do not authorize FCU
-hardware commands.
+rosbag 阶段仅包含事件。其批准主题为 `/verification/events`；它不是传感器回放，也不是
+飞行回放。FCU 空运行使用真实桥接和伪 PTY，不会打开 `/dev/ttyUSB*`，也不作出 HIL、
+硬件或飞行声明。独立 CLI 命令测试仍仅限离线，不授权 FCU 硬件命令。
 
-The current offline integration receipt is recorded under
-`.omo/evidence/offline-integration/`. This receipt supplements, and does not
-replace, the original milestone results in `docs/testing/TODAY_MILESTONE.md`.
-The stored stage evidence includes `wall-time/`, `rviz/`, `rviz-visual/`,
-`rosbag/`, `fcu-final/`, and timestamped runs under `scripts/`.
+当前离线集成收据记录在 `.omo/evidence/offline-integration/` 下。该收据补充而不替代
+`docs/testing/TODAY_MILESTONE.md` 中的原始里程碑结果。存储的阶段证据包括
+`wall-time/`、`rviz/`、`rviz-visual/`、`rosbag/`、`fcu-final/` 以及 `scripts/` 下的
+时间戳运行目录。
 
 ### 3.7 FCU 桥接（独立运行）
 
 ```bash
-# Requires physical FCU on /dev/ttyUSB0
+# 需要连接到 /dev/ttyUSB0 的实体 FCU
 source ros2_ws/install/setup.bash
 ros2 run ed_uav_fcu_bridge ed_uav_fcu_bridge \
   --ros-args -p serial_port:=/dev/ttyUSB0 -p baudrate:=500000
 ```
 
 **前置条件**：
-- FCU connected via USB-TTL at 500000 baud
-- Cooperative serial ownership preflight or broker confirms that no other process
-  owns `/dev/ttyUSB0`
-- `TIOCEXCL` and the canonical device-number lock are enabled for cooperating
-  opens; an already-open legacy file descriptor can remain writable after
-  `TIOCEXCL`, so the preflight remains required
-- User in `dialout` group (or run as root)
+- FCU 通过 USB-TTL 以 500000 波特率连接
+- 协作式串口所有权预检或代理确认没有其他进程持有 `/dev/ttyUSB0`
+- 协作式打开启用 `TIOCEXCL` 和规范设备号锁；已经打开的旧版文件描述符在
+  `TIOCEXCL` 后仍可能可写，因此仍必须执行预检
+- 用户属于 `dialout` 组（或以 root 运行）
 
 ### 3.8 飞行命令权限
 
@@ -297,34 +287,31 @@ ros2 run ed_uav_fcu_bridge ed_uav_fcu_bridge \
 
 - `ROS_SECURITY_ENABLE=true`
 - `ROS_SECURITY_STRATEGY=Enforce`
-- `ROS_SECURITY_KEYSTORE` points to the configured keystore
-- Signed permissions are generated from the installed template at
-  `share/ed_uav_bringup/security/fcu_command.policy.xml`
+- `ROS_SECURITY_KEYSTORE` 指向已配置的密钥库
+- 从已安装模板 `share/ed_uav_bringup/security/fcu_command.policy.xml` 生成签名权限
 
-The bridge enclave has `execute` permission and the mission executor has
-`call` permission. Default deny is enforced by the ROS 2 middleware policy. The
-policy template contains no credentials. The offline PTY dry run remains
-credential-free and keeps flight commands disabled.
+桥接 enclave 具有 `execute` 权限，任务执行器具有 `call` 权限。ROS 2 中间件策略强制执行
+默认拒绝。策略模板不包含凭据。离线 PTY 空运行不需要凭据，并保持飞行命令禁用。
 
 ---
 
 ## 4. 配置档
 
-Defined in `bringup.launch.py`:
+定义于 `bringup.launch.py`：
 
-| Profile | Calibration Gate | Hardware Required | Use Case |
+| 配置 | 标定门控 | 所需硬件 | 用途 |
 |---|---|---|---|
-| `offline` | Relaxed (any status) | None | CI, development |
-| `camera_only` | Relaxed | Cameras only | Camera testing |
-| `lidar` | Relaxed | LiDAR only | LiDAR testing |
-| `competition` | **Strict** (`CALIBRATED`) | All sensors + FCU | Competition |
+| `offline` | 宽松（任意状态） | 无 | CI、开发 |
+| `camera_only` | 宽松 | 仅相机 | 相机测试 |
+| `lidar` | 宽松 | 仅激光雷达 | 激光雷达测试 |
+| `competition` | **严格**（`CALIBRATED`） | 所有传感器 + FCU | 竞赛 |
 
 ### 竞赛门控要求
 
 - `calibration_status == "CALIBRATED"`
-- All `sensor_serials` match actual device serials
-- `calibration_hash` matches recomputed hash
-- All transforms measured (no zero values except `fcu_link`)
+- 所有 `sensor_serials` 与实际设备序列号匹配
+- `calibration_hash` 与重新计算的哈希匹配
+- 所有变换均已测量（除 `fcu_link` 外不得为零值）
 
 ---
 
@@ -332,12 +319,12 @@ Defined in `bringup.launch.py`:
 
 ### 5.1 “回滚”的含义
 
-The project maintains two parallel codebases:
+项目维护两套并行代码库：
 
-| Codebase | Entry Point | Purpose |
+| 代码库 | 入口 | 用途 |
 |---|---|---|
-| `drone/` (legacy) | `drone/main.py --profile competition` | Python-only, direct serial, no ROS |
-| `ros2_ws/` (ROS 2) | `ros2 launch ed_uav_bringup bringup.launch.py` | ROS 2 graph, typed interfaces |
+| `drone/`（旧版） | `drone/main.py --profile competition` | 仅 Python、直接串口、无 ROS |
+| `ros2_ws/`（ROS 2） | `ros2 launch ed_uav_bringup bringup.launch.py` | ROS 2 图、类型化接口 |
 
 **回滚** = 从 ROS 2 栈切换回旧版 `drone/` 栈。
 
@@ -363,21 +350,20 @@ python main.py --profile competition --serial-port /dev/ttyUSB0
 
 ### 5.3 串口所有权边界
 
-The `ExclusiveSerialPort` in `ed_uav_fcu_bridge/serial_port.py` uses a
-canonical character-device major/minor identity lock, `TIOCEXCL`, and
-`flock(LOCK_EX|LOCK_NB)`. Together these stop cooperating new opens from
-claiming the same endpoint.
+`ed_uav_fcu_bridge/serial_port.py` 中的 `ExclusiveSerialPort` 使用规范字符设备主/次设备
+号身份锁、`TIOCEXCL` 和 `flock(LOCK_EX|LOCK_NB)`。这些机制共同阻止协作式的新打开操作
+声明同一端点。
 
 这些机制无法驱逐在边界建立前已经打开的描述符。连接硬件前必须执行外部所有者预检
 或使用串口代理，尤其是在旧版进程可能已经持有 FCU 时。
 
 ### 5.4 受保护文件
 
-| File | Purpose | Integrity |
+| 文件 | 用途 | 完整性 |
 |---|---|---|
-| `drone/start.sh` | Legacy production launcher | SHA-256 pinned in `docs/testing/LEGACY_BASELINE.md` |
-| `drone/debug_start.sh` | Legacy debug launcher | SHA-256 pinned |
-| `drone/field_test.sh` | Legacy field test launcher | SHA-256 pinned |
+| `drone/start.sh` | 旧版生产启动器 | SHA-256 固定在 `docs/testing/LEGACY_BASELINE.md` |
+| `drone/debug_start.sh` | 旧版调试启动器 | SHA-256 已固定 |
+| `drone/field_test.sh` | 旧版现场测试启动器 | SHA-256 已固定 |
 
 `tools/parity_check.py` 检测到任何修改都会触发 RED 门控。
 
@@ -388,12 +374,12 @@ claiming the same endpoint.
 ### 6.1 镜像
 
 ```bash
-# Build the Humble toolchain image
+# 构建 Humble 工具链镜像
 docker build -t ed-humble-toolchain -f docker/Dockerfile.humble .
 ```
 
-Base: `ros:humble-ros-base-jammy` (digest-pinned, linux/amd64).
-Includes: vision-msgs, cv-bridge, pytest 8.x, ruff, basedpyright, pydantic 2.x.
+基础镜像：`ros:humble-ros-base-jammy`（摘要固定，linux/amd64）。
+包含：vision-msgs、cv-bridge、pytest 8.x、ruff、basedpyright、pydantic 2.x。
 
 ### 6.2 Compose
 
@@ -404,11 +390,11 @@ docker compose -f docker/compose.humble.yml exec humble bash
 
 ### 6.3 运行器分派
 
-`tools/run_humble.sh` automatically selects:
-- **Native**: Ubuntu 22.04 with `/opt/ros/humble` installed
-- **Container**: All other hosts (WSL, macOS, Ubuntu 24.04)
+`tools/run_humble.sh` 自动选择：
+- **原生**：已安装 `/opt/ros/humble` 的 Ubuntu 22.04
+- **容器**：其他所有主机（WSL、macOS、Ubuntu 24.04）
 
-Override with `HUMBLE_CONTAINER_RUNTIME=podman` for Podman.
+使用 `HUMBLE_CONTAINER_RUNTIME=podman` 可改用 Podman。
 
 ---
 
@@ -416,39 +402,39 @@ Override with `HUMBLE_CONTAINER_RUNTIME=podman` for Podman.
 
 ### 7.1 目标门控
 
-Real-device verification without flight:
-- Camera capture at all target resolutions
-- LiDAR scan with Mid-360
-- FCU serial handshake (arm/disarm/mode)
-- Sensor timestamp synchronization check
+不进行飞行的真实设备验证：
+- 在所有目标分辨率采集相机图像
+- 使用 Mid-360 扫描激光雷达
+- FCU 串口握手（解锁/上锁/模式）
+- 检查传感器时间戳同步
 
 ### 7.2 HIL 门控
 
-Hardware-in-loop with simulated dynamics:
-- Full mission execution against simulated field
-- Fault injection with real sensor feeds
-- Localization source switching under load
-- Safety supervisor hover→land verification
+使用模拟动力学的硬件在环：
+- 在模拟场地执行完整任务
+- 对真实传感器流注入故障
+- 在负载下切换定位源
+- 验证安全监管器 hover→land
 
 ### 7.3 飞行门控
 
-Real flight with progressive autonomy:
-1. Manual flight with ROS logging only
-2. Assisted flight (ROS provides suggestions, pilot overrides)
-3. Semi-autonomous (ROS controls, pilot can override)
-4. Full autonomous (pilot monitors only)
+逐步增加自主程度的真实飞行：
+1. 仅记录 ROS 日志的手动飞行
+2. 辅助飞行（ROS 提供建议，飞行员可覆盖）
+3. 半自主飞行（ROS 控制，飞行员可覆盖）
+4. 全自主飞行（飞行员仅监视）
 
 ---
 
 ## 8. 验收标准摘要
 
-| Gate | Criterion | Tool |
+| 门控 | 标准 | 工具 |
 |---|---|---|
-| CI build | `colcon build` + `colcon test` pass | `ros2-ci.yml` |
-| Launch surface | `BRINGUP: GREEN` | `verify_launch_surface.py` |
-| Calibration | Hash match, serials bound, competition: `CALIBRATED` | `validate_calibration.py` |
-| Contract | All interfaces match manifest | `check_contract.py` |
-| Scenario | `SCENARIO: GREEN` with fault matrix pass | `ed-uav-verify` |
-| Legacy parity | All SHA-256 hashes match | `parity_check.py` |
-| Rollback | Legacy imports + mutual exclusion verified | `test_rollback.py` |
-| Provenance | Pinned revisions, license hashes, no copy markers | `check_third_party.py --strict` |
+| CI 构建 | `colcon build` + `colcon test` 通过 | `ros2-ci.yml` |
+| 启动面 | `BRINGUP: GREEN` | `verify_launch_surface.py` |
+| 标定 | 哈希匹配、序列号绑定，竞赛状态为 `CALIBRATED` | `validate_calibration.py` |
+| 契约 | 所有接口与清单匹配 | `check_contract.py` |
+| 场景 | `SCENARIO: GREEN` 且故障矩阵通过 | `ed-uav-verify` |
+| 旧版一致性 | 所有 SHA-256 哈希匹配 | `parity_check.py` |
+| 回滚 | 旧版导入和互斥已验证 | `test_rollback.py` |
+| 来源 | 修订版本固定、许可证哈希匹配、无复制标记 | `check_third_party.py --strict` |

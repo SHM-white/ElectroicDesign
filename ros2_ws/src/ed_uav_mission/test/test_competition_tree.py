@@ -211,7 +211,7 @@ def test_competition_ros_integration_remains_planner_only_and_flight_command_onl
     assert "from nav2_msgs.action import ComputePathToPose" in planner_source
     assert "from action_msgs.msg import GoalStatus" in planner_source
     assert "from geometry_msgs.msg import PoseStamped" in planner_source
-    assert "from nav_msgs.msg import Path as NavPath" in planner_source
+    assert "def _path_poses(path: NavPathLike)" in planner_source
     assert "from rclpy.time import Time" in planner_source
     assert "from tf2_ros import Buffer, TransformException, TransformListener" in planner_source
     assert "from typing_extensions import assert_never" in runtime_source

@@ -18,6 +18,7 @@ from ed_uav_mission.d_task_events import (
     Tick,
     VehicleObserved,
     VehicleSnapshot,
+    event_time,
 )
 from ed_uav_mission.d_task_model import (
     DTaskEffect,
@@ -27,6 +28,7 @@ from ed_uav_mission.d_task_model import (
     DTaskSelection,
     DTaskState,
     DTaskTransition,
+    PayloadState,
     RouteStage,
 )
 from ed_uav_mission.payload_config import PayloadBoundaryConfig
@@ -35,6 +37,7 @@ from ed_uav_mission.touchdown import (
     DwellInterrupted,
     DwellProgress,
     TouchdownDwellTracker,
+    TouchdownUpdate,
 )
 
 
@@ -58,7 +61,7 @@ class DTaskRuntime:
         self._last_target_sequence: int | None = None
 
     def advance(self, event: DTaskEvent) -> DTaskTransition:
-        now_s = self._event_time(event)
+        now_s = event_time(event)
         deadline = self._deadline_fault(now_s)
         if deadline is not None:
             transition = self._interrupt(now_s, deadline, deadline.value)
@@ -84,20 +87,6 @@ class DTaskRuntime:
         self.state = transition.state
         return transition
 
-    @staticmethod
-    def _event_time(event: DTaskEvent) -> float:
-        match event:
-            case ContactObserved(update=update):
-                return update.now_monotonic_s
-            case Tick(now_s=now_s) | VehicleObserved(now_s=now_s) | TargetObserved(now_s=now_s):
-                return now_s
-            case CommandCompleted(now_s=now_s) | CommandFailed(now_s=now_s):
-                return now_s
-            case SafetyInterrupted(now_s=now_s):
-                return now_s
-            case unreachable:
-                assert_never(unreachable)
-
     def _deadline_fault(self, now_s: float) -> DTaskFault | None:
         started_at = self.state.mission_started_at_s
         if self.state.phase is DTaskPhase.WAITING_START:
@@ -115,9 +104,11 @@ class DTaskRuntime:
         elapsed_s = now_s - started_at
         if elapsed_s >= self.config.mission_deadline_s:
             return DTaskFault.MISSION_DEADLINE_MISSED
-        if self.state.phase in (DTaskPhase.ESCORTING, DTaskPhase.TRACKING):
-            if elapsed_s >= self.config.b_deadline_s:
-                return DTaskFault.B_DEADLINE_MISSED
+        if (
+            self.state.phase in (DTaskPhase.ESCORTING, DTaskPhase.TRACKING)
+            and elapsed_s >= self.config.b_deadline_s
+        ):
+            return DTaskFault.B_DEADLINE_MISSED
         if self.state.phase in (
             DTaskPhase.RELEASING,
             DTaskPhase.DESCENDING,
@@ -134,7 +125,12 @@ class DTaskRuntime:
             return self._transition(DTaskPhase.ACQUIRING, now_s)
         return DTaskTransition(state=self.state)
 
-    def _on_vehicle(self, now_s: float, vehicle: VehicleSnapshot, payload_state) -> DTaskTransition:
+    def _on_vehicle(
+        self,
+        now_s: float,
+        vehicle: VehicleSnapshot,
+        payload_state: PayloadState,
+    ) -> DTaskTransition:
         if self.state.phase is DTaskPhase.WAITING_START:
             if not vehicle.started:
                 return DTaskTransition(state=self.state)
@@ -219,7 +215,7 @@ class DTaskRuntime:
             return self._transition(DTaskPhase.ABORTED, now_s, complete=True)
         return self._interrupt(now_s, DTaskFault.FLIGHT_COMMAND_FAILED, reason)
 
-    def _on_contact(self, update) -> DTaskTransition:
+    def _on_contact(self, update: TouchdownUpdate) -> DTaskTransition:
         if self.state.phase is not DTaskPhase.VEHICLE_DWELL:
             return DTaskTransition(state=self.state)
         result = self._dwell.update(update)

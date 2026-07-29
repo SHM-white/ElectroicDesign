@@ -545,73 +545,73 @@ def validate_offset_times(offset_times_ns: Sequence[int]) -> tuple[int, ...]:
 
 首次飞行前必须验证：
 
-| Test | Duration | Criteria |
+| 测试 | 时长 | 标准 |
 |---|---|---|
-| Static test | 60 seconds | Point cloud density stable (±5%), IMU noise within specs |
-| Motor test | 60 seconds | Point cloud density stable, IMU noise increase <2× static |
-| Flight test | 30 seconds | LIO converges within 5s, no divergence, drift ≤5 cm |
+| 静态测试 | 60 seconds | 点云密度稳定（±5%），IMU 噪声符合规格 |
+| 电机测试 | 60 seconds | 点云密度稳定，IMU 噪声增幅 < 静态值的 2× |
+| 飞行测试 | 30 seconds | LIO 在 5s 内收敛，无发散，漂移 ≤5 cm |
 
 ### 10.2 静态测试
 
-1. Place airframe on level surface
-2. Motors off
-3. Capture 60 seconds of lidar/IMU data
-4. Analyze:
-   - Point cloud density (points per second)
-   - IMU noise (accelerometer/gyroscope variance)
-   - Spurious points from vibration
+1. 将机架放在水平表面
+2. 关闭电机
+3. 采集 60 seconds 的 lidar/IMU 数据
+4. 分析：
+   - 点云密度（每秒点数）
+   - IMU 噪声（加速度计/陀螺仪方差）
+   - 振动产生的异常点
 
 ### 10.3 电机测试
 
-1. Place airframe on level surface
-2. Motors at hover throttle (50%)
-3. Capture 60 seconds of lidar/IMU data
-4. Analyze:
-   - Point cloud density stability
-   - Vibration-induced artifacts
-   - IMU noise increase (should be <2× static baseline)
+1. 将机架放在水平表面
+2. 将电机设为悬停油门（50%）
+3. 采集 60 seconds 的 lidar/IMU 数据
+4. 分析：
+   - 点云密度稳定性
+   - 振动引起的伪影
+   - IMU 噪声增幅（应 < 静态基线的 2×）
 
 ### 10.4 飞行测试
 
-1. Hover at 1 meter for 30 seconds
-2. Analyze:
-   - LIO convergence time (should be <5 seconds)
-   - LIO divergence (should be none)
-   - Position drift (should be ≤5 cm over 30 seconds)
+1. 在 1 meter 高度悬停 30 seconds
+2. 分析：
+   - LIO 收敛时间（应 <5 seconds）
+   - LIO 发散（应无发散）
+   - 位置漂移（30 seconds 内应 ≤5 cm）
 
 ---
 
 ## 11. 验收标准
 
-From Task 24 (hardware gate):
+来源：Task 24（硬件门控）：
 
-| Criterion | Threshold | Verification |
+| 标准 | 阈值 | 验证 |
 |---|---|---|
-| Runtime duration | 30-minute run | Timer |
-| Timestamp regression | 0 | `test_timestamp_regression.py` |
-| Driver restart | 0 | Process monitor |
-| Dropped samples | <0.1% | Health monitor |
-| PTP offset | ≤1 ms (when PTP claimed) | PTP status |
-| Shell temperature | ≤70°C | Onboard sensor |
-| Thermal throttling | None | Temperature log |
-| Horizontal occlusion | No sector >15° blocked | FOV analysis |
-| LIO gap | No >0.20s gap | `lio_health.py` |
-| Static drift | ≤5 cm over 60s | Position log |
+| 运行时长 | 30-minute run | 计时器 |
+| 时间戳回退 | 0 | `test_timestamp_regression.py` |
+| 驱动重启 | 0 | 进程监视器 |
+| 丢失样本 | <0.1% | 健康监测器 |
+| PTP 偏移 | ≤1 ms（声称使用 PTP 时） | PTP 状态 |
+| 外壳温度 | ≤70°C | 板载传感器 |
+| 热降频 | 无 | 温度日志 |
+| 水平遮挡 | 不得有扇区 >15° 被遮挡 | FOV 分析 |
+| LIO 间隙 | 不得有 >0.20s 的间隙 | `lio_health.py` |
+| 静态漂移 | 60s 内 ≤5 cm | 位置日志 |
 
 ---
 
 ## 12. 参考资料
 
-- Livox Mid-360 official user manual and specs
-- `ed_uav_lidar/config/lidar.yaml` — Lidar ROS parameters
-- `ed_uav_lidar/config/mid360_driver.json` — Livox driver configuration
-- `ed_uav_lidar/ed_uav_lidar/config.py` — Typed config parser
-- `ed_uav_lidar/ed_uav_lidar/launch_plan.py` — Launch planning
-- `ed_uav_lidar/ed_uav_lidar/mid360_adapter.py` — CustomMsg to PointCloud2
-- `ed_uav_lidar/ed_uav_lidar/health.py` — Health monitoring
-- `ed_uav_lidar/ed_uav_lidar/contracts.py` — Normalization contracts
-- `ed_uav_description/urdf/ed_uav.urdf.xacro` — URDF definition
-- `ed_uav_description/ed_uav_description/calibration.py` — Calibration parser
-- `ed_uav_description/config/synthetic_calibrated.yaml` — Example calibration
-- `ed_uav_interfaces/contracts/ros2_contract_manifest.json` — Frozen contract
-- `ed_uav_localization/ed_uav_localization/lio_health.py` — LIO health
+- Livox Mid-360 官方用户手册和规格
+- `ed_uav_lidar/config/lidar.yaml` — 激光雷达 ROS 参数
+- `ed_uav_lidar/config/mid360_driver.json` — Livox 驱动配置
+- `ed_uav_lidar/ed_uav_lidar/config.py` — 类型化配置解析器
+- `ed_uav_lidar/ed_uav_lidar/launch_plan.py` — 启动规划
+- `ed_uav_lidar/ed_uav_lidar/mid360_adapter.py` — CustomMsg 到 PointCloud2
+- `ed_uav_lidar/ed_uav_lidar/health.py` — 健康监测
+- `ed_uav_lidar/ed_uav_lidar/contracts.py` — 规范化契约
+- `ed_uav_description/urdf/ed_uav.urdf.xacro` — URDF 定义
+- `ed_uav_description/ed_uav_description/calibration.py` — 标定解析器
+- `ed_uav_description/config/synthetic_calibrated.yaml` — 标定示例
+- `ed_uav_interfaces/contracts/ros2_contract_manifest.json` — 冻结契约
+- `ed_uav_localization/ed_uav_localization/lio_health.py` — LIO 健康状态

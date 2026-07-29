@@ -37,6 +37,10 @@ class DTaskMissionAborted(RuntimeError):
     """The reducer completed its explicit safe recovery chain."""
 
 
+class DTaskEffectError(RuntimeError):
+    """An executor-owned D-task effect was rejected at its typed boundary."""
+
+
 @dataclass(frozen=True, slots=True)
 class CompetitionCallbacks:
     execute_takeoff: Callable[[ExecuteMission.Feedback], Awaitable[None]]

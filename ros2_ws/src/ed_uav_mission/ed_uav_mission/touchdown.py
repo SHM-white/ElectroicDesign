@@ -38,12 +38,23 @@ class DwellInterruptionReason(str, Enum):
 
 
 class PayloadContactStateLike(Protocol):
-    contract_version: int
-    source_sequence: int
-    contact_state: int
-    contact_stable: bool
-    owner: str
-    frame_id: str
+    @property
+    def contract_version(self) -> int: ...
+
+    @property
+    def source_sequence(self) -> int: ...
+
+    @property
+    def contact_state(self) -> int: ...
+
+    @property
+    def contact_stable(self) -> bool: ...
+
+    @property
+    def owner(self) -> str: ...
+
+    @property
+    def frame_id(self) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)

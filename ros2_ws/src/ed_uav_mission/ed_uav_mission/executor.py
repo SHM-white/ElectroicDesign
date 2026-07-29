@@ -34,6 +34,7 @@ from ed_uav_mission.action_lifecycle import (
 from ed_uav_mission.competition_runtime import (
     CompetitionCallbacks,
     CompetitionRuntime,
+    DTaskEffectError,
 )
 from ed_uav_mission.d_task_capability import evaluate_d_task_capability
 from ed_uav_mission.d_task_events import TargetSnapshot, VehicleSnapshot
@@ -257,7 +258,7 @@ class MissionExecutorNode(Node):
     def load_profile(self, yaml_text: str) -> None:
         profile = load_profile_text(yaml_text, "<inline>")
         if not isinstance(profile, KnownFieldProfile):
-            raise ValueError("mission requires a known field profile")
+            raise TypeError("mission requires a known field profile")
         self._profile = profile
 
     def load_mission_config(self, yaml_text: str) -> None:
@@ -269,12 +270,15 @@ class MissionExecutorNode(Node):
     def _on_localization_status(self, msg: LocalizationStatus) -> None:
         self._latest_localization = msg
         self._latest_localization_at_s = steady_now_sec()
-        if self._fsm.is_active and not self._localization_is_valid():
-            if self._d_task_boundary is not None:
-                self._d_task_boundary.interrupt(
-                    DTaskFault.LOCALIZATION_LOST,
-                    "localization lost during D-task mission",
-                )
+        if (
+            self._fsm.is_active
+            and not self._localization_is_valid()
+            and self._d_task_boundary is not None
+        ):
+            self._d_task_boundary.interrupt(
+                DTaskFault.LOCALIZATION_LOST,
+                "localization lost during D-task mission",
+            )
 
     def _on_goal(self, goal_request: ExecuteMission.Goal) -> GoalResponse:
         if self._fsm.is_active:
@@ -386,7 +390,7 @@ class MissionExecutorNode(Node):
             result.reason = reason
             goal_handle.abort()
             return result
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - Action boundary converts faults to results.
             self.get_logger().error(f"Mission error: {exc}")
             await self._recover_after_airborne_failure()
             reason = bounded_failure_reason(exc)
@@ -456,9 +460,11 @@ class MissionExecutorNode(Node):
         elif phase in (DTaskPhase.RETURNING_HOME, DTaskPhase.SAFE_RETURN):
             if self._fsm.state == MissionState.EXECUTING:
                 self._fsm.transition(MissionState.RETURNING, phase.value)
-        elif phase in (DTaskPhase.LANDING_HOME, DTaskPhase.SAFE_LAND):
-            if self._fsm.state == MissionState.RETURNING:
-                self._fsm.transition(MissionState.LANDING, phase.value)
+        elif (
+            phase in (DTaskPhase.LANDING_HOME, DTaskPhase.SAFE_LAND)
+            and self._fsm.state == MissionState.RETURNING
+        ):
+            self._fsm.transition(MissionState.LANDING, phase.value)
 
     async def _track_d_task_target(
         self,
@@ -499,7 +505,9 @@ class MissionExecutorNode(Node):
             self._payload_config,
         )
         if isinstance(release, ReleaseRejected):
-            raise RuntimeError(f"payload release rejected: {release.reason.value}")
+            raise DTaskEffectError(
+                f"payload release rejected: {release.reason.value}"
+            )
 
     async def _descend_to_vehicle(
         self,
@@ -728,7 +736,7 @@ class MissionExecutorNode(Node):
         ):
             try:
                 await recovery()
-            except Exception as exc:
+            except (MissionCancelled, MissionTimeout, RuntimeError) as exc:
                 self.get_logger().error(f"Recovery command failed: {exc}")
 
 
