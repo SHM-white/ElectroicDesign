@@ -6,7 +6,7 @@ import struct
 import time
 from array import array
 
-from .contracts import MissingPointTiming, PointTimeRegression, normalize_mid360
+from .contracts import MissingPointTiming, PointTimeRegression, normalize_mid360, normalize_mid360_raw
 from .health import HealthState, evaluate_health
 
 
@@ -15,7 +15,7 @@ def main() -> None:
     import rclpy
     from livox_ros_driver2.msg import CustomMsg
     from rclpy.node import Node
-    from rclpy.qos import qos_profile_sensor_data
+    from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
     from sensor_msgs.msg import Imu, PointCloud2, PointField
 
     rclpy.init()
@@ -24,8 +24,9 @@ def main() -> None:
     monitoring_topic = node.declare_parameter("monitoring_topic", "/lidar/points").value
     imu_topic = node.declare_parameter("imu_topic", "/lidar/imu").value
     deadline_ns = node.declare_parameter("health_deadline_ns", 150_000_000).value
-    point_publisher = node.create_publisher(PointCloud2, monitoring_topic, qos_profile_sensor_data)
-    imu_publisher = node.create_publisher(Imu, imu_topic, qos_profile_sensor_data)
+    qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
+    point_publisher = node.create_publisher(PointCloud2, monitoring_topic, qos)
+    imu_publisher = node.create_publisher(Imu, imu_topic, qos)
     started_steady_ns = time.monotonic_ns()
     last_point_steady_ns = started_steady_ns
     last_imu_steady_ns = started_steady_ns
@@ -46,8 +47,8 @@ def main() -> None:
             node.get_logger().error(f"LIDAR_POINT_TIME_MISSING: {error}")
             return
         except PointTimeRegression as error:
-            node.get_logger().error(f"LIDAR_POINT_TIME_REGRESSION: {error}")
-            return
+            node.get_logger().warn(f"LIDAR_POINT_TIME_REGRESSION: {error}")
+            normalized = normalize_mid360_raw(message)
         monitored = PointCloud2()
         monitored.header = message.header
         monitored.height = 1
@@ -96,8 +97,8 @@ def main() -> None:
             node.get_logger().info(report.code) if report.active else node.get_logger().error(report.code)
             last_health_code = report.code
 
-    node.create_subscription(CustomMsg, custom_topic, publish_monitor, qos_profile_sensor_data)
-    node.create_subscription(Imu, "/livox/imu", relay_imu, qos_profile_sensor_data)
+    node.create_subscription(CustomMsg, custom_topic, publish_monitor, qos)
+    node.create_subscription(Imu, "/livox/imu", relay_imu, qos)
     node.create_timer(0.05, check_health)
     try:
         rclpy.spin(node)

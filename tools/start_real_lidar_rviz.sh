@@ -34,20 +34,22 @@ if [[ ! -f "$ros_setup" ]]; then
 fi
 
 # ── 显示环境 ──────────────────────────────────────────────────────────
-if [[ -n "${ED_RVIZ_DISPLAY:-}" ]]; then
-    export DISPLAY="$ED_RVIZ_DISPLAY"
-elif [[ -S /tmp/.X11-unix/X0 ]]; then
-    export DISPLAY=:0
-else
-    export DISPLAY="${DISPLAY:-}"
+# 优先使用已有的 DISPLAY（SSH X11 转发），其次 ED_RVIZ_DISPLAY，最后本地 :0
+if [[ -z "${DISPLAY:-}" ]]; then
+    if [[ -n "${ED_RVIZ_DISPLAY:-}" ]]; then
+        export DISPLAY="$ED_RVIZ_DISPLAY"
+    elif [[ -S /tmp/.X11-unix/X0 ]]; then
+        export DISPLAY=:0
+    fi
 fi
 
-if [[ -z "$DISPLAY" ]]; then
+if [[ -z "${DISPLAY:-}" ]]; then
     printf '错误: 未找到图形显示。请设置 ED_RVIZ_DISPLAY，例如 ED_RVIZ_DISPLAY=:0\n' >&2
     exit 1
 fi
 
-if [[ "$DISPLAY" == :0 && -f "/run/user/$UID/gdm/Xauthority" ]]; then
+# 仅在本地 :0 且未设置 XAUTHORITY 时使用 GDM 的 Xauthority
+if [[ "$DISPLAY" == :0 && -z "${XAUTHORITY:-}" && -f "/run/user/$UID/gdm/Xauthority" ]]; then
     export XAUTHORITY="/run/user/$UID/gdm/Xauthority"
 fi
 
@@ -128,6 +130,15 @@ for i in $(seq 1 30); do
     fi
     sleep 1
 done
+
+# ── 启动 mid360_adapter（CustomMsg → PointCloud2 转换）────────────────
+setsid ros2 run ed_uav_lidar mid360_adapter \
+    --ros-args \
+    -p custom_topic:=/livox/lidar \
+    -p monitoring_topic:=/lidar/points \
+    -p imu_topic:=/livox/imu \
+    &
+background_pgids+=("$!")
 
 # ── 启动 rviz2 ────────────────────────────────────────────────────────
 rviz2 -d "$rviz_config" --ros-args -r __node:=lidar_rviz

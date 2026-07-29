@@ -182,7 +182,7 @@ printf '════════════════════════
 
 # Step 1: 雷达驱动
 printf '[1/5] 启动 Livox MID-360 驱动 ...\n'
-spawn lidar "export MID360_HOST_IP='$FIELD_HOST_IP'; ros2 launch ed_uav_lidar lidar.launch.py serial_number:='$FIELD_SERIAL_NUMBER' sensor_ip:='$FIELD_LIDAR_IP' firmware_version:='$FIELD_FIRMWARE' driver_config_path:='$FIELD_DRIVER_JSON' time_authority:=host"
+spawn lidar "export MID360_HOST_IP='$FIELD_HOST_IP'; ros2 launch ed_uav_lidar lidar.launch.py lidar_enabled:=true transport:=mid360 serial_number:='$FIELD_SERIAL_NUMBER' sensor_ip:='$FIELD_LIDAR_IP' firmware_version:='$FIELD_FIRMWARE' driver_config_path:='$FIELD_DRIVER_JSON' time_authority:=host"
 
 wait_for_topic /livox/lidar 20
 

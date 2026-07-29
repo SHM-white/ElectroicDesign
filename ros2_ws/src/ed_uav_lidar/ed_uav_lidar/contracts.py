@@ -114,6 +114,20 @@ def normalize_mid360(packet: LivoxCustomMsg) -> NormalizedPointCloud:
     )
 
 
+def normalize_mid360_raw(packet: LivoxCustomMsg) -> NormalizedPointCloud:
+    """Build monitoring metadata skipping offset_time monotonicity validation."""
+    if packet.point_num != len(packet.points):
+        raise PacketShapeError(
+            declared_point_count=packet.point_num,
+            actual_point_count=len(packet.points),
+        )
+    return NormalizedPointCloud(
+        direct_custom=packet,
+        fields=MONITORING_FIELDS,
+        point_times_ns=tuple(point.offset_time for point in packet.points),
+    )
+
+
 def assess_generic_point_cloud(fields: Sequence[str]) -> GenericPointCloudAssessment:
     """Classify a generic PointCloud2 as monitoring-only unless timing is explicit."""
     normalized_fields = tuple(fields)

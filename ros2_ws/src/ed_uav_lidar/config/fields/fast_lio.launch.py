@@ -8,11 +8,12 @@ can consume them without collision.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -26,8 +27,14 @@ def generate_launch_description() -> LaunchDescription:
     config_path = LaunchConfiguration("config_path")
     config_file = LaunchConfiguration("config_file")
 
+    # Fix: MVS SDK 的 libusb 覆盖了系统版本，导致 PCL 符号查找失败
+    system_lib = "/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu"
+    current_ld = os.environ.get("LD_LIBRARY_PATH", "")
+    fixed_ld = f"{system_lib}:{current_ld}" if current_ld else system_lib
+
     return LaunchDescription(
         [
+            SetEnvironmentVariable("LD_LIBRARY_PATH", fixed_ld),
             DeclareLaunchArgument("use_sim_time", default_value="false"),
             DeclareLaunchArgument("config_path", default_value=str(default_config_path)),
             DeclareLaunchArgument("config_file", default_value="mid360.yaml"),
