@@ -10,3 +10,6 @@
 [submodule "ultralytics"]
 	path = ros2_ws/src/third_party/ultralytics
 	url = https://github.com/ultralytics/ultralytics.git
+[submodule "readonly"]
+	path = readonly
+	url = git@github.com:SHM-white/car.git
