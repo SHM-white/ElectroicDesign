@@ -33,3 +33,10 @@ add_test(
         -DPROJECT_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/firmware_static_checks.cmake
 )
+
+add_test(
+    NAME ground_station_documentation_contract
+    COMMAND ${CMAKE_COMMAND}
+        -DPROJECT_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/documentation_contract.cmake
+)

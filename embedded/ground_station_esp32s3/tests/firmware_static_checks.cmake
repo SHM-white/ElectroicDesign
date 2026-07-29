@@ -54,7 +54,12 @@ require_contains(component_cmake "../../src/view_model.cpp" "main component must
 require_contains(component_cmake "INCLUDE_DIRS \"include\" \"../../include\"" "main component must expose local and shared headers")
 require_contains(component_cmake "REQUIRES driver esp_timer esp_lcd esp_lcd_touch_gt911 esp_lvgl_port lvgl" "main component must declare required ESP-IDF components")
 require_contains(component_cmake "cxx_std_17" "main component must use C++17")
-require_contains(component_cmake "-Wall -Wextra -Werror -pedantic" "main component must use strict warnings")
+require_contains(component_cmake "target_compile_options(\${COMPONENT_LIB} PRIVATE -Wall -Wextra)"
+    "main component must keep project warnings enabled")
+reject_contains(component_cmake "-Werror"
+    "main component must not promote ESP-IDF or managed-component warnings to errors")
+reject_contains(component_cmake "-pedantic"
+    "main component must accept ESP-IDF and LVGL compiler extensions")
 reject_contains(component_cmake "../managed_components" "main component may not vendor managed sources")
 
 file(READ "${PROJECT_ROOT}/include/ground_station/ui_layout.hpp" layout_header)
@@ -152,7 +157,6 @@ foreach(required_setting IN ITEMS
         "CONFIG_SPIRAM=y"
         "CONFIG_SPIRAM_MODE_OCT=y"
         "CONFIG_SPIRAM_SPEED_80M=y"
-        "CONFIG_SPIRAM_SIZE=8388608"
         "CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y"
         "CONFIG_SPIRAM_RODATA=y"
         "CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y"
@@ -163,6 +167,8 @@ foreach(required_setting IN ITEMS
         "CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y")
     require_contains(sdkconfig "${required_setting}" "sdkconfig.defaults hardware/runtime contract")
 endforeach()
+reject_contains(sdkconfig "CONFIG_SPIRAM_SIZE"
+    "sdkconfig.defaults must not assign removed ESP-IDF Kconfig symbols")
 foreach(font_size IN ITEMS 12 14 16 20 24 32 40 48)
     require_contains(sdkconfig "CONFIG_LV_FONT_MONTSERRAT_${font_size}=y" "required LVGL built-in font")
 endforeach()
