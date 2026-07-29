@@ -37,6 +37,8 @@ TELEMETRY = VehicleTelemetryValue(
     motion_kind=MotionKind.DISPLACEMENT,
     displacement_m=-1.25,
     wheel_speed_m_s=0.75,
+    heading_rad=0.5,
+    yaw_rate_rad_s=0.25,
     turn_class=TurnClass.SMALL,
     route_stage=RouteStage.START,
     lap_complete=False,
@@ -82,6 +84,18 @@ def test_payload_rejects_unknown_enum_and_trailing_bytes() -> None:
         decode_vehicle_telemetry(payload + b"\x00")
     assert enum_error.value.code is ProtocolErrorCode.BAD_PAYLOAD
     assert trailing_error.value.code is ProtocolErrorCode.BAD_PAYLOAD
+
+
+def test_payload_rejects_inconsistent_turn_and_yaw_rate() -> None:
+    # Given
+    invalid = replace(
+        TELEMETRY, turn_class=TurnClass.STRAIGHT, yaw_rate_rad_s=0.25
+    )
+
+    # When / Then
+    with pytest.raises(ProtocolError) as raised:
+        encode_vehicle_telemetry(invalid)
+    assert raised.value.code is ProtocolErrorCode.BAD_PAYLOAD
 
 
 def test_ros_contract_string_bounds_are_enforced_before_encoding() -> None:

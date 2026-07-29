@@ -33,17 +33,19 @@ from ed_uav_vehicle_bridge.ros_mapping import (
 
 def test_udp_values_map_once_to_todo1_ros_contracts() -> None:
     telemetry = VehicleTelemetryValue(
-        1,
-        "car-1",
-        True,
-        True,
-        MotionKind.DISPLACEMENT,
-        1.25,
-        0.5,
-        TurnClass.SMALL,
-        RouteStage.START,
-        False,
-        "vehicle_start",
+        contract_version=1,
+        vehicle_id="car-1",
+        start_event=True,
+        heartbeat_alive=True,
+        motion_kind=MotionKind.DISPLACEMENT,
+        displacement_m=1.25,
+        wheel_speed_m_s=0.5,
+        heading_rad=0.4,
+        yaw_rate_rad_s=0.2,
+        turn_class=TurnClass.SMALL,
+        route_stage=RouteStage.START,
+        lap_complete=False,
+        frame_id="vehicle_start",
     )
     frame = OutboundFrame(
         MessageType.CAR_TELEMETRY,
@@ -74,6 +76,8 @@ def test_udp_values_map_once_to_todo1_ros_contracts() -> None:
     assert vehicle.source_sequence == 7
     assert vehicle.checksum_crc16 == 0x1234
     assert vehicle.start_event is True
+    assert vehicle.heading_rad == pytest.approx(0.4)
+    assert vehicle.yaw_rate_rad_s == pytest.approx(0.2)
     assert stale.source_sequence == 8
     assert stale.heartbeat_alive is False
     assert request.task == 1

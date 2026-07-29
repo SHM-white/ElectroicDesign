@@ -39,6 +39,8 @@ TELEMETRY = VehicleTelemetryValue(
     MotionKind.DISPLACEMENT,
     0.0,
     0.0,
+    0.0,
+    0.0,
     TurnClass.STRAIGHT,
     RouteStage.START,
     False,

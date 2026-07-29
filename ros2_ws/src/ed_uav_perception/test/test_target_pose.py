@@ -34,7 +34,7 @@ def _inputs(symmetry_order: int = 1):
         True,
     )
     points = CorrespondenceSet(objects, images, symmetry_order)
-    motion = MotionContext(10.0, 0, 0.18, 0.6, None)
+    motion = MotionContext(10.0, 100.0, 0, 0.18, 0.0, 0.6, None)
     return rendered, camera, points, motion, PoseLimits()
 
 
@@ -60,7 +60,15 @@ def test_rejects_symmetric_target_without_heading_or_prior() -> None:
     from ed_uav_perception.target_pose import estimate_target_pose
     from ed_uav_perception.target_types import MotionContext, PoseRejection
 
-    context = MotionContext(motion.stamp_sec, motion.turn_class, None, motion.speed_m_s, None)
+    context = MotionContext(
+        motion.acquisition_sec,
+        motion.receipt_steady_sec,
+        motion.turn_class,
+        None,
+        motion.yaw_rate_rad_s,
+        motion.speed_m_s,
+        None,
+    )
 
     # When
     result = estimate_target_pose(points, camera, context, limits)
@@ -134,10 +142,14 @@ def test_prior_pose_disambiguates_without_absolute_heading() -> None:
 
     context = MotionContext(
         10.0,
+        100.0,
         0,
         None,
+        0.0,
         motion.speed_m_s,
-        PosePrior(rendered.tvec.reshape(3), rendered.rvec.reshape(3), 9.95),
+        PosePrior(
+            rendered.tvec.reshape(3), rendered.rvec.reshape(3), 9.95, 99.95
+        ),
     )
 
     # When
@@ -154,8 +166,8 @@ def test_rejects_temporal_jump_beyond_bound() -> None:
     from ed_uav_perception.target_pose import estimate_target_pose
     from ed_uav_perception.target_types import MotionContext, PosePrior, PoseRejection
 
-    prior = PosePrior(np.array([1.0, 1.0, 0.4]), np.zeros(3), 9.95)
-    context = MotionContext(10.0, 0, 0.18, 0.6, prior)
+    prior = PosePrior(np.array([1.0, 1.0, 0.4]), np.zeros(3), 9.95, 99.95)
+    context = MotionContext(10.0, 100.0, 0, 0.18, 0.0, 0.6, prior)
 
     # When
     result = estimate_target_pose(points, camera, context, limits)

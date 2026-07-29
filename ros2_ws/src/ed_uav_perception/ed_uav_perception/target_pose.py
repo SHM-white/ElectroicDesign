@@ -153,7 +153,11 @@ def _select(
             candidate.reprojection_rms_px,
         ),
     )
-    heading_limit = limits.max_heading_jump_rad * (1.0 + 0.5 * motion.turn_class)
+    turn_allowance = min(0.5, abs(motion.yaw_rate_rad_s) * 0.2)
+    heading_limit = (
+        limits.max_heading_jump_rad * (1.0 + 0.5 * motion.turn_class)
+        + turn_allowance
+    )
     if not ranked or _angle_delta(_yaw(ranked[0]), expected_yaw) > heading_limit:
         return RejectReason.TEMPORAL_JUMP
     return ranked[0]

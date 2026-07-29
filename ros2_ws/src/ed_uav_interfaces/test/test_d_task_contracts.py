@@ -20,6 +20,7 @@ CONFIG_ROOT = PACKAGE_ROOT / "contracts" / "d_task"
 ROS_FIXTURE = PACKAGE_ROOT / "test" / "fixtures" / "valid_contract.json"
 ESP32_FIXTURE = PACKAGE_ROOT / "test" / "fixtures" / "esp32_frames_valid.json"
 SCHEMA_ROOT = CONFIG_ROOT / "schemas"
+MANIFEST = PACKAGE_ROOT / "contracts" / "ros2_contract_manifest.json"
 
 
 def run_d_task_checker(kind: str, path: Path) -> subprocess.CompletedProcess[str]:
@@ -288,3 +289,86 @@ def test_adjacent_ros_contract_checker_regression(tmp_path: Path) -> None:
     # Then: its established rejection remains unchanged.
     assert result.returncode == 1
     assert "unbounded dynamic text or array: msg/Bad.msg" in result.stderr
+
+
+def test_target_observation_contract_exposes_typed_quality_and_rejection() -> None:
+    # Given
+    definition = (PACKAGE_ROOT / "msg" / "TargetObservation.msg").read_text(
+        encoding="utf-8"
+    )
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+
+    # When
+    frozen = next(
+        item["definition"]
+        for item in manifest["interfaces"]
+        if item["path"] == "msg/TargetObservation.msg"
+    )
+
+    # Then
+    for field in (
+        "bool valid",
+        "uint8 status",
+        "uint16 candidate_count",
+        "float32 reprojection_rms_px",
+        "float32 quality",
+        "string<=96 rejection_reason",
+    ):
+        assert field in definition
+        assert field in frozen
+
+
+def test_vehicle_contract_exposes_si_heading_context_on_canonical_topic() -> None:
+    # Given
+    definition = (PACKAGE_ROOT / "msg" / "VehicleTelemetry.msg").read_text(
+        encoding="utf-8"
+    )
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+
+    # When
+    topic = next(
+        item for item in manifest["topics"] if item["type"].endswith("VehicleTelemetry")
+    )
+
+    # Then
+    assert "float32 heading_rad" in definition
+    assert "float32 yaw_rate_rad_s" in definition
+    assert topic["name"] == "/d_task/vehicle/telemetry"
+    assert topic["owner"] == "ed_uav_vehicle_bridge"
+    assert "rad" in topic["units"]
+    assert topic["frame"] == "vehicle_start"
+    assert any(
+        item["node"] == "ed_uav_vehicle_bridge"
+        for item in manifest["lifecycle"]
+    )
+
+
+def test_esp32_schema_requires_heading_and_yaw_rate() -> None:
+    # Given
+    schema = json.loads(
+        (SCHEMA_ROOT / "esp32_frames.schema.json").read_text(encoding="utf-8")
+    )
+
+    # When
+    payload = schema["$defs"]["vehicleTelemetryPayload"]
+
+    # Then
+    assert "heading_rad" in payload["required"]
+    assert "yaw_rate_rad_s" in payload["required"]
+    assert payload["properties"]["heading_rad"]["minimum"] < 0.0
+    assert payload["properties"]["yaw_rate_rad_s"]["minimum"] < 0.0
+
+
+def test_checker_rejects_inconsistent_turn_and_yaw_rate(tmp_path: Path) -> None:
+    # Given
+    document = json.loads(ESP32_FIXTURE.read_text(encoding="utf-8"))
+    document["frames"][0]["payload"]["yaw_rate_rad_s"] = 1.0
+    path = tmp_path / "invalid-turn-context.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    # When
+    result = run_d_task_checker("esp32-frames", path)
+
+    # Then
+    assert result.returncode == 1
+    assert "invalid straight turn yaw rate" in result.stderr

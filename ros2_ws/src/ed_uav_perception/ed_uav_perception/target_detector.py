@@ -14,6 +14,8 @@ TARGET_REVISION: Final = "d2026-circle-cross-v1"
 OUTER_RADIUS_M: Final = 0.25
 INNER_RADIUS_M: Final = 0.15
 EXPECTED_RADIUS_RATIO: Final = INNER_RADIUS_M / OUTER_RADIUS_M
+MIN_LINE_WIDTH_M: Final = 0.018
+MAX_LINE_WIDTH_M: Final = 0.022
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +51,22 @@ def _ring_centers(profile: np.ndarray) -> list[float]:
     return [float(np.average(group + 1, weights=profile[group])) for group in groups]
 
 
-def _cross_phase(samples: np.ndarray, rings: tuple[float, float]) -> float | None:
+def _peak_width(profile: np.ndarray, center: int, threshold: float) -> int:
+    size = profile.size
+    width = 1
+    for direction in (-1, 1):
+        offset = 1
+        while offset < size // 8:
+            if profile[(center + direction * offset) % size] <= threshold:
+                break
+            width += 1
+            offset += 1
+    return width
+
+
+def _cross_geometry(
+    samples: np.ndarray, rings: tuple[float, float]
+) -> tuple[float, float] | None:
     radial_mask = np.ones(samples.shape[0], dtype=bool)
     for radius in rings:
         radial_mask &= np.abs(np.arange(1, samples.shape[0] + 1) - radius) > 9.0
@@ -57,12 +74,30 @@ def _cross_phase(samples: np.ndarray, rings: tuple[float, float]) -> float | Non
     angular = (255.0 - samples[radial_mask]).mean(axis=0)
     if float(angular.max()) < 35.0:
         return None
-    index = int(np.argmax(angular))
-    return index * 2.0 * np.pi / angular.size
+    size = angular.size
+    first = int(np.argmax(angular))
+    search = max(4, size // 60)
+    peaks: list[int] = []
+    for quarter in range(4):
+        expected = (first + quarter * size // 4) % size
+        indices = np.arange(expected - search, expected + search + 1) % size
+        peak = int(indices[int(np.argmax(angular[indices]))])
+        if float(angular[peak]) < 35.0:
+            return None
+        peaks.append(peak)
+    sample_radius = max(4, int(rings[1] * 0.45))
+    profile = 255.0 - samples[sample_radius - 1]
+    widths = [_peak_width(profile, peak, 180.0) for peak in peaks]
+    angular_width = float(np.median(widths)) * 2.0 * np.pi / size
+    line_width_m = angular_width * sample_radius / rings[1] * OUTER_RADIUS_M
+    return first * 2.0 * np.pi / size, line_width_m
 
 
 def _points(
-    center: tuple[float, float], radii_px: tuple[float, float], phase: float
+    center: tuple[float, float],
+    radii_px: tuple[float, float],
+    phase: float,
+    line_width_m: float,
 ) -> CorrespondenceSet:
     angles = phase + np.linspace(0.0, 2.0 * np.pi, 8, endpoint=False)
     object_points = np.column_stack(
@@ -98,7 +133,12 @@ def _points(
             ),
         )
     )
-    return CorrespondenceSet(object_points.astype(np.float64), image_points.astype(np.float64), 4)
+    return CorrespondenceSet(
+        object_points.astype(np.float64),
+        image_points.astype(np.float64),
+        4,
+        line_width_m,
+    )
 
 
 def detect_target(image: np.ndarray, revision: str) -> CorrespondenceSet | DetectionFailure:
@@ -134,7 +174,10 @@ def detect_target(image: np.ndarray, revision: str) -> CorrespondenceSet | Detec
         return DetectionFailure(RejectReason.PARTIAL_GEOMETRY)
     if abs(ratio - EXPECTED_RADIUS_RATIO) > 0.09:
         return DetectionFailure(RejectReason.WRONG_REVISION)
-    phase = _cross_phase(samples, (inner, outer))
-    if phase is None:
-        return DetectionFailure(RejectReason.PARTIAL_GEOMETRY)
-    return _points(center, (outer, inner), phase)
+    cross = _cross_geometry(samples, (inner, outer))
+    if cross is None:
+        return DetectionFailure(RejectReason.INCOMPLETE_CROSS)
+    phase, line_width_m = cross
+    if not MIN_LINE_WIDTH_M <= line_width_m <= MAX_LINE_WIDTH_M:
+        return DetectionFailure(RejectReason.LINE_WIDTH_OUT_OF_RANGE)
+    return _points(center, (outer, inner), phase, line_width_m)

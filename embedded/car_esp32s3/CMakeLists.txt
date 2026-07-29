@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.20)
+project(ed_car_controller LANGUAGES CXX)
+
+add_library(ed_car_controller STATIC src/controller.cpp)
+target_include_directories(ed_car_controller PUBLIC include)
+target_link_libraries(ed_car_controller PUBLIC ed_shared_protocol)
+target_compile_features(ed_car_controller PUBLIC cxx_std_17)
+
+add_executable(ed_car_controller_tests tests/controller_test.cpp)
+target_link_libraries(ed_car_controller_tests PRIVATE ed_car_controller ed_shared_protocol)
+add_test(NAME ed_car_controller_tests COMMAND ed_car_controller_tests)

@@ -179,3 +179,28 @@ Windows-native host tests and the Windows ESP-IDF v5.5.2 target build have been
 run. Physical LCD output, GT911 accuracy, touch navigation, sunlight
 readability, UART electrical behavior, and flashing remain hardware validation
 items until a verified non-Bluetooth board port is connected.
+
+## Todo 6 Arduino HMI
+
+The Arduino state-machine library is under `arduino_hmi/`, with the clean
+sketch at `arduino_sketch/ground_station_esp32s3.ino`. It defines the exact
+`BOOT_LOCKED -> PRESTART -> SELECT_PENDING -> SELECTED/ARMED_READY ->
+CAR_RUNNING/FAULT` flow. Selection is not visible as committed until an
+authoritative ACK; car start makes the station read-only. AP, car, ROS, and
+vision freshness ages are retained in the view model. Reboot and lost authority
+return the HMI to a locked state.
+
+Display and touch are explicit `DisplayPort` and `TouchPort` interfaces. The
+sketch uses a serial-only unwired display and no guessed panel controller or
+touch pins. The deterministic browser reference is
+[`arduino_preview/index.html`](arduino_preview/index.html); it mirrors the
+800x480 geometry and includes bilingual labels for constrained CJK wrapping
+review.
+
+Arduino CLI pins for this sibling project are `esp32:esp32@3.2.0`, FQBN
+`esp32:esp32:esp32s3`, built-in `WiFi`/`WiFiUDP`, and local
+`EDSharedProtocol@1.0.0` plus `EDGroundStationHmi@1.0.0` libraries:
+
+```text
+arduino-cli compile --fqbn esp32:esp32:esp32s3 --libraries embedded/shared_protocol --libraries embedded/ground_station_esp32s3/arduino_hmi embedded/ground_station_esp32s3/arduino_sketch
+```

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+import os
 from types import TracebackType
 from typing import Literal
 
@@ -17,6 +18,8 @@ from .calibration_models import (
     CaptureSession,
     Observation,
 )
+
+_PREVIEW_WINDOW = "Chessboard calibration"
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,34 +45,99 @@ def capture_observations(session: CaptureSession) -> tuple[Observation, ...]:
     """Capture sharp, unique views and require spatial and scale diversity."""
     session.selection.validate()
     observations: list[Observation] = []
-    with _open_capture(session) as capture:
-        for frame_index in range(session.policy.maximum_frames):
-            available, frame = capture.read()
-            if not available:
-                break
-            if frame.shape[1] != session.selection.width or frame.shape[0] != session.selection.height:
-                raise CalibrationBootstrapError(
-                    f"capture raster {frame.shape[1]}x{frame.shape[0]} does not match "
-                    f"selected {session.selection.width}x{session.selection.height}"
+    if session.direct_v4l2:
+        cv2.namedWindow(_PREVIEW_WINDOW, cv2.WINDOW_NORMAL)
+    try:
+        with _open_capture(session) as capture:
+            for frame_index in range(session.policy.maximum_frames):
+                available, frame = capture.read()
+                if not available:
+                    break
+                if frame.shape[1] != session.selection.width or frame.shape[0] != session.selection.height:
+                    raise CalibrationBootstrapError(
+                        f"capture raster {frame.shape[1]}x{frame.shape[0]} does not match "
+                        f"selected {session.selection.width}x{session.selection.height}"
+                    )
+                observation, blur_variance = _detect_observation(frame_index, frame, session)
+                is_duplicate = observation is not None and _is_duplicate(
+                    observation, observations, session.policy
                 )
-            observation = _detect_observation(frame_index, frame, session)
-            if observation is not None and not _is_duplicate(observation, observations, session.policy):
-                observations.append(observation)
-            if len(observations) >= session.policy.target_observations:
-                break
+                if observation is not None and not is_duplicate:
+                    observations.append(observation)
+                if session.direct_v4l2:
+                    display = frame.copy()
+                    if observation is not None:
+                        cv2.drawChessboardCorners(
+                            display,
+                            session.board.inner_corners,
+                            observation.corners,
+                            True,
+                        )
+                    cv2.rectangle(display, (0, 0), (520, 78), (0, 0, 0), -1)
+                    state = "accepted" if observation is not None and not is_duplicate else "duplicate"
+                    if observation is None:
+                        state = "blur" if blur_variance < session.policy.minimum_blur_variance else "not found"
+                    cv2.putText(
+                        display,
+                        f"accepted {len(observations)}/{session.policy.target_observations}",
+                        (16, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (255, 255, 255),
+                        2,
+                        cv2.LINE_AA,
+                    )
+                    cv2.putText(
+                        display,
+                        f"corners 10x7 | {state}",
+                        (16, 58),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (255, 255, 255),
+                        2,
+                        cv2.LINE_AA,
+                    )
+                    cv2.imshow(_PREVIEW_WINDOW, display)
+                    key = cv2.waitKey(1) & 0xFF
+                    if key in (ord("q"), 27):
+                        raise CalibrationBootstrapError("capture cancelled by operator")
+                if len(observations) >= session.policy.target_observations:
+                    break
+    finally:
+        if session.direct_v4l2:
+            cv2.destroyWindow(_PREVIEW_WINDOW)
     _require_diversity(observations, session.policy)
     return tuple(observations)
 
 
 def _open_capture(session: CaptureSession) -> _ManagedCapture:
+    if session.direct_v4l2 and not os.access(session.source, os.R_OK | os.W_OK):
+        raise CalibrationBootstrapError(
+            f"cannot access capture source {session.source}; run `newgrp video` "
+            "or reopen the terminal after joining the video group"
+        )
     api = cv2.CAP_V4L2 if session.direct_v4l2 else cv2.CAP_ANY
     capture = cv2.VideoCapture(session.source, api)
     if not capture.isOpened():
         capture.release()
         raise CalibrationBootstrapError(f"cannot open capture source {session.source}")
     if session.direct_v4l2:
-        capture.set(cv2.CAP_PROP_FRAME_WIDTH, session.selection.width)
-        capture.set(cv2.CAP_PROP_FRAME_HEIGHT, session.selection.height)
+        settings = (
+            (cv2.CAP_PROP_FOURCC, float(cv2.VideoWriter_fourcc(*"MJPG"))),
+            (cv2.CAP_PROP_FRAME_WIDTH, float(session.selection.width)),
+            (cv2.CAP_PROP_FRAME_HEIGHT, float(session.selection.height)),
+            (cv2.CAP_PROP_FPS, 30.0),
+        )
+        try:
+            for property_id, value in settings:
+                if not capture.set(property_id, value):
+                    raise CalibrationBootstrapError(
+                        f"cannot configure capture source {session.source} for MJPG "
+                        f"{session.selection.width}x{session.selection.height} at 30 fps"
+                    )
+        except (CalibrationBootstrapError, cv2.error):
+            capture.release()
+            raise
     return _ManagedCapture(capture)
 
 
@@ -77,18 +145,18 @@ def _detect_observation(
     frame_index: int,
     frame: NDArray[np.uint8],
     session: CaptureSession,
-) -> Observation | None:
+) -> tuple[Observation | None, float]:
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    blur_variance = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    blur_variance = _blur_variance(gray)
     if blur_variance < session.policy.minimum_blur_variance:
-        return None
+        return None, blur_variance
     found, corners = cv2.findChessboardCorners(
         gray,
         session.board.inner_corners,
         cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE | cv2.CALIB_CB_FAST_CHECK,
     )
     if not found:
-        return None
+        return None, blur_variance
     refined = cv2.cornerSubPix(
         gray,
         corners,
@@ -101,7 +169,22 @@ def _detect_observation(
     height = float(frame.shape[0])
     center = (float(flat[:, 0].mean() / width), float(flat[:, 1].mean() / height))
     hull_area = float(cv2.contourArea(cv2.convexHull(flat)))
-    return Observation(frame_index, frame.copy(), refined, blur_variance, center, hull_area / (width * height))
+    return (
+        Observation(
+            frame_index,
+            frame.copy(),
+            refined,
+            blur_variance,
+            center,
+            hull_area / (width * height),
+        ),
+        blur_variance,
+    )
+
+
+def _blur_variance(gray: NDArray[np.uint8]) -> float:
+    """Return the existing Laplacian sharpness metric for preview state."""
+    return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
 def _is_duplicate(

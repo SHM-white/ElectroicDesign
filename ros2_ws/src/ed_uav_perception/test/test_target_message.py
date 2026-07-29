@@ -28,7 +28,7 @@ def test_maps_quality_pose_to_frozen_target_observation() -> None:
         tuple([0.01] * 36),
     )
     accepted = AcceptedObservation(
-        12.25, 9, "camera_optical", "d2026-circle-cross-v1", estimate
+        12.25, 9, "camera_optical", "d2026-circle-cross-v1", 0.0204, estimate
     )
 
     # When
@@ -40,6 +40,13 @@ def test_maps_quality_pose_to_frozen_target_observation() -> None:
     assert message.frame_id == "camera_optical"
     assert message.pose.pose.position.z == 1.4
     assert message.confidence == 0.82
+    assert message.valid is True
+    assert message.status == message.STATUS_VALID
+    assert message.candidate_count == 2
+    assert message.reprojection_rms_px == pytest.approx(0.35)
+    assert message.quality == pytest.approx(0.82)
+    assert message.rejection_reason == ""
+    assert message.line_width_m == pytest.approx(0.0204)
     assert len(message.pose.covariance) == 36
 
 
@@ -60,9 +67,39 @@ def test_rejects_nonfinite_pose_before_ros_publication() -> None:
         tuple([0.01] * 36),
     )
     accepted = AcceptedObservation(
-        1.0, 1, "camera_optical", "d2026-circle-cross-v1", estimate
+        1.0, 1, "camera_optical", "d2026-circle-cross-v1", 0.02, estimate
     )
 
     # When / Then
     with pytest.raises(InvalidPoseMessageError):
         to_target_observation(accepted, Time(sec=1))
+
+
+def test_maps_rejection_to_typed_target_observation() -> None:
+    # Given
+    from builtin_interfaces.msg import Time
+    from ed_uav_perception.target_message import to_target_observation
+    from ed_uav_perception.target_types import RejectedObservation, RejectReason
+
+    rejected = RejectedObservation(
+        3.5,
+        11,
+        "camera_optical",
+        "d2026-circle-cross-v1",
+        RejectReason.STALE_VEHICLE,
+        2,
+        1.25,
+    )
+
+    # When
+    message = to_target_observation(rejected, Time(sec=3, nanosec=500_000_000))
+
+    # Then
+    assert message.valid is False
+    assert message.status == message.STATUS_REJECTED
+    assert message.candidate_count == 2
+    assert message.reprojection_rms_px == pytest.approx(1.25)
+    assert message.quality == 0.0
+    assert message.confidence == 0.0
+    assert message.rejection_reason == "stale_vehicle"
+    assert len(message.rejection_reason) <= 96

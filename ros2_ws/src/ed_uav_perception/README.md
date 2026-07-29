@@ -1,24 +1,22 @@
 # ED UAV perception
 
 `target_observation_node` consumes `/camera/narrow/image_raw`, matching
-`CameraInfo`, and `/d_task/vehicle_telemetry`. It detects only the frozen
+`CameraInfo`, and `/d_task/vehicle/telemetry`. It detects only the frozen
 `d2026-circle-cross-v1` geometry, uses raw distorted pixels with raw `K/D`, and
-publishes accepted camera-frame poses on `/d_task/target_observation`.
+publishes typed valid or rejected observations on `/d_task/target_observation`.
 
 Launch it directly with `ros2 launch ed_uav_perception
-target_observation.launch.py initial_vehicle_heading_rad:=<radians>`. Camera
-and vehicle topic arguments are remappable from the same launch command.
+target_observation.launch.py`. Camera and vehicle topic arguments are
+remappable from the same launch command.
 
-The target is fourfold symmetric. The first observation therefore needs
-`initial_vehicle_heading_rad`; later observations may use the retained prior
-pose and `VehicleTelemetry.turn_class`. Missing disambiguation, calibration,
-freshness, or geometry rejects instead of selecting the lowest-error pose.
+The target is fourfold symmetric. `VehicleTelemetry.heading_rad` and signed
+`yaw_rate_rad_s` predict heading at image acquisition; a fresh retained prior
+also bounds temporal jumps. Missing disambiguation, calibration, freshness, or
+geometry publishes a typed rejection instead of selecting a pose.
 
-The frozen `TargetObservation` contract has `confidence` and pose covariance,
-but no candidate-count, reprojection-RMS, or reject-reason fields. The node
-does not overload unrelated message fields. Those diagnostics are retained in
-the typed `last_result` and exposed through `last_candidate_count`,
-`last_reprojection_rms_px`, `last_quality`, and `last_reject_reason` parameters.
+Every processed image publishes validity/status, candidate count, reprojection
+RMS, quality, covariance policy, and a bounded rejection reason. Diagnostic
+parameters mirror the latest typed message.
 
 Synthetic tests and driver artifacts characterize software behavior only;
 they are not physical camera or flight-accuracy evidence.

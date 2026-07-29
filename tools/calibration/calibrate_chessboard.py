@@ -143,7 +143,10 @@ def _selection(namespace: argparse.Namespace) -> tuple[CalibrationSelection, str
 
 
 def _choose_role() -> CameraRole:
-    raw_role = input("Camera role [narrow/wide]: ").strip()
+    try:
+        raw_role = input("Camera role [narrow/wide]: ").strip()
+    except EOFError as error:
+        raise CalibrationBootstrapError("camera role requires interactive input") from error
     try:
         return CameraRole(raw_role)
     except ValueError as error:
@@ -153,7 +156,10 @@ def _choose_role() -> CameraRole:
 def _choose_device(devices: tuple[StableVideoDevice, ...]) -> StableVideoDevice:
     for index, device in enumerate(devices, start=1):
         print(f"{index}: {device.serial}  {device.by_id}")
-    raw_index = input("Select camera number: ").strip()
+    try:
+        raw_index = input("Select camera number: ").strip()
+    except EOFError as error:
+        raise CalibrationBootstrapError("camera selection requires interactive input") from error
     try:
         index = int(raw_index) - 1
     except ValueError as error:

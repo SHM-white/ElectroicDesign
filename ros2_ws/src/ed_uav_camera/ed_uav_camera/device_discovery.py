@@ -29,7 +29,24 @@ def enumerate_stable_video_devices(
         properties = _udev_properties(path)
         serial = properties.get("ID_SERIAL_SHORT")
         if not serial:
-            raise CalibrationBootstrapError(f"camera at {path} has no ID_SERIAL_SHORT")
+            vendor_id = properties.get("ID_VENDOR_ID")
+            if not vendor_id:
+                raise CalibrationBootstrapError(
+                    f"camera at {path} has no ID_SERIAL_SHORT and no ID_VENDOR_ID fallback"
+                )
+            model_id = properties.get("ID_MODEL_ID")
+            if not model_id:
+                raise CalibrationBootstrapError(
+                    f"camera at {path} has no ID_SERIAL_SHORT and no ID_MODEL_ID fallback"
+                )
+            revision = properties.get("ID_REVISION")
+            if not revision:
+                raise CalibrationBootstrapError(
+                    f"camera at {path} has no ID_SERIAL_SHORT and no ID_REVISION fallback"
+                )
+            serial = (
+                f"usb-revision:{vendor_id.lower()}:{model_id.lower()}:{revision.lower()}"
+            )
         devices.append(StableVideoDevice(serial, str(path), str(path.resolve(strict=True))))
     if not devices:
         raise CalibrationBootstrapError(f"no stable index-zero V4L2 devices found in {by_id_root}")

@@ -5,6 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import numpy as np
+
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -14,7 +16,9 @@ from target_fixture import render_target  # noqa: E402
 
 def _request(
     *,
-    now_sec: float = 20.10,
+    image_receipt_steady_sec: float = 100.0,
+    evaluation_steady_sec: float = 100.10,
+    vehicle_receipt_steady_sec: float = 100.02,
     calibrated: bool = True,
     revision: str = "d2026-circle-cross-v1",
 ):
@@ -37,8 +41,8 @@ def _request(
             "camera_optical",
             calibrated,
         ),
-        FrameContext(20.0, now_sec, 17, revision),
-        MotionContext(20.02, 0, 0.18, 0.6, None),
+        FrameContext(20.0, image_receipt_steady_sec, evaluation_steady_sec, 17, revision),
+        MotionContext(19.98, vehicle_receipt_steady_sec, 0, 0.18, 0.0, 0.6, None),
         PoseLimits(),
     )
 
@@ -62,7 +66,7 @@ def test_rendered_frame_returns_quality_observation() -> None:
 
 def test_rejects_stale_image_over_020_seconds() -> None:
     # Given
-    request = _request(now_sec=20.201)
+    request = _request(evaluation_steady_sec=100.201)
     from ed_uav_perception.target_pipeline import observe_target
     from ed_uav_perception.target_types import RejectedObservation
 
@@ -76,7 +80,9 @@ def test_rejects_stale_image_over_020_seconds() -> None:
 
 def test_rejects_future_dated_image() -> None:
     # Given
-    request = _request(now_sec=19.99)
+    request = _request(
+        image_receipt_steady_sec=100.11, evaluation_steady_sec=100.10
+    )
     from ed_uav_perception.target_pipeline import observe_target
     from ed_uav_perception.target_types import RejectedObservation
 
@@ -118,10 +124,7 @@ def test_rejects_unsupported_target_revision() -> None:
 
 def test_rejects_stale_vehicle_context() -> None:
     # Given
-    from dataclasses import replace
-
-    request = _request()
-    request = replace(request, motion=replace(request.motion, stamp_sec=19.89))
+    request = _request(vehicle_receipt_steady_sec=99.59)
     from ed_uav_perception.target_pipeline import observe_target
     from ed_uav_perception.target_types import RejectedObservation
 
@@ -135,10 +138,9 @@ def test_rejects_stale_vehicle_context() -> None:
 
 def test_rejects_future_dated_vehicle_context() -> None:
     # Given
-    from dataclasses import replace
-
-    request = _request()
-    request = replace(request, motion=replace(request.motion, stamp_sec=20.11))
+    request = _request(
+        vehicle_receipt_steady_sec=100.11, evaluation_steady_sec=100.10
+    )
     from ed_uav_perception.target_pipeline import observe_target
     from ed_uav_perception.target_types import RejectedObservation
 
@@ -165,6 +167,56 @@ def test_rejects_invalid_vehicle_turn_class() -> None:
     # Then
     assert isinstance(result, RejectedObservation)
     assert result.reject_reason.value == "invalid_vehicle_context"
+
+
+def test_rejects_prior_older_than_bounded_steady_age() -> None:
+    # Given
+    from dataclasses import replace
+
+    from ed_uav_perception.target_types import PosePrior
+
+    request = _request()
+    prior = PosePrior(
+        translation_m=np.zeros(3),
+        rotation_vector=np.zeros(3),
+        acquisition_sec=19.8,
+        receipt_steady_sec=99.7,
+    )
+    request = replace(request, motion=replace(request.motion, prior=prior))
+    from ed_uav_perception.target_pipeline import observe_target
+    from ed_uav_perception.target_types import RejectedObservation
+
+    # When
+    result = observe_target(request)
+
+    # Then
+    assert isinstance(result, RejectedObservation)
+    assert result.reject_reason.value == "stale_prior"
+
+
+def test_yaw_rate_predicts_heading_at_image_acquisition() -> None:
+    # Given
+    from dataclasses import replace
+
+    request = _request()
+    request = replace(
+        request,
+        motion=replace(
+            request.motion,
+            acquisition_sec=19.8,
+            turn_class=2,
+            heading_rad=-0.62,
+            yaw_rate_rad_s=4.0,
+        ),
+    )
+    from ed_uav_perception.target_pipeline import observe_target
+    from ed_uav_perception.target_types import AcceptedObservation
+
+    # When
+    result = observe_target(request)
+
+    # Then
+    assert isinstance(result, AcceptedObservation)
 
 
 def test_rejects_malformed_image_raster() -> None:

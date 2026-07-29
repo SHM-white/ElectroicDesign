@@ -3,6 +3,7 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 INTERFACES_ROOT = REPOSITORY_ROOT / "ros2_ws" / "src" / "ed_uav_interfaces"
+BRIDGE_ROOT = REPOSITORY_ROOT / "ros2_ws" / "src" / "ed_uav_vehicle_bridge"
 MISSION_EXECUTOR = (
     REPOSITORY_ROOT
     / "ros2_ws"
@@ -14,7 +15,7 @@ MISSION_EXECUTOR = (
 
 
 def test_vehicle_telemetry_contract_remains_owned_and_typed() -> None:
-    # Given: the Todo 1 vehicle telemetry interface.
+    # Given: the D-task vehicle telemetry interface.
     contract = (INTERFACES_ROOT / "msg" / "VehicleTelemetry.msg").read_text(
         encoding="utf-8"
     )
@@ -41,6 +42,8 @@ def test_vehicle_telemetry_contract_remains_owned_and_typed() -> None:
         "motion_kind",
         "displacement_m",
         "wheel_speed_m_s",
+        "heading_rad",
+        "yaw_rate_rad_s",
         "turn_class",
         "route_stage",
         "lap_complete",
@@ -49,7 +52,7 @@ def test_vehicle_telemetry_contract_remains_owned_and_typed() -> None:
 
 
 def test_mission_surfaces_remain_mission_owned() -> None:
-    # Given: the existing mission executor and Todo 1 selection contract.
+    # Given: the existing mission executor and D-task selection contract.
     executor = MISSION_EXECUTOR.read_text(encoding="utf-8")
     selection = (INTERFACES_ROOT / "srv" / "SelectDTaskMission.srv").read_text(
         encoding="utf-8"
@@ -60,3 +63,18 @@ def test_mission_surfaces_remain_mission_owned() -> None:
     assert 'ActionServer(\n            self, ExecuteMission, "/mission/execute"' in executor
     assert 'ActionClient(\n            self, FlightCommand, "/fcu/flight_command"' in executor
     assert "The server must reject requests after arming" in selection
+
+
+def test_bridge_docs_describe_current_d_task_telemetry() -> None:
+    # Given
+    protocol = (BRIDGE_ROOT / "PROTOCOL.md").read_text(encoding="utf-8")
+    mapping = (BRIDGE_ROOT / "ed_uav_vehicle_bridge" / "ros_mapping.py").read_text(
+        encoding="utf-8"
+    )
+
+    # When / Then
+    assert "`>HBBffffBB`" in protocol
+    assert "heading_rad" in protocol
+    assert "yaw_rate_rad_s" in protocol
+    assert "Todo 1" not in protocol
+    assert "Todo 1" not in mapping

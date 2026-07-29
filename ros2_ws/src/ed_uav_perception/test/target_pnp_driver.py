@@ -42,11 +42,12 @@ def main() -> int:
         CameraModel(rendered.camera_matrix, rendered.distortion, 640, 480, "camera_optical", True),
         FrameContext(
             100.0,
-            100.25 if os.environ.get("TARGET_DRIVER_STALE") == "1" else 100.05,
+            200.0,
+            200.25 if os.environ.get("TARGET_DRIVER_STALE") == "1" else 200.05,
             42,
             "d2026-circle-cross-v1",
         ),
-        MotionContext(100.02, 0, 0.18, 0.6, None),
+        MotionContext(99.98, 200.02, 0, 0.18, 0.0, 0.6, None),
         PoseLimits(),
     )
     result = observe_target(request)
@@ -71,6 +72,7 @@ def main() -> int:
                 "candidate_count": result.candidate_count,
                 "reprojection_rms_px": result.reprojection_rms_px,
                 "quality": result.quality,
+                "line_width_m": result.line_width_m,
                 "translation_m": result.pose.translation_m.tolist(),
                 "translation_residual_m": translation_error,
                 "rotation_residual_rad": rotation_error,

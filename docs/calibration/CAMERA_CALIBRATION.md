@@ -5,6 +5,7 @@
 > directly, before the calibration-gated ROS launch. It also accepts a recorded
 > video for deterministic verification, but recorded and synthetic outputs are
 > explicitly non-production and fail the formal hardware runtime gate.
+> The operator entry point is `tools/calibration/run_camera_calibration.sh`.
 
 ---
 
@@ -66,22 +67,43 @@ not the OpenCV corner pattern and is rejected.
 ./tools/run_humble.sh bash -lc 'source /opt/ros/humble/setup.bash && \
   colcon build --packages-select ed_uav_camera && \
   colcon test --packages-select ed_uav_camera'
+
+# Refresh camera permissions once after the user joins the video group.
+newgrp video
 ```
 
 ### 3.2 Capture One Camera Directly
 
 ```bash
-PYTHONPATH=ros2_ws/src/ed_uav_camera \
-python3 tools/calibration/calibrate_chessboard.py \
-  --width 1280 --height 720 \
-  --confirm-square-mm 15.0 \
-  --output-dir /secure/calibration/narrow-1280x720
+# 1 = normal-view/narrow camera; 2 = wide-angle camera.
+./tools/calibration/run_camera_calibration.sh 1
 ```
 
-The command enumerates only `/dev/v4l/by-id/*-video-index0`, displays serial and
-stable path, and prompts for narrow/wide plus the selected camera. It opens that
-by-id path with OpenCV's V4L2 backend. Persisted output never uses `/dev/videoN`.
-Run it once for every camera and every exact runtime raster.
+Run without an argument to choose `1` or `2` interactively. The launcher uses
+1280x720 by default, creates a timestamped directory under `calibration_data/`,
+and opens a live preview. The overlay reports accepted observations and board
+state; press `q` or Escape to cancel. Override the raster only when deliberately
+calibrating another runtime mode:
+
+```bash
+CAMERA_CALIBRATION_WIDTH=2592 CAMERA_CALIBRATION_HEIGHT=1944 \
+  ./tools/calibration/run_camera_calibration.sh 1
+```
+
+The command enumerates only `/dev/v4l/by-id/*-video-index0`, displays the effective
+identity and stable path, and prompts for the device number. The launcher maps
+choice `1` to normal-view/narrow and `2` to wide-angle. It opens the selected by-id
+path with OpenCV's V4L2 backend. Persisted output never uses `/dev/videoN`. Run it
+once for every camera and every exact runtime raster.
+
+Identity uses `ID_SERIAL_SHORT` when the camera provides one. For the two known
+serialless W19 cameras, the fallback is the normalized USB tuple
+`usb-revision:VID:PID:REV`: the normal-view unit is
+`usb-revision:0ac8:3460:0122`, and the wide-angle unit is
+`usb-revision:0ac8:3460:0708`. This distinguishes these two units across normal
+restarts and USB-port changes. It is not a globally unique manufacturing serial:
+another unit with the same VID, PID, and revision cannot be distinguished, so
+do not replace a camera with a same-revision unit without recalibrating it.
 
 Production provenance is not a command-line option. It is derived only when the
 CLI opens an enumerated stable by-id device through the direct V4L2 path. An

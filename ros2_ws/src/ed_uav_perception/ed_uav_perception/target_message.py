@@ -1,8 +1,9 @@
-"""Map accepted target estimates to the frozen ROS observation contract."""
+"""Map accepted and rejected results to the typed ROS observation contract."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import cv2
 import numpy as np
@@ -10,7 +11,10 @@ from builtin_interfaces.msg import Time
 from geometry_msgs.msg import Point, Pose, Quaternion
 
 from ed_uav_interfaces.msg import TargetObservation
-from ed_uav_perception.target_types import AcceptedObservation
+from ed_uav_perception.target_types import (
+    AcceptedObservation,
+    ObservationResult,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,8 +58,10 @@ def _quaternion(observation: AcceptedObservation) -> Quaternion:
     return Quaternion(x=values[0], y=values[1], z=values[2], w=values[3])
 
 
-def to_target_observation(observation: AcceptedObservation, stamp: Time) -> TargetObservation:
-    """Build the existing typed message without overloading diagnostic fields."""
+def to_target_observation(
+    observation: ObservationResult, stamp: Time
+) -> TargetObservation:
+    """Build one typed valid or rejected observation for every image."""
     message = TargetObservation()
     message.contract_version = TargetObservation.CONTRACT_VERSION
     message.acquisition_stamp = stamp
@@ -63,14 +69,35 @@ def to_target_observation(observation: AcceptedObservation, stamp: Time) -> Targ
     message.observation_id = f"target-{observation.source_sequence}"
     message.target_revision = observation.target_revision
     message.frame_id = observation.frame_id
-    translation = observation.pose.translation_m
-    message.pose.pose = Pose(
-        position=Point(x=float(translation[0]), y=float(translation[1]), z=float(translation[2])),
-        orientation=_quaternion(observation),
-    )
-    message.pose.covariance = list(observation.pose.covariance)
-    message.confidence = observation.quality
-    message.outer_diameter_m = 0.50
-    message.inner_diameter_m = 0.30
-    message.line_width_m = 0.02
+    message.candidate_count = observation.candidate_count
+    rms = observation.reprojection_rms_px
+    message.reprojection_rms_px = rms if math.isfinite(rms) else -1.0
+    if isinstance(observation, AcceptedObservation):
+        translation = observation.pose.translation_m
+        message.valid = True
+        message.status = TargetObservation.STATUS_VALID
+        message.pose.pose = Pose(
+            position=Point(
+                x=float(translation[0]),
+                y=float(translation[1]),
+                z=float(translation[2]),
+            ),
+            orientation=_quaternion(observation),
+        )
+        message.pose.covariance = list(observation.pose.covariance)
+        message.confidence = observation.quality
+        message.quality = observation.quality
+        message.rejection_reason = ""
+        message.outer_diameter_m = 0.50
+        message.inner_diameter_m = 0.30
+        message.line_width_m = observation.line_width_m
+    else:
+        message.valid = False
+        message.status = TargetObservation.STATUS_REJECTED
+        message.confidence = 0.0
+        message.quality = 0.0
+        message.rejection_reason = observation.reject_reason.value
+        message.outer_diameter_m = 0.0
+        message.inner_diameter_m = 0.0
+        message.line_width_m = 0.0
     return message

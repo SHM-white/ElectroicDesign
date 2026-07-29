@@ -19,17 +19,16 @@ def test_node_consumes_typed_camera_and_vehicle_context() -> None:
     from ed_uav_interfaces.msg import VehicleTelemetry
     from ed_uav_perception.target_observation_node import TargetObservationNode
     from ed_uav_perception.target_types import AcceptedObservation
-    from rclpy.parameter import Parameter
     from sensor_msgs.msg import CameraInfo
 
     rclpy.init()
     node = TargetObservationNode()
     try:
         rendered = render_target()
-        node.set_parameters([Parameter("initial_vehicle_heading_rad", value=0.18)])
         now = node.get_clock().now().to_msg()
         camera = CameraInfo()
         camera.header.frame_id = "camera_optical"
+        camera.header.stamp = now
         camera.width = 640
         camera.height = 480
         camera.k = rendered.camera_matrix.reshape(-1).tolist()
@@ -37,9 +36,14 @@ def test_node_consumes_typed_camera_and_vehicle_context() -> None:
         vehicle = VehicleTelemetry()
         vehicle.contract_version = vehicle.CONTRACT_VERSION
         vehicle.acquisition_stamp = now
+        vehicle.source_sequence = 1
+        vehicle.heartbeat_alive = True
         vehicle.turn_class = vehicle.TURN_STRAIGHT
         vehicle.motion_kind = vehicle.MOTION_WHEEL_SPEED
         vehicle.wheel_speed_m_s = 0.6
+        vehicle.heading_rad = 0.18
+        vehicle.yaw_rate_rad_s = 0.0
+        vehicle.frame_id = "vehicle_start"
         image = CvBridge().cv2_to_imgmsg(rendered.image, encoding="bgr8")
         image.header.frame_id = "camera_optical"
         image.header.stamp = now

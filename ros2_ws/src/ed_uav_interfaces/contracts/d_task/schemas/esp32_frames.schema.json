@@ -33,7 +33,7 @@
     "vehicleTelemetryPayload": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["started", "heartbeat", "motion_kind", "displacement_m", "wheel_speed_m_s", "turn_class", "route_stage", "lap_complete"],
+      "required": ["started", "heartbeat", "motion_kind", "displacement_m", "wheel_speed_m_s", "turn_class", "heading_rad", "yaw_rate_rad_s", "route_stage", "lap_complete"],
       "properties": {
         "started": {"type": "boolean"},
         "heartbeat": {"type": "boolean"},
@@ -41,6 +41,8 @@
         "displacement_m": {"type": "number"},
         "wheel_speed_m_s": {"type": "number", "minimum": 0},
         "turn_class": {"enum": ["straight", "small_turn", "large_turn"]},
+        "heading_rad": {"type": "number", "minimum": -3.141592653589793, "maximum": 3.141592653589793},
+        "yaw_rate_rad_s": {"type": "number", "minimum": -10.0, "maximum": 10.0},
         "route_stage": {"enum": ["START", "B", "D", "A", "COMPLETE"]},
         "lap_complete": {"type": "boolean"}
       }

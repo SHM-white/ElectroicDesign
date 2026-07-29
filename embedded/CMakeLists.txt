@@ -10,3 +10,6 @@ enable_testing()
 
 add_subdirectory(ground_station_esp32s3)
 add_subdirectory(esp32s3_cam)
+add_subdirectory(shared_protocol)
+add_subdirectory(car_esp32s3)
+add_subdirectory(ground_station_esp32s3/arduino)

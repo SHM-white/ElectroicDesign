@@ -16,3 +16,9 @@ install/
 build/
 ros2_ws/src/ed_uav_interfaces/contracts/d_task/deployment_preset.local.yaml
 ros2_ws/src/ed_uav_lidar/config/fields/mid360_field_manifest.local.json
+baseline-mirror.txt
+green.txt
+embedded/car_esp32s3/config_local.h
+embedded/ground_station_esp32s3/config_local.h
+.debug-journal.md
+green-ownership-order.txt

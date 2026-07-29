@@ -15,6 +15,8 @@ class RejectReason(str, Enum):
     RASTER_MISMATCH = "raster_mismatch"
     WRONG_REVISION = "wrong_revision"
     PARTIAL_GEOMETRY = "partial_geometry"
+    INCOMPLETE_CROSS = "incomplete_cross"
+    LINE_WIDTH_OUT_OF_RANGE = "line_width_out_of_range"
     INSUFFICIENT_POINTS = "insufficient_points"
     COLLINEAR_POINTS = "collinear_points"
     PNP_FAILED = "pnp_failed"
@@ -26,6 +28,16 @@ class RejectReason(str, Enum):
     FUTURE_IMAGE = "future_image"
     FUTURE_VEHICLE = "future_vehicle"
     INVALID_VEHICLE_CONTEXT = "invalid_vehicle_context"
+    VEHICLE_CONTRACT_VERSION = "vehicle_contract_version"
+    VEHICLE_HEARTBEAT_LOST = "vehicle_heartbeat_lost"
+    WRONG_VEHICLE_FRAME = "wrong_vehicle_frame"
+    REPLAYED_VEHICLE_SEQUENCE = "replayed_vehicle_sequence"
+    VEHICLE_ACQUISITION_REGRESSION = "vehicle_acquisition_regression"
+    IMAGE_ACQUISITION_REGRESSION = "image_acquisition_regression"
+    CAMERA_INFO_FRAME_MISMATCH = "camera_info_frame_mismatch"
+    CAMERA_INFO_RASTER_MISMATCH = "camera_info_raster_mismatch"
+    CAMERA_INFO_STAMP_MISMATCH = "camera_info_stamp_mismatch"
+    STALE_PRIOR = "stale_prior"
     TEMPORAL_JUMP = "temporal_jump"
 
 
@@ -44,20 +56,24 @@ class CorrespondenceSet:
     object_points: np.ndarray
     image_points: np.ndarray
     symmetry_order: int
+    line_width_m: float = 0.02
 
 
 @dataclass(frozen=True, slots=True)
 class PosePrior:
     translation_m: np.ndarray
     rotation_vector: np.ndarray
-    stamp_sec: float
+    acquisition_sec: float
+    receipt_steady_sec: float
 
 
 @dataclass(frozen=True, slots=True)
 class MotionContext:
-    stamp_sec: float
+    acquisition_sec: float
+    receipt_steady_sec: float
     turn_class: int
     heading_rad: float | None
+    yaw_rate_rad_s: float
     speed_m_s: float
     prior: PosePrior | None
 
@@ -65,14 +81,17 @@ class MotionContext:
 @dataclass(frozen=True, slots=True)
 class FrameContext:
     acquisition_sec: float
-    now_sec: float
+    receipt_steady_sec: float
+    evaluation_steady_sec: float
     source_sequence: int
     target_revision: str
 
 
 @dataclass(frozen=True, slots=True)
 class PoseLimits:
-    freshness_sec: float = 0.20
+    image_freshness_sec: float = 0.20
+    vehicle_freshness_sec: float = 0.50
+    max_prior_age_sec: float = 0.20
     max_reprojection_rms_px: float = 2.0
     min_inlier_ratio: float = 0.70
     max_translation_jump_m: float = 0.35
@@ -128,6 +147,7 @@ class AcceptedObservation:
     source_sequence: int
     frame_id: str
     target_revision: str
+    line_width_m: float
     pose: PoseEstimate
 
     @property

@@ -43,6 +43,8 @@ def build_fake_vehicle_datagrams(
             motion_kind=MotionKind.DISPLACEMENT,
             displacement_m=index * 0.01,
             wheel_speed_m_s=0.2 if index > 0 else 0.0,
+            heading_rad=0.0,
+            yaw_rate_rad_s=0.0,
             turn_class=TurnClass.STRAIGHT,
             route_stage=RouteStage.START,
             lap_complete=False,

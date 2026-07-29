@@ -25,6 +25,7 @@ def test_detects_prescribed_circle_cross_when_complete() -> None:
     assert result.object_points.shape[0] >= 8
     assert result.image_points.shape == (result.object_points.shape[0], 2)
     assert result.symmetry_order == 4
+    assert 0.018 <= result.line_width_m <= 0.022
 
 
 def test_rejects_partial_target_when_inner_ring_missing() -> None:
@@ -51,3 +52,29 @@ def test_rejects_wrong_ring_revision() -> None:
     # Then
     assert isinstance(result, DetectionFailure)
     assert result.reason.value == "wrong_revision"
+
+
+def test_rejects_target_with_only_one_cross_axis() -> None:
+    # Given
+    rendered = render_target(cross_axes=("x",))
+    from ed_uav_perception.target_detector import DetectionFailure, detect_target
+
+    # When
+    result = detect_target(rendered.image, "d2026-circle-cross-v1")
+
+    # Then
+    assert isinstance(result, DetectionFailure)
+    assert result.reason.value == "incomplete_cross"
+
+
+def test_rejects_cross_line_width_outside_prescribed_range() -> None:
+    # Given
+    rendered = render_target(line_width_m=0.03)
+    from ed_uav_perception.target_detector import DetectionFailure, detect_target
+
+    # When
+    result = detect_target(rendered.image, "d2026-circle-cross-v1")
+
+    # Then
+    assert isinstance(result, DetectionFailure)
+    assert result.reason.value == "line_width_out_of_range"

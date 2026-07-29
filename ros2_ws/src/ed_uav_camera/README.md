@@ -45,3 +45,12 @@ stable V4L2 by-id devices and creates the serial/raster-bound calibration input
 required by this strict launch path; it does not launch ROS or bypass the gate.
 Recorded-video and synthetic runs are marked non-production and are rejected by
 the formal hardware runtime gate regardless of supplied serial or by-id text.
+
+For physical calibration, run `./tools/calibration/run_camera_calibration.sh 1`
+for the normal-view camera or use `2` for the wide-angle camera. The direct V4L2
+surface requests MJPG at 30 fps, opens a live corner/progress preview, and accepts
+`q` or Escape to cancel. If a camera has no `ID_SERIAL_SHORT`, discovery uses the
+explicit `usb-revision:VID:PID:REV` fallback and rejects duplicates. That fallback
+distinguishes the installed revision-0122 and revision-0708 cameras, but it cannot
+distinguish a future replacement carrying the same tuple; such a replacement
+must be recalibrated.

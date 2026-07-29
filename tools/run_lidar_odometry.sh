@@ -158,10 +158,11 @@ health_command_for() {
   local label="$1" preset="$2" override="$3"
   if [[ -n "$override" ]]; then printf '%s' "$override"; return; fi
   case "$label:$preset" in
-    lidar:field-mid360) printf 'timeout 5s ros2 topic echo --once /localization/odom >/dev/null' ;;
-    fast_lio:field-mid360) printf 'timeout 5s ros2 topic echo --once /tf >/dev/null' ;;
-    localization:field-mid360) printf 'timeout 5s ros2 topic echo --once /localization/status >/dev/null' ;;
-    monitor:field-mid360) printf 'timeout 5s ros2 topic echo --once /localization/odom >/dev/null' ;;
+    lidar:simulation) printf 'timeout 5s ros2 topic echo /livox/lidar --once >/dev/null' ;;
+    lidar:field-mid360) printf 'timeout 5s ros2 topic echo /livox/lidar --once >/dev/null' ;;
+    fast_lio:field-mid360) printf 'timeout 5s ros2 topic echo /fast_lio/odometry --once >/dev/null' ;;
+    localization:field-mid360) printf 'timeout 5s ros2 topic echo /localization/odom --once >/dev/null' ;;
+    monitor:field-mid360) printf 'timeout 5s ros2 topic echo /livox/lidar --once >/dev/null' ;;
   esac
 }
 
@@ -226,15 +227,25 @@ printf 'selected_preset=%s
 ' "$selected_preset"
 printf 'evidence_dir=%s
 ' "$run_dir"
-spawn lidar "$selected_preset" "${ED_LIDAR_ODOMETRY_LIDAR_CMD:-}" "$(health_command_for lidar "$selected_preset" "${ED_LIDAR_ODOMETRY_LIDAR_HEALTH_CMD:-}")"
-spawn fast_lio "$selected_preset" "${ED_LIDAR_ODOMETRY_FAST_LIO_CMD:-}" "$(health_command_for fast_lio "$selected_preset" "${ED_LIDAR_ODOMETRY_FAST_LIO_HEALTH_CMD:-}")"
-spawn localization "$selected_preset" "${ED_LIDAR_ODOMETRY_LOCALIZATION_CMD:-}" "$(health_command_for localization "$selected_preset" "${ED_LIDAR_ODOMETRY_LOCALIZATION_HEALTH_CMD:-}")"
+declare -a upstream_labels=()
+case "$selected_preset" in
+  simulation)
+    upstream_labels=(lidar)
+    spawn lidar "$selected_preset" "${ED_LIDAR_ODOMETRY_LIDAR_CMD:-}" "$(health_command_for lidar "$selected_preset" "${ED_LIDAR_ODOMETRY_LIDAR_HEALTH_CMD:-}")"
+    ;;
+  field-mid360)
+    upstream_labels=(lidar fast_lio localization)
+    spawn lidar "$selected_preset" "${ED_LIDAR_ODOMETRY_LIDAR_CMD:-}" "$(health_command_for lidar "$selected_preset" "${ED_LIDAR_ODOMETRY_LIDAR_HEALTH_CMD:-}")"
+    spawn fast_lio "$selected_preset" "${ED_LIDAR_ODOMETRY_FAST_LIO_CMD:-}" "$(health_command_for fast_lio "$selected_preset" "${ED_LIDAR_ODOMETRY_FAST_LIO_HEALTH_CMD:-}")"
+    spawn localization "$selected_preset" "${ED_LIDAR_ODOMETRY_LOCALIZATION_CMD:-}" "$(health_command_for localization "$selected_preset" "${ED_LIDAR_ODOMETRY_LOCALIZATION_HEALTH_CMD:-}")"
+    ;;
+esac
 spawn monitor "$selected_preset" "${ED_LIDAR_ODOMETRY_MONITOR_CMD:-}" "$(health_command_for monitor "$selected_preset" "${ED_LIDAR_ODOMETRY_MONITOR_HEALTH_CMD:-}")"
 monitor_pid="${owned_pid[monitor]}"
 child_status=0
 upstream_failed=""
 while process_is_alive "$monitor_pid"; do
-  for label in lidar fast_lio localization; do
+  for label in "${upstream_labels[@]}"; do
     if ! process_is_alive "${owned_pid[$label]}"; then
       upstream_failed="$label"
       child_status=1
@@ -253,7 +264,7 @@ else
     child_status=$?
   fi
 fi
-for label in lidar fast_lio localization; do
+for label in "${upstream_labels[@]}"; do
   pgid="${owned_pgid[$label]:-}"
   [[ -n "$pgid" ]] && kill -TERM -- "-$pgid" 2>/dev/null || true
   pid="${owned_pid[$label]:-}"

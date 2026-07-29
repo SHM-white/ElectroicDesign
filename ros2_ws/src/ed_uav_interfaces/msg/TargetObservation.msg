@@ -6,8 +6,16 @@ uint32 source_sequence
 string<=32 observation_id
 string<=32 target_revision
 string<=64 frame_id
+uint8 STATUS_REJECTED=0
+uint8 STATUS_VALID=1
+bool valid
+uint8 status
 geometry_msgs/PoseWithCovariance pose
 float32 confidence
+float32 quality
+uint16 candidate_count
+float32 reprojection_rms_px
+string<=96 rejection_reason
 float32 outer_diameter_m
 float32 inner_diameter_m
 float32 line_width_m

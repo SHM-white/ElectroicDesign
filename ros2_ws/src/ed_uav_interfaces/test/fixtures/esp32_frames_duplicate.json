@@ -9,7 +9,7 @@
       "sequence": 7,
       "acquisition_time_ms": 1000,
       "checksum_crc16": 43981,
-      "payload": {"started": true, "heartbeat": true, "motion_kind": "wheel_speed", "displacement_m": 0.0, "wheel_speed_m_s": 0.4, "turn_class": "straight", "route_stage": "START", "lap_complete": false}
+      "payload": {"started": true, "heartbeat": true, "motion_kind": "wheel_speed", "displacement_m": 0.0, "wheel_speed_m_s": 0.4, "turn_class": "straight", "heading_rad": 0.0, "yaw_rate_rad_s": 0.0, "route_stage": "START", "lap_complete": false}
     },
     {
       "version": 1,
@@ -17,7 +17,7 @@
       "sequence": 7,
       "acquisition_time_ms": 1100,
       "checksum_crc16": 4660,
-      "payload": {"started": true, "heartbeat": true, "motion_kind": "displacement", "displacement_m": 1.2, "wheel_speed_m_s": 0.0, "turn_class": "small_turn", "route_stage": "B", "lap_complete": false}
+      "payload": {"started": true, "heartbeat": true, "motion_kind": "displacement", "displacement_m": 1.2, "wheel_speed_m_s": 0.0, "turn_class": "small_turn", "heading_rad": -0.4, "yaw_rate_rad_s": -0.35, "route_stage": "B", "lap_complete": false}
     }
   ]
 }

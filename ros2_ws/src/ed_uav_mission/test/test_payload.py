@@ -2,6 +2,7 @@ import math
 from dataclasses import replace
 
 import pytest
+
 from ed_uav_mission.mission_model import PayloadParams
 from ed_uav_mission.plugins import payload
 from ed_uav_mission.plugins.payload import PayloadPlugin

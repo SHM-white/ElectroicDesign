@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 
@@ -41,18 +42,25 @@ def observe_target(request: ObservationRequest) -> ObservationResult:
         return _reject(request, RejectReason.UNCALIBRATED)
     if request.image.shape[:2] != (request.camera.height, request.camera.width):
         return _reject(request, RejectReason.RASTER_MISMATCH)
-    if not math.isfinite(request.frame.now_sec) or not math.isfinite(
-        request.frame.acquisition_sec
+    if not all(
+        math.isfinite(value)
+        for value in (
+            request.frame.acquisition_sec,
+            request.frame.receipt_steady_sec,
+            request.frame.evaluation_steady_sec,
+        )
     ):
         return _reject(request, RejectReason.INVALID_INPUT)
-    image_age = request.frame.now_sec - request.frame.acquisition_sec
+    image_age = request.frame.evaluation_steady_sec - request.frame.receipt_steady_sec
     if image_age < 0.0:
         return _reject(request, RejectReason.FUTURE_IMAGE)
-    if image_age > request.limits.freshness_sec:
+    if image_age > request.limits.image_freshness_sec:
         return _reject(request, RejectReason.STALE_IMAGE)
     if (
         request.motion.turn_class not in (0, 1, 2)
-        or not math.isfinite(request.motion.stamp_sec)
+        or not math.isfinite(request.motion.acquisition_sec)
+        or not math.isfinite(request.motion.receipt_steady_sec)
+        or not math.isfinite(request.motion.yaw_rate_rad_s)
         or not math.isfinite(request.motion.speed_m_s)
         or request.motion.speed_m_s < 0.0
         or (
@@ -62,22 +70,50 @@ def observe_target(request: ObservationRequest) -> ObservationResult:
         or (
             request.motion.prior is not None
             and (
-                not math.isfinite(request.motion.prior.stamp_sec)
+                not math.isfinite(request.motion.prior.acquisition_sec)
+                or not math.isfinite(request.motion.prior.receipt_steady_sec)
                 or not np.all(np.isfinite(request.motion.prior.translation_m))
                 or not np.all(np.isfinite(request.motion.prior.rotation_vector))
             )
         )
     ):
         return _reject(request, RejectReason.INVALID_VEHICLE_CONTEXT)
-    vehicle_age = request.frame.now_sec - request.motion.stamp_sec
+    if request.motion.turn_class == 0 and abs(request.motion.yaw_rate_rad_s) > 0.15:
+        return _reject(request, RejectReason.INVALID_VEHICLE_CONTEXT)
+    if request.motion.turn_class in (1, 2) and abs(request.motion.yaw_rate_rad_s) < 0.01:
+        return _reject(request, RejectReason.INVALID_VEHICLE_CONTEXT)
+    vehicle_age = (
+        request.frame.evaluation_steady_sec - request.motion.receipt_steady_sec
+    )
     if vehicle_age < 0.0:
         return _reject(request, RejectReason.FUTURE_VEHICLE)
-    if vehicle_age > request.limits.freshness_sec:
+    if vehicle_age > request.limits.vehicle_freshness_sec:
         return _reject(request, RejectReason.STALE_VEHICLE)
+    if request.motion.prior is not None:
+        prior_age = (
+            request.frame.evaluation_steady_sec
+            - request.motion.prior.receipt_steady_sec
+        )
+        if prior_age < 0.0:
+            return _reject(request, RejectReason.INVALID_VEHICLE_CONTEXT)
+        if prior_age > request.limits.max_prior_age_sec:
+            return _reject(request, RejectReason.STALE_PRIOR)
+    acquisition_delta = (
+        request.frame.acquisition_sec - request.motion.acquisition_sec
+    )
+    if acquisition_delta < 0.0:
+        return _reject(request, RejectReason.FUTURE_VEHICLE)
+    motion = request.motion
+    if motion.heading_rad is not None:
+        predicted_heading = math.atan2(
+            math.sin(motion.heading_rad + motion.yaw_rate_rad_s * acquisition_delta),
+            math.cos(motion.heading_rad + motion.yaw_rate_rad_s * acquisition_delta),
+        )
+        motion = replace(motion, heading_rad=predicted_heading)
     detection = detect_target(request.image, request.frame.target_revision)
     if isinstance(detection, DetectionFailure):
         return _reject(request, detection.reason)
-    pose = estimate_target_pose(detection, request.camera, request.motion, request.limits)
+    pose = estimate_target_pose(detection, request.camera, motion, request.limits)
     if not isinstance(pose, PoseEstimate):
         return RejectedObservation(
             request.frame.acquisition_sec,
@@ -93,5 +129,6 @@ def observe_target(request: ObservationRequest) -> ObservationResult:
         request.frame.source_sequence,
         request.camera.frame_id,
         request.frame.target_revision,
+        detection.line_width_m,
         pose,
     )

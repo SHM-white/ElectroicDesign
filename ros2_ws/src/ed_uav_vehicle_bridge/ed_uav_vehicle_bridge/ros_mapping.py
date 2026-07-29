@@ -1,4 +1,4 @@
-"""Single typed mapping between UDP domain values and Todo 1 ROS contracts."""
+"""Single typed mapping between UDP domain values and D-task ROS contracts."""
 
 from builtin_interfaces.msg import Time
 from ed_uav_interfaces.action import ExecuteMission
@@ -34,6 +34,8 @@ def to_vehicle_message(
     message.motion_kind = int(value.motion_kind)
     message.displacement_m = value.displacement_m
     message.wheel_speed_m_s = value.wheel_speed_m_s
+    message.heading_rad = value.heading_rad
+    message.yaw_rate_rad_s = value.yaw_rate_rad_s
     message.turn_class = int(value.turn_class)
     message.route_stage = int(value.route_stage)
     message.lap_complete = value.lap_complete
@@ -59,6 +61,8 @@ def to_stale_vehicle_message(
     message.motion_kind = int(value.motion_kind)
     message.displacement_m = value.displacement_m
     message.wheel_speed_m_s = value.wheel_speed_m_s
+    message.heading_rad = value.heading_rad
+    message.yaw_rate_rad_s = value.yaw_rate_rad_s
     message.turn_class = int(value.turn_class)
     message.route_stage = int(value.route_stage)
     message.lap_complete = value.lap_complete

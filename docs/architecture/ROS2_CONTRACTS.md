@@ -112,9 +112,13 @@ and paths. Custom interfaces must not use unbounded strings or sequences.
 
 Every D-task custom message and pre-arm request carries contract version 1.
 `VehicleTelemetry` carries the start stamp/event, heartbeat, acquisition time,
-source sequence, CRC-16, displacement or wheel speed in SI, turn class, and the
-ordered START/B/D/A/COMPLETE state. `TargetObservation` names the approved
-`d2026-circle-cross-v1` geometry and its acquisition frame. `MissionStatus` and
+source sequence, CRC-16, displacement or wheel speed in SI, turn class,
+CCW-positive heading in radians, signed yaw rate in radians/second, and the
+ordered START/B/D/A/COMPLETE state. Heading is vehicle x-forward relative to
+the message `vehicle_start` frame. `TargetObservation` names the approved
+`d2026-circle-cross-v1` geometry and its camera acquisition frame; it publishes
+valid/rejected status, candidate count, reprojection RMS, quality, covariance,
+and a bounded rejection reason for every processed image. `MissionStatus` and
 `PayloadContactState` expose bounded operator and contact/payload states with a
 single publisher owner. Consumers measure freshness on a local steady clock;
 ROS acquisition stamps provide provenance and are never used as an age clock.

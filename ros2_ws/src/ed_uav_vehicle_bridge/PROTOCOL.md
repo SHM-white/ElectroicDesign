@@ -23,9 +23,10 @@ retires the previous 32 boot epochs, and uses local steady receipt time for the
 0.75-second telemetry freshness gate. Sender time never establishes freshness.
 
 Strings in payloads are UTF-8 with a one-byte length prefix and contract bounds.
-Telemetry fixed fields are `>HBBffBB`; selection fields are `>HQQB`; ACK fields
-are `>HQQBBB`; mission-status fields are `>HIBBB`. Strings follow those fixed
-fields in Todo 1 contract order.
+Telemetry fixed fields are `>HBBffffBB`: contract/flags/motion, displacement,
+wheel speed, `heading_rad`, signed `yaw_rate_rad_s`, turn class, and route stage.
+Selection fields are `>HQQB`; ACK fields are `>HQQBBB`; mission-status fields
+are `>HIBBB`. Strings follow those fixed fields in D-task contract order.
 
 Golden vector key: bytes `00` through `1f`; type `1`; sender `CAR-01`; epoch
 `0102030405060708`; sequence `fffffffe`; source millis `10203040`; payload

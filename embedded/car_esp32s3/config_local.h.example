@@ -1,0 +1,11 @@
+#pragma once
+
+// Copy to config_local.h locally. This example intentionally contains no usable credentials or pins.
+#define ED_CAR_CONFIG_READY 0
+#define ED_WIFI_SSID "REPLACE_LOCALLY"
+#define ED_WIFI_PASSWORD "REPLACE_LOCALLY"
+#define ED_CAR_SENDER_ID "CAR-01"
+#define ED_ROS_PEER_IP "0.0.0.0"
+#define ED_ROS_PEER_PORT 0
+#define ED_HMI_PEER_PORT 0
+#define ED_HMAC_KEY_HEX "0000000000000000000000000000000000000000000000000000000000000000"

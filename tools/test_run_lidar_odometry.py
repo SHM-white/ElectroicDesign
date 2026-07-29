@@ -21,26 +21,49 @@ class Workspace:
     root: Path
     launcher: Path
     child_log: Path
+    event_log: Path
     ready: Path
     state: Path
     helper: Path
+    fake_ros2: Path
 
 
 def create_workspace(tmp_path: Path) -> Workspace:
     root = tmp_path / "workspace"
     fields = root / "ros2_ws/src/ed_uav_lidar/config/fields"
     tools = root / "tools"
+    bin_dir = root / "bin"
     fields.mkdir(parents=True)
     tools.mkdir(parents=True)
+    bin_dir.mkdir(parents=True)
     launcher = tools / LAUNCHER.name
     shutil.copy2(LAUNCHER, launcher)
     launcher.chmod(0o755)
+    fake_ros2 = bin_dir / "ros2"
+    fake_ros2.write_text(
+        """#!/usr/bin/env python3
+import json, os, sys, time
+path = os.environ['FAKE_ROS2_EVENT_LOG']
+with open(path, 'a', encoding='utf-8') as stream:
+    stream.write(json.dumps({'event': 'ros2', 'argv': sys.argv[1:], 'stamp': time.monotonic()}) + '\\n')
+if len(sys.argv) > 2 and sys.argv[2] == '/localization/odom':
+    ready = os.environ.get('FAKE_MONITOR_READY')
+    if ready:
+        open(ready, 'a').close()
+""",
+        encoding="utf-8",
+    )
+    fake_ros2.chmod(0o755)
     helper = root / "child.py"
     helper.write_text(
         """import json, os, sys, time
 label, mode, log_path, ready_path = sys.argv[1:]
 with open(log_path, 'a', encoding='utf-8') as stream:
     stream.write(json.dumps({'label': label, 'pid': os.getpid(), 'pgid': os.getpgid(0)}) + '\\n')
+event_path = os.environ.get('FAKE_EVENT_LOG')
+if event_path:
+    with open(event_path, 'a', encoding='utf-8') as stream:
+        stream.write(json.dumps({'event': 'start', 'label': label, 'stamp': time.monotonic()}) + '\\n')
 if mode == 'monitor':
     deadline = time.monotonic() + 5.0
     while not os.path.exists(ready_path):
@@ -60,9 +83,11 @@ while True:
         root=root,
         launcher=launcher,
         child_log=root / "children.jsonl",
+        event_log=root / "events.jsonl",
         ready=root / "monitor.ready",
         state=root / "state",
         helper=helper,
+        fake_ros2=fake_ros2,
     )
 
 
@@ -92,16 +117,15 @@ def command(workspace: Workspace, label: str, mode: str = "hold") -> str:
 
 def environment(workspace: Workspace, *, monitor_mode: str = "monitor") -> dict[str, str]:
     env = {
-        "PATH": os.environ["PATH"],
+        "PATH": str(workspace.fake_ros2.parent) + os.pathsep + os.environ["PATH"],
         "XDG_STATE_HOME": str(workspace.state),
         "ED_LIDAR_ODOMETRY_LIDAR_CMD": command(workspace, "lidar"),
         "ED_LIDAR_ODOMETRY_FAST_LIO_CMD": command(workspace, "fast_lio"),
         "ED_LIDAR_ODOMETRY_LOCALIZATION_CMD": command(workspace, "localization"),
         "ED_LIDAR_ODOMETRY_MONITOR_CMD": command(workspace, "monitor", monitor_mode),
-        "ED_LIDAR_ODOMETRY_LIDAR_HEALTH_CMD": "/bin/true",
-        "ED_LIDAR_ODOMETRY_FAST_LIO_HEALTH_CMD": "/bin/true",
-        "ED_LIDAR_ODOMETRY_LOCALIZATION_HEALTH_CMD": "/bin/true",
         "ED_LIDAR_ODOMETRY_MONITOR_HEALTH_CMD": f"touch {shlex.quote(str(workspace.ready))}",
+        "FAKE_ROS2_EVENT_LOG": str(workspace.event_log),
+        "FAKE_EVENT_LOG": str(workspace.event_log),
     }
     return env
 
@@ -167,9 +191,68 @@ def test_interactive_simulation_reprompts_streams_and_cleans(tmp_path: Path) -> 
     assert "selected_preset=simulation" in result.stdout
     assert result.stdout.count("ODOMETRY_ACCURACY_LIVE ") == 2
     assert result.stdout.count("ODOMETRY_ACCURACY_RESULT=") == 1
-    rows = wait_for_children(workspace)
-    assert [row["label"] for row in rows] == ["lidar", "fast_lio", "localization", "monitor"]
-    assert len({row["pgid"] for row in rows}) == 4
+    rows = wait_for_children(workspace, count=2)
+    assert [row["label"] for row in rows] == ["lidar", "monitor"]
+    assert len({row["pgid"] for row in rows}) == 2
+    assert_dead([int(row["pid"]) for row in rows])
+
+
+def test_simulation_starts_integrated_bundle_once_and_keeps_monitor_separate(tmp_path: Path) -> None:
+    workspace = create_workspace(tmp_path)
+    env = environment(workspace)
+    env["ED_LIDAR_ODOMETRY_LIDAR_CMD"] = command(workspace, "integrated_simulation_bundle")
+    env["ED_LIDAR_ODOMETRY_FAST_LIO_CMD"] = command(workspace, "duplicate_fast_lio")
+    env["ED_LIDAR_ODOMETRY_LOCALIZATION_CMD"] = command(workspace, "duplicate_localization")
+    result = run_launcher(workspace, "simulation\n", env=env)
+    assert result.returncode == 0, result.stderr + result.stdout
+    rows = wait_for_children(workspace, count=2)
+    assert [row["label"] for row in rows] == ["integrated_simulation_bundle", "monitor"]
+    assert "duplicate_fast_lio" not in {row["label"] for row in rows}
+    assert "duplicate_localization" not in {row["label"] for row in rows}
+    assert result.stdout.count("ODOMETRY_ACCURACY_LIVE ") == 2
+    assert result.stdout.count("ODOMETRY_ACCURACY_RESULT=") == 1
+    assert_dead([int(row["pid"]) for row in rows])
+
+
+def test_field_starts_lidar_before_fast_lio_before_localization_and_gates_monitor_on_health(tmp_path: Path) -> None:
+    workspace = create_workspace(tmp_path)
+    write_manifest(workspace)
+    env = environment(workspace, monitor_mode="hold")
+    env["ED_LIDAR_ODOMETRY_LIDAR_CMD"] = command(workspace, "field_lidar")
+    env["ED_LIDAR_ODOMETRY_FAST_LIO_CMD"] = command(workspace, "field_fast_lio")
+    env["ED_LIDAR_ODOMETRY_LOCALIZATION_CMD"] = command(workspace, "field_localization")
+    env["ED_LIDAR_ODOMETRY_MONITOR_CMD"] = command(workspace, "field_monitor", "monitor")
+    env["FAKE_ROS2_EVENT_LOG"] = str(workspace.event_log)
+    env["FAKE_EVENT_LOG"] = str(workspace.event_log)
+    env["FAKE_MONITOR_READY"] = str(workspace.ready)
+    env["ED_LIDAR_ODOMETRY_MONITOR_HEALTH_CMD"] = f"touch {shlex.quote(str(workspace.ready))}"
+    for key in (
+        "ED_LIDAR_ODOMETRY_LIDAR_HEALTH_CMD",
+        "ED_LIDAR_ODOMETRY_FAST_LIO_HEALTH_CMD",
+        "ED_LIDAR_ODOMETRY_LOCALIZATION_HEALTH_CMD",
+    ):
+        env.pop(key, None)
+    result = run_launcher(workspace, "field-mid360\n", env=env)
+    assert result.returncode == 0, result.stderr + result.stdout
+    rows = wait_for_children(workspace, count=2)
+    assert [row["label"] for row in rows] == ["field_lidar", "field_fast_lio", "field_localization", "field_monitor"]
+    assert result.stdout.count("ODOMETRY_ACCURACY_LIVE ") == 2
+    assert result.stdout.count("ODOMETRY_ACCURACY_RESULT=") == 1
+    events = [json.loads(line) for line in workspace.event_log.read_text(encoding='utf-8').splitlines()]
+    def first_index(predicate):
+        for index, event in enumerate(events):
+            if predicate(event):
+                return index
+        raise AssertionError('matching event not found')
+
+    health_livox = first_index(lambda event: event.get('event') == 'ros2' and '/livox/lidar' in event.get('argv', []))
+    start_field_fast_lio = first_index(lambda event: event.get('event') == 'start' and event.get('label') == 'field_fast_lio')
+    health_fast_lio = first_index(lambda event: event.get('event') == 'ros2' and '/fast_lio/odometry' in event.get('argv', []))
+    start_field_localization = first_index(lambda event: event.get('event') == 'start' and event.get('label') == 'field_localization')
+    health_localization = first_index(lambda event: event.get('event') == 'ros2' and '/localization/odom' in event.get('argv', []))
+    start_field_monitor = first_index(lambda event: event.get('event') == 'start' and event.get('label') == 'field_monitor')
+    assert health_livox < start_field_fast_lio < health_fast_lio < start_field_localization < health_localization < start_field_monitor
+    assert health_localization > start_field_localization
     assert_dead([int(row["pid"]) for row in rows])
 
 
@@ -202,7 +285,7 @@ def test_monitor_nonzero_preserves_json_and_exit(tmp_path: Path) -> None:
     result = run_launcher(workspace, "simulation\n", env=env)
     assert result.returncode == 7
     assert result.stdout.count("ODOMETRY_ACCURACY_RESULT=") == 1
-    rows = wait_for_children(workspace)
+    rows = wait_for_children(workspace, count=2)
     assert_dead([int(row["pid"]) for row in rows])
 
 
@@ -233,7 +316,7 @@ def test_upstream_child_death_cleans_every_owned_process(tmp_path: Path) -> None
     proc.stdin.write("simulation\n")
     proc.stdin.close()
     proc.stdin = None
-    rows = wait_for_children(workspace)
+    rows = wait_for_children(workspace, count=2)
     lidar_pid = int(next(row["pid"] for row in rows if row["label"] == "lidar"))
     os.kill(lidar_pid, signal.SIGTERM)
     stdout, stderr = proc.communicate(timeout=10)
@@ -259,7 +342,7 @@ def test_sigint_cleans_every_owned_process(tmp_path: Path) -> None:
     proc.stdin.write("simulation\n")
     proc.stdin.close()
     proc.stdin = None
-    rows = wait_for_children(workspace)
+    rows = wait_for_children(workspace, count=2)
     os.kill(proc.pid, signal.SIGINT)
     stdout, stderr = proc.communicate(timeout=10)
     assert proc.returncode == 130, stdout + stderr

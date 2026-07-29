@@ -20,6 +20,11 @@ uint8 TURN_SMALL=1
 uint8 TURN_LARGE=2
 uint8 turn_class
 
+# Vehicle x-forward heading in frame_id, radians CCW-positive about +Z.
+# Signed yaw rate is radians/second CCW-positive about +Z.
+float32 heading_rad
+float32 yaw_rate_rad_s
+
 uint8 ROUTE_START=0
 uint8 ROUTE_B=1
 uint8 ROUTE_D=2

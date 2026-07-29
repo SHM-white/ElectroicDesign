@@ -112,6 +112,8 @@ class VehicleTelemetryValue:
     motion_kind: MotionKind
     displacement_m: float
     wheel_speed_m_s: float
+    heading_rad: float
+    yaw_rate_rad_s: float
     turn_class: TurnClass
     route_stage: RouteStage
     lap_complete: bool

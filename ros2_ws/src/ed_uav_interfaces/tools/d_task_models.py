@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from ipaddress import ip_network
+from math import pi
 from typing import Annotated, Final, Literal, TypeAlias
 
 from pydantic import (
@@ -189,6 +190,8 @@ class VehicleTelemetryPayload(StrictContractModel):
     displacement_m: FiniteFloat
     wheel_speed_m_s: FiniteFloat = Field(ge=0.0)
     turn_class: Literal["straight", "small_turn", "large_turn"]
+    heading_rad: FiniteFloat = Field(ge=-pi, le=pi)
+    yaw_rate_rad_s: FiniteFloat = Field(ge=-10.0, le=10.0)
     route_stage: RouteStage
     lap_complete: bool
 
@@ -196,6 +199,10 @@ class VehicleTelemetryPayload(StrictContractModel):
     def require_completion_consistency(self) -> Self:
         if self.lap_complete != (self.route_stage is RouteStage.COMPLETE):
             raise DTaskSemanticError(reason="lap_complete requires route_stage COMPLETE")
+        if self.turn_class == "straight" and abs(self.yaw_rate_rad_s) > 0.15:
+            raise DTaskSemanticError(reason="invalid straight turn yaw rate")
+        if self.turn_class != "straight" and abs(self.yaw_rate_rad_s) < 0.01:
+            raise DTaskSemanticError(reason="turn requires signed yaw rate")
         return self
 
 

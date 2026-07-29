@@ -21,6 +21,8 @@ def render_target(
     *,
     inner_diameter_m: float = 0.30,
     include_inner: bool = True,
+    cross_axes: tuple[str, ...] = ("x", "y"),
+    line_width_m: float = 0.02,
     tvec: np.ndarray | None = None,
 ) -> RenderedTarget:
     """Render raw distorted pixels for two rings and a cross."""
@@ -52,12 +54,22 @@ def render_target(
         )
         cv2.polylines(image, [project(ring)], True, (8, 8, 8), 10, cv2.LINE_AA)
 
-    for endpoints in (
-        np.array([[-0.25, 0.0, 0.0], [0.25, 0.0, 0.0]]),
-        np.array([[0.0, -0.25, 0.0], [0.0, 0.25, 0.0]]),
-    ):
+    thickness_px = max(1, round(718.0 * line_width_m / float(translation[2, 0])))
+    axis_points = {
+        "x": np.array([[-0.25, 0.0, 0.0], [0.25, 0.0, 0.0]]),
+        "y": np.array([[0.0, -0.25, 0.0], [0.0, 0.25, 0.0]]),
+    }
+    for axis in cross_axes:
+        endpoints = axis_points[axis]
         pixels = project(endpoints.astype(np.float64))
-        cv2.line(image, tuple(pixels[0]), tuple(pixels[1]), (8, 8, 8), 10, cv2.LINE_AA)
+        cv2.line(
+            image,
+            tuple(pixels[0]),
+            tuple(pixels[1]),
+            (8, 8, 8),
+            thickness_px,
+            cv2.LINE_AA,
+        )
 
     return RenderedTarget(image, camera_matrix, distortion, rvec, translation)
 

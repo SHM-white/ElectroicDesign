@@ -156,6 +156,8 @@ def _telemetry(start: bool) -> bytes:
             MotionKind.DISPLACEMENT,
             0.1,
             0.2,
+            0.0,
+            0.0,
             TurnClass.STRAIGHT,
             RouteStage.START,
             False,
