@@ -2,8 +2,8 @@
   "repositories": {
     "livox_ros_driver2": {
       "type": "git",
-      "url": "https://github.com/Livox-SDK/livox_ros_driver2.git",
-      "version": "13eb05e4e6dd7a765b934d0c5fd6236676a57b49"
+      "url": "https://github.com/SHM-white/livox_ros_driver2.git",
+      "version": "4d6a1173677c1f56888745713eb35b5c2beea559"
     },
     "livox_sdk2": {
       "type": "git",
@@ -12,8 +12,8 @@
     },
     "fast_lio_ros2": {
       "type": "git",
-      "url": "https://github.com/hku-mars/FAST_LIO.git",
-      "version": "a4743b095409588842a5b30ddfa27e29d2f99164"
+      "url": "https://github.com/SHM-white/FAST_LIO.git",
+      "version": "101f3ecbb04f123699b21c62d651cf2b3e3b6fb3"
     },
     "ultralytics": {
       "type": "git",

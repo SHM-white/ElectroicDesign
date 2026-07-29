@@ -1,12 +1,12 @@
 [submodule "fast_lio_ros2"]
 	path = ros2_ws/src/third_party/fast_lio_ros2
-	url = https://github.com/hku-mars/FAST_LIO.git
+	url = https://github.com/SHM-white/FAST_LIO.git
 [submodule "livox_sdk2"]
 	path = ros2_ws/src/third_party/livox_sdk2
 	url = https://github.com/Livox-SDK/Livox-SDK2.git
 [submodule "livox_ros_driver2"]
 	path = ros2_ws/src/third_party/livox_ros_driver2
-	url = https://github.com/Livox-SDK/livox_ros_driver2.git
+	url = https://github.com/SHM-white/livox_ros_driver2.git
 [submodule "ultralytics"]
 	path = ros2_ws/src/third_party/ultralytics
 	url = https://github.com/ultralytics/ultralytics.git
