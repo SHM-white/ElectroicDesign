@@ -18,9 +18,9 @@ Ultralytics 固定为：
 
 ### AGPL 影响
 
-- **分发**：如果分发使用 Ultralytics 训练的模型权重，也必须分发对应的 Ultralytics 源代码。
-- **远程访问**：如果模型作为网络服务使用（例如推理 API），必须向用户提供源代码。
-- **模型工件**：ONNX/OpenVINO 导出物是衍生作品，承担 AGPL 义务。
+- **分发**：如果分发使用 Ultralytics 训练的模型权重，是否需要提供对应的 Ultralytics 源代码取决于实际修改、组合、分发和许可事实。
+- **远程访问**：如果模型作为网络服务使用（例如推理 API），是否产生源代码提供义务取决于实际网络交互、修改和适用许可条件。
+- **模型工件**：ONNX/OpenVINO 导出物是否构成衍生作品以及适用哪些 AGPL 义务，必须根据实际生成过程、修改和分发事实审阅。
 - **项目措施**：ML 环境（`ml/yolo/`）与 ROS 进程**隔离**。`ed_uav_perception` 不导入 Ultralytics。推理只使用与提供方无关的 ONNX/OpenVINO 运行时。
 
 ### 发布门槛
@@ -34,22 +34,22 @@ Ultralytics 固定为：
 
 ```
 ml/yolo/
-├── pyproject.toml                    # 软件包：ed-yolo-contract v0.1.0
+├── pyproject.toml                    # Package: ed-yolo-contract v0.1.0
 ├── schemas/
-│   ├── dataset-manifest.schema.json  # 数据集清单的 JSON Schema
-│   └── model-manifest.schema.json    # 模型清单的 JSON Schema
+│   ├── dataset-manifest.schema.json  # JSON Schema for dataset manifest
+│   └── model-manifest.schema.json    # JSON Schema for model manifest
 ├── src/yolo_contract/
-│   ├── __init__.py                   # 公共 API 表面
-│   ├── models.py                     # 冻结数据类（DatasetManifest、ModelManifest 等）
-│   ├── schema.py                     # 严格解析器、分区验证
-│   ├── runtime.py                    # 与提供方无关的 ONNX/OpenVINO 协议
-│   ├── cli.py                        # 试运行 CLI（train、validate、export、detect-mock）
-│   ├── errors.py                     # 类型化错误层级
-│   └── jsonio.py                     # JSON 加载 + SHA-256 哈希
+│   ├── __init__.py                   # Public API surface
+│   ├── models.py                     # Frozen dataclasses (DatasetManifest, ModelManifest, etc.)
+│   ├── schema.py                     # Strict parsers, split validation
+│   ├── runtime.py                    # Provider-neutral ONNX/OpenVINO protocol
+│   ├── cli.py                        # Dry-run CLI (train, validate, export, detect-mock)
+│   ├── errors.py                     # Typed error hierarchy
+│   └── jsonio.py                     # JSON loading + SHA-256 hashing
 └── tests/
-    ├── test_schema.py                # 清单解析器测试
-    ├── test_runtime.py               # 运行时确定性测试
-    └── test_cli.py                   # CLI 集成测试
+    ├── test_schema.py                # Manifest parser tests
+    ├── test_runtime.py               # Runtime determinism tests
+    └── test_cli.py                   # CLI integration tests
 ```
 
 **不存在训练权重、数据集文件或实际训练脚本。**契约层定义模式和验证，训练执行属于未来工作。
@@ -170,7 +170,7 @@ datasets/
 ### 5.3 验证
 
 ```bash
-# 验证数据集清单
+# Validate dataset manifest
 cd ml/yolo
 python -m yolo_contract validate --dataset datasets/marker-v1/dataset.json
 ```
@@ -188,7 +188,7 @@ python -m yolo_contract validate --dataset datasets/marker-v1/dataset.json
 ### 6.1 环境设置
 
 ```bash
-# 创建独立的 ML 环境（与 ROS 分离）
+# Create isolated ML environment (separate from ROS)
 cd ml/yolo
 python -m venv .venv
 source .venv/bin/activate
@@ -213,7 +213,7 @@ names:
 ### 6.3 训练命令
 
 ```bash
-# YOLOv8n（nano），推荐用于 Intel i5 推理
+# YOLOv8n (nano) — recommended for Intel i5 inference
 yolo detect train \
   model=yolov8n.pt \
   data=data.yaml \
@@ -239,7 +239,7 @@ yolo detect train \
 # TensorBoard
 tensorboard --logdir runs/train
 
-# 或检查结果
+# Or check results
 cat runs/train/marker-v1/results.csv
 ```
 
@@ -335,10 +335,10 @@ yolo export \
 对于 Intel i5 目标，优先使用 OpenVINO：
 
 ```bash
-# 安装 OpenVINO 运行时
+# Install OpenVINO runtime
 pip install openvino
 
-# 基准测试
+# Benchmark
 yolo benchmark model=best_openvino_model imgsz=640 device=cpu
 ```
 
@@ -389,7 +389,7 @@ class DetectorProvider(ABC):
 ### 9.3 模型加载（未来）
 
 ```python
-# ONNX 提供方（待实现）
+# ONNX provider (to implement)
 class ONNXDetectorProvider(DetectorProvider):
     def __init__(self, model_path: str, manifest: ModelManifest):
         import onnxruntime as ort
@@ -397,15 +397,15 @@ class ONNXDetectorProvider(DetectorProvider):
         self.manifest = manifest
 
     def detect(self, image: np.ndarray) -> list[Detection2D]:
-        # 预处理：调整大小、归一化、转置为 NCHW
-        # 执行推理
-        # 后处理：NMS，将边界框缩放到图像坐标
+        # Preprocess: resize, normalize, transpose to NCHW
+        # Run inference
+        # Postprocess: NMS, scale bboxes to image coords
         ...
 ```
 
 ### 9.4 关键约束
 
-**提供方不得在 ROS 进程中导入 Ultralytics。**ML 环境是隔离的。ROS 进程只使用 ONNX Runtime 或 OpenVINO Runtime。
+**提供方不得在 ROS 进程中导入 Ultralytics。**ML 环境是隔离的。ROS 进程只使用 ONNX Runtime 或 OpenVINO Runtime；该技术隔离不单独决定组合工件的法律性质。
 
 ---
 
@@ -416,16 +416,16 @@ class ONNXDetectorProvider(DetectorProvider):
 **所有命令都要求 `--dry-run`，不会执行实际训练/导出。**
 
 ```bash
-# 训练（仅试运行验证）
+# Train (dry-run validation only)
 ed-yolo train --dataset dataset.json --model model.json --dry-run
 
-# 验证清单一致性
+# Validate manifest consistency
 ed-yolo validate --dataset dataset.json --model model.json --dry-run
 
-# 导出（仅试运行验证）
+# Export (dry-run validation only)
 ed-yolo export --model model.json --format onnx --output out.onnx --dry-run
 
-# 模拟检测（确定性执行，无需模型）
+# Mock detection (deterministic, no model needed)
 ed-yolo detect-mock --dataset dataset.json --model model.json \
   --image-id FRAME --image-sha256 SHA256 --frame-id camera_narrow_optical_frame
 ```

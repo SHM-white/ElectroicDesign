@@ -59,19 +59,19 @@
 ### 3.1 前置条件
 
 ```bash
-# 构建包含相机包的工作区
+# Build workspace with camera package
 ./tools/run_humble.sh bash -lc 'source /opt/ros/humble/setup.bash && \
   colcon build --packages-select ed_uav_camera && \
   colcon test --packages-select ed_uav_camera'
 
-# 用户加入 video 组后刷新一次相机权限。
+# Refresh camera permissions once after the user joins the video group.
 newgrp video
 ```
 
 ### 3.2 直接采集一个相机
 
 ```bash
-# 1 = 普通视场/窄相机；2 = 广角相机。
+# 1 = normal-view/narrow camera; 2 = wide-angle camera.
 ./tools/calibration/run_camera_calibration.sh 1
 ```
 
@@ -91,8 +91,8 @@ CAMERA_CALIBRATION_WIDTH=2592 CAMERA_CALIBRATION_HEIGHT=1944 \
 
 相机提供 `ID_SERIAL_SHORT` 时，身份使用该值。对于已知的两个无序列号 W19 相机，回退值是
 规范化 USB 元组
-`usb-revision:VID:PID:REV`: the normal-view unit is
-`usb-revision:0ac8:3460:0122`, and the wide-angle unit is
+`usb-revision:VID:PID:REV`：普通视场设备为
+`usb-revision:0ac8:3460:0122`，广角设备为
 `usb-revision:0ac8:3460:0708`。这能在正常重启和 USB 端口变化后区分两个设备。它不是全球
 唯一的制造序列号：无法区分另一个 VID、PID 和修订号相同的设备，因此更换为相同修订号的
 设备前必须重新标定。
@@ -126,7 +126,7 @@ calibration_data/
 ├── wide_2592x1944/
 │   ├── wide_001.png
 │   └── ...
-└── narrow_1280x720/    # 如需第二种分辨率
+└── narrow_1280x720/    # second resolution if needed
     └── ...
 ```
 
@@ -178,7 +178,7 @@ new_K, roi = cv2.getOptimalNewCameraMatrix(K, D, (w, h), alpha=0)
 undistorted = cv2.undistort(image, K, D, None, new_K)
 ```
 
-**适用条件**：Focal length / FOV < 8（不是极端广角）。
+**适用条件**：焦距 / FOV < 8（不是极端广角）。
 
 ### 5.2 有理模型（8 参数）
 
@@ -371,8 +371,8 @@ python3 ros2_ws/src/ed_uav_description/tools/dump_static_model.py \
 
 `bringup.launch.py` 中的 `competition` 配置要求：
 - `calibration_status == "CALIBRATED"`
-- All `sensor_serials` match actual device serials (not `UNSET` or `SYNTHETIC-*`)
-- `calibration_hash` matches recomputed hash
+- 所有 `sensor_serials` 与实际设备序列号匹配（不得为 `UNSET` 或 `SYNTHETIC-*`）
+- `calibration_hash` 与重新计算的哈希匹配
 
 ---
 

@@ -87,7 +87,7 @@ python3 ros2_ws/src/ed_uav_bringup/tools/verify_launch_surface.py \
 2. 准确存在 4 个 P06 配置（`offline`、`camera_only`、`lidar`、`competition`）
 3. `Node()` 构造**之前**调用 `validate_for_profile()`
 4. 不得存在禁止的 TF 权威（`static_transform_publisher`、`map → odom`、
-   `odom → base_link` as static joints)
+    `odom → base_link` 作为静态关节）
 
 **输出**：`BRINGUP: GREEN` 或 `BRINGUP: RED: <reason>`
 
@@ -115,7 +115,7 @@ python3 ros2_ws/src/ed_uav_description/tools/validate_calibration.py \
   ros2_ws/src/ed_uav_interfaces/contracts/ros2_contract_manifest.json
 ```
 
-验证所有批准的主题、服务、动作、TF 边、QoS 配置、新鲜度截止时间、生命周期顺序和枚举值。
+验证所有批准的话题、服务、动作、TF 边、QoS 配置、新鲜度截止时间、生命周期顺序和枚举值。
 
 ### 2.5 门控 5：确定性场景验证
 
@@ -246,17 +246,17 @@ ros2 launch ed_uav_verification verification_harness.launch.py \
 |---|---|---|---|
 | 静态契约面 | `bash tools/run_offline_static.sh` | `SUCCESS` 中的 `STATIC_OFFLINE_GREEN`；聚焦 pytest、启动面、回放配置、接口契约、一致性和运行器日志 | 启动进程前首先检查环境、启动、接口和旧版一致性回归 |
 | 实时模拟 | `bash tools/run_offline_sim.sh` | `SUCCESS` 中的 `SIM_OFFLINE_GREEN`；构建、模拟、colcon 和运行器日志 | 检查实时离线图和确定性合成传感器流 |
-| WSLg 可视化 | `bash tools/run_offline_rviz.sh` | `SUCCESS` 中的 `RVIZ_OFFLINE_GREEN`；打包配置、RViz、构建和运行器日志 | 检查 WSLg 显示启动、可视化主题和 RViz 进程生命周期 |
+| WSLg 可视化 | `bash tools/run_offline_rviz.sh` | `SUCCESS` 中的 `RVIZ_OFFLINE_GREEN`；打包配置、RViz、构建和运行器日志 | 检查 WSLg 显示启动、可视化话题和 RViz 进程生命周期 |
 | FCU 桥接空运行 | `bash tools/run_offline_fcu_dry_run.sh` | `SUCCESS` 中的 `FCU_DRY_RUN_GREEN`；FCU、构建和运行器日志 | 检查遥测、桥接帧、PTY 清理和关闭 |
 | 事件回放 | `bash tools/run_offline_full_replay.sh` | `SUCCESS` 中的 `FULL_REPLAY_GREEN`；事件创建、包信息、回放、测试、构建和运行器日志 | 检查事件 artifact 创建、仅事件 rosbag 形状和回放生命周期 |
 
-实时确定性模拟仅使用墙上时钟。它不发布 `/clock`，因此该表面拒绝
+实时确定性模拟仅使用墙钟时间。它不发布 `/clock`，因此该测试路径拒绝
 `use_sim_time=true`。一键模拟和可视化命令使用 `use_sim_time:=false`。
 
 RViz 阶段通过 `HUMBLE_GUI=1` 使用 WSLg。它显示仅用于可视化的合成机器人几何体、TF、
 激光雷达点和两幅图像。在存在授权 TF 所有者前，故意不显示里程计。
 
-rosbag 阶段仅包含事件。其批准主题为 `/verification/events`；它不是传感器回放，也不是
+rosbag 阶段仅包含事件。其批准话题为 `/verification/events`；它不是传感器回放，也不是
 飞行回放。FCU 空运行使用真实桥接和伪 PTY，不会打开 `/dev/ttyUSB*`，也不作出 HIL、
 硬件或飞行声明。独立 CLI 命令测试仍仅限离线，不授权 FCU 硬件命令。
 
@@ -268,7 +268,7 @@ rosbag 阶段仅包含事件。其批准主题为 `/verification/events`；它�
 ### 3.7 FCU 桥接（独立运行）
 
 ```bash
-# 需要连接到 /dev/ttyUSB0 的实体 FCU
+# Requires physical FCU on /dev/ttyUSB0
 source ros2_ws/install/setup.bash
 ros2 run ed_uav_fcu_bridge ed_uav_fcu_bridge \
   --ros-args -p serial_port:=/dev/ttyUSB0 -p baudrate:=500000
@@ -374,7 +374,7 @@ python main.py --profile competition --serial-port /dev/ttyUSB0
 ### 6.1 镜像
 
 ```bash
-# 构建 Humble 工具链镜像
+# Build the Humble toolchain image
 docker build -t ed-humble-toolchain -f docker/Dockerfile.humble .
 ```
 

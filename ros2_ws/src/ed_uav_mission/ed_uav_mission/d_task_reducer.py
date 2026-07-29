@@ -125,12 +125,7 @@ class DTaskRuntime:
             return self._transition(DTaskPhase.ACQUIRING, now_s)
         return DTaskTransition(state=self.state)
 
-    def _on_vehicle(
-        self,
-        now_s: float,
-        vehicle: VehicleSnapshot,
-        payload_state: PayloadState,
-    ) -> DTaskTransition:
+    def _on_vehicle(self, now_s: float, vehicle: VehicleSnapshot, payload_state: PayloadState) -> DTaskTransition:
         if self.state.phase is DTaskPhase.WAITING_START:
             if not vehicle.started:
                 return DTaskTransition(state=self.state)

@@ -123,7 +123,7 @@ SHA-256 与 `docs/testing/LEGACY_BASELINE.md`（task-1 采集）比较：
 ./.venv/bin/python -m pytest -q drone/test -m field_data --strict-markers
 ```
 
-**结果：** PASS（按设计为非零退出）。严格场地数据门禁在原始 `mission_vision_*.png` 图像及其记录的 SHA-256 哈希恢复前会故意失败。这是预期行为，未生成虚假图像。
+**结果：** EXPECTED-FAIL（预期失败，门控仍被阻断）。该测试命令在原始 `mission_vision_*.png` 图像及其记录的 SHA-256 哈希恢复前按设计以非零退出；验证确认这一失败符合预期，未生成虚假图像。
 
 ### 10. 文档和许可证检查
 
@@ -176,12 +176,12 @@ mission_vision_416235453123.png
 | 静态 | `bash tools/run_offline_static.sh` | `STATIC_OFFLINE_GREEN` | 聚焦测试、启动/配置检查、接口合约、parity 和运行器日志。静态及环境失败从这里开始。 |
 | 仿真 | `bash tools/run_offline_sim.sh` | `SIM_OFFLINE_GREEN` | 构建和实时仿真日志，检查墙钟时间下的确定性合成传感器流。 |
 | RViz | `bash tools/run_offline_rviz.sh` | `RVIZ_OFFLINE_GREEN` | 打包 RViz 配置、进程、构建和运行器日志，检查 WSLg 可视化启动。 |
-| FCU 空运行 | `bash tools/run_offline_fcu_dry_run.sh` | `FCU_DRY_RUN_GREEN` | 虚假 PTY、真实桥接、构建和运行器日志，检查遥测、成帧、PTY 清理和关闭。 |
+| FCU 空运行 | `bash tools/run_offline_fcu_dry_run.sh` | `FCU_DRY_RUN_GREEN` | 伪 PTY、真实桥接、构建和运行器日志，检查遥测、成帧、PTY 清理和关闭。 |
 | 完整回放 | `bash tools/run_offline_full_replay.sh` | `FULL_REPLAY_GREEN` | 事件创建、bag 信息、回放、构建和测试日志，检查仅事件回放生命周期。 |
 
 实时确定性仿真只使用墙钟时间，没有 `/clock`，所以拒绝 `use_sim_time=true`。RViz 阶段通过 `HUMBLE_GUI=1` 使用 WSLg，显示仅用于可视化的合成机器人几何体、TF、激光点和两幅图像。授权 TF 所有者存在前，里程计显示会保持缺失。
 
-rosbag 阶段只包含 `/verification/events`，是事件回放而非传感器或飞行回放。FCU 空运行使用虚假 PTY 加真实桥接，不使用 `/dev/ttyUSB*`，不声明 HIL、硬件或飞行验收。
+rosbag 阶段只包含 `/verification/events`，是事件回放而非传感器或飞行回放。FCU 空运行使用伪 PTY 加真实桥接，不使用 `/dev/ttyUSB*`，不声明 HIL、硬件或飞行验收。
 
 当前离线集成证据记录在 `.omo/evidence/offline-integration/` 下。本收据是附加记录，上方原始的 202 测试 colcon 结果和 365 测试 pytest 结果保持不变。阶段证据包括 `wall-time/`、`rviz/`、`rviz-visual/`、`rosbag/`、`fcu-final/` 以及 `scripts/` 下的带时间戳运行目录。
 
@@ -201,7 +201,7 @@ rosbag 阶段只包含 `/verification/events`，是事件回放而非传感器�
 | 25 | USB 2.0 UVC 相机枚举、带宽、标定 | 23 | PENDING-HARDWARE |
 | 26 | 替换推进系统、电源、热、机械 BOM | 5, 22, 23 | PENDING-HARDWARE |
 | 27 | 真实 FCU 高级命令、有界 0x32/0x33 实验 | 23-26 | PENDING-HARDWARE |
-| 28 | 分阶段首次飞行和定位故障切换验收 | 24-27 | PENDING-HARDWARE |
+| 28 | 分阶段首次飞行和定位失效切换验收 | 24-27 | PENDING-HARDWARE |
 | 29 | 未知场地适应和竞赛就绪演练 | 5, 22, 28 | PENDING-HARDWARE |
 
 **本里程碑不声明台架、HIL、标定、推力或飞行通过。**

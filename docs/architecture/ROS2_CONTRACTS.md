@@ -16,7 +16,7 @@
 | `MCUSerial._of_pos_x`、`_of_pos_y`、`_of_dx`、`_of_dy` | `float`，cm | V7 相对于起飞点的位置；旧约定为 X 向前、Y 向右 | 仅 `ed_uav_fcu_bridge` 将其转换为米和 ROS ENU。`0x08` 是连续位置源。 |
 | `MCUSerial._altitude` | 有符号整数，cm | V7 高度 | 仅 `ed_uav_fcu_bridge` 将其转换为米。 |
 | `MCUSerial._voltage_mv` | 整数，mV | 电池电压值 | 以伏为单位发布标准 `sensor_msgs/BatteryState`。 |
-| `MCUSerial._mode`、`_locked`、`_aux6` | 整数/位/脉冲 us | V7 模式；`locked=1` 表示未解锁 | 规范化为带类型的 FCU 状态，并保留源序列号和采集时间。 |
+| `MCUSerial._mode`、`_locked`、`_aux6` | 整数/位/脉冲 us | V7 模式；`locked=1` 表示已解锁 | 规范化为带类型的 FCU 状态，并保留源序列号和采集时间。 |
 | `cmd_move(distance_cm, speed_cmps, direction_deg)` | cm、cm/s、度 | 相对于机体：0 为机头前方，顺时针为正 | 仅 `ed_uav_fcu_bridge` 将获批准的 SI/ENU 命令转换为 V7。 |
 
 旧版 `DroneStateMachine` 是当前的执行器仲裁器。ROS 将其所有权替换为唯一的动作服务端所有者 `ed_uav_fcu_bridge`；任务客户端和安全客户端从不打开 FCU 端点。V7 `0x41` 被排除。
@@ -27,23 +27,23 @@
 
 | 话题 | 类型 | 所有者 | 坐标系 | QoS 和新鲜度 |
 | --- | --- | --- | --- | --- |
-| `/fcu/state` | `FcuState` | FCU bridge | `base_link` | `state_reliable`, 0.50 s |
-| `/fcu/battery` | `BatteryState` | FCU bridge | `base_link` | `state_reliable`, 1.00 s |
-| `/fcu/optical_flow/odom` | `Odometry` | FCU bridge | `odom` | `state_reliable`, 0.20 s |
-| `/fcu/diagnostics` | `DiagnosticArray` | FCU bridge | `base_link` | `state_reliable`, 0.50 s |
-| `/rangefinder/range` | `Range` | FCU bridge | `rangefinder_link` | sensor best-effort, 0.20 s |
-| `/camera/narrow/image_raw`, `/camera/narrow/camera_info` | `Image`, `CameraInfo` | narrow camera | narrow optical | sensor best-effort, 0.20 s; latched reliable |
-| `/camera/wide/image_raw`, `/camera/wide/camera_info` | `Image`, `CameraInfo` | wide camera | wide optical | sensor best-effort, 0.20 s; latched reliable |
-| `/lidar/points`, `/lidar/imu` | `PointCloud2`, `Imu` | lidar | `lidar_link` | sensor best-effort, 0.15 s |
-| `/localization/lio/odom` | `Odometry` | LIO adapter | `odom` | `state_reliable`, 0.15 s |
-| `/localization/boundary_observation` | `BoundaryObservation` | boundary perception | wide optical | `state_reliable`, 0.20 s |
-| `/localization/status`, `/localization/odom` | `LocalizationStatus`, `Odometry` | localization supervisor, EKF | `map`, `odom` | `state_reliable`, 0.20/0.15 s |
-| `/perception/narrow/detections` | `Detection2DArray` | narrow perception | narrow optical | `state_reliable`, 0.20 s |
-| `/diagnostics` | `DiagnosticArray` | bringup aggregator | `base_link` | `state_reliable`, 1.00 s |
-| `/d_task/vehicle/telemetry` | `VehicleTelemetry` | ground-vehicle bridge | `vehicle_start` | `state_reliable`, 0.50 s |
-| `/d_task/target_observation` | `TargetObservation` | target perception | message `frame_id` | sensor best-effort, 0.20 s |
-| `/d_task/mission_status` | `MissionStatus` | mission | `map` ENU | `state_reliable`, 1.00 s |
-| `/d_task/payload_contact_state` | `PayloadContactState` | payload bridge | `base_link` | `state_reliable`, 0.20 s |
+| `/fcu/state` | `FcuState` | FCU bridge 节点 | `base_link` | `state_reliable`, 0.50 s |
+| `/fcu/battery` | `BatteryState` | FCU bridge 节点 | `base_link` | `state_reliable`, 1.00 s |
+| `/fcu/optical_flow/odom` | `Odometry` | FCU bridge 节点 | `odom` | `state_reliable`, 0.20 s |
+| `/fcu/diagnostics` | `DiagnosticArray` | FCU bridge 节点 | `base_link` | `state_reliable`, 0.50 s |
+| `/rangefinder/range` | `Range` | FCU bridge 节点 | `rangefinder_link` | sensor best-effort, 0.20 s |
+| `/camera/narrow/image_raw`, `/camera/narrow/camera_info` | `Image`, `CameraInfo` | 窄相机节点 | narrow optical | sensor best-effort, 0.20 s; latched reliable |
+| `/camera/wide/image_raw`, `/camera/wide/camera_info` | `Image`, `CameraInfo` | 宽相机节点 | wide optical | sensor best-effort, 0.20 s; latched reliable |
+| `/lidar/points`, `/lidar/imu` | `PointCloud2`, `Imu` | LiDAR 节点 | `lidar_link` | sensor best-effort, 0.15 s |
+| `/localization/lio/odom` | `Odometry` | LIO 适配器 | `odom` | `state_reliable`, 0.15 s |
+| `/localization/boundary_observation` | `BoundaryObservation` | 边界感知节点 | wide optical | `state_reliable`, 0.20 s |
+| `/localization/status`, `/localization/odom` | `LocalizationStatus`, `Odometry` | 定位监督器、EKF | `map`, `odom` | `state_reliable`, 0.20/0.15 s |
+| `/perception/narrow/detections` | `Detection2DArray` | 窄相机感知节点 | narrow optical | `state_reliable`, 0.20 s |
+| `/diagnostics` | `DiagnosticArray` | bringup 聚合器 | `base_link` | `state_reliable`, 1.00 s |
+| `/d_task/vehicle/telemetry` | `VehicleTelemetry` | 地面车辆 bridge | `vehicle_start` | `state_reliable`, 0.50 s |
+| `/d_task/target_observation` | `TargetObservation` | 目标感知节点 | message `frame_id` | sensor best-effort, 0.20 s |
+| `/d_task/mission_status` | `MissionStatus` | 任务节点 | `map` ENU | `state_reliable`, 1.00 s |
+| `/d_task/payload_contact_state` | `PayloadContactState` | 载荷 bridge | `base_link` | `state_reliable`, 0.20 s |
 
 `/localization/start_map_session` 仅由地图归档拥有，并使用 `StartMapSession`；不包含已保存地图加载或重新定位。
 `/fcu/flight_command` 仅由 FCU bridge 拥有，并使用 `FlightCommand`。`/mission/execute` 仅由任务软件包拥有，并使用 `ExecuteMission`。

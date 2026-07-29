@@ -65,7 +65,7 @@ Mid-360 应安装：
 来源：`ed_uav_lidar/config/lidar.yaml`：
 
 ```yaml
-# 健康阈值（待根据硬件配置）
+# Health thresholds (to be configured for hardware)
 # temperature_warn_c: 60
 # temperature_error_c: 70
 ```
@@ -130,7 +130,7 @@ map → odom → base_link → lidar_link
 
 所有 `base_link → *` 变换都是静态变换，由 `robot_state_publisher` 根据标定 YAML 发布。
 
-From `ros2_contract_manifest.json`:
+来源：`ros2_contract_manifest.json`：
 
 ```json
 {
@@ -257,7 +257,7 @@ UNVERIFIED 状态。
 
 Mid-360 支持使用 PTPv2（IEEE 1588）进行时间同步。
 
-From `ed_uav_lidar/config/lidar.yaml`:
+来源：`ed_uav_lidar/config/lidar.yaml`：
 
 ```yaml
 /lidar_transport:
@@ -275,7 +275,7 @@ From `ed_uav_lidar/config/lidar.yaml`:
 4. **验证**：PTP 偏移 ≤1 ms
 
 ```bash
-# PTP 设置示例（需使用硬件验证）
+# Example PTP setup (to be verified with hardware)
 sudo ptp4l -i eth0 -m -S &
 sudo phc2sys -s eth0 -c CLOCK_REALTIME -w &
 ```
@@ -462,7 +462,7 @@ Livox Mid-360 (hardware)
      → [IMU health monitoring]
 ```
 
-### 8.3 主题所有权
+### 8.3 话题所有权
 
 来源：`ros2_contract_manifest.json`：
 
@@ -516,7 +516,7 @@ fields = (
 
 ### 9.3 时间验证
 
-From `ed_uav_lidar/contracts.py`:
+来源：`ed_uav_lidar/contracts.py`：
 
 ```python
 def validate_offset_times(offset_times_ns: Sequence[int]) -> tuple[int, ...]:
@@ -547,15 +547,15 @@ def validate_offset_times(offset_times_ns: Sequence[int]) -> tuple[int, ...]:
 
 | 测试 | 时长 | 标准 |
 |---|---|---|
-| 静态测试 | 60 seconds | 点云密度稳定（±5%），IMU 噪声符合规格 |
-| 电机测试 | 60 seconds | 点云密度稳定，IMU 噪声增幅 < 静态值的 2× |
-| 飞行测试 | 30 seconds | LIO 在 5s 内收敛，无发散，漂移 ≤5 cm |
+| 静态测试 | 60 秒 | 点云密度稳定（±5%），IMU 噪声符合规格 |
+| 电机测试 | 60 秒 | 点云密度稳定，IMU 噪声增幅 < 静态值的 2× |
+| 飞行测试 | 30 秒 | LIO 在 5s 内收敛，无发散，漂移 ≤5 cm |
 
 ### 10.2 静态测试
 
 1. 将机架放在水平表面
 2. 关闭电机
-3. 采集 60 seconds 的 lidar/IMU 数据
+3. 采集 60 秒的 lidar/IMU 数据
 4. 分析：
    - 点云密度（每秒点数）
    - IMU 噪声（加速度计/陀螺仪方差）
@@ -565,7 +565,7 @@ def validate_offset_times(offset_times_ns: Sequence[int]) -> tuple[int, ...]:
 
 1. 将机架放在水平表面
 2. 将电机设为悬停油门（50%）
-3. 采集 60 seconds 的 lidar/IMU 数据
+3. 采集 60 秒的 lidar/IMU 数据
 4. 分析：
    - 点云密度稳定性
    - 振动引起的伪影
@@ -573,11 +573,11 @@ def validate_offset_times(offset_times_ns: Sequence[int]) -> tuple[int, ...]:
 
 ### 10.4 飞行测试
 
-1. 在 1 meter 高度悬停 30 seconds
+1. 在 1 米高度悬停 30 秒
 2. 分析：
-   - LIO 收敛时间（应 <5 seconds）
+   - LIO 收敛时间（应 <5 秒）
    - LIO 发散（应无发散）
-   - 位置漂移（30 seconds 内应 ≤5 cm）
+   - 位置漂移（30 秒内应 ≤5 cm）
 
 ---
 
@@ -587,7 +587,7 @@ def validate_offset_times(offset_times_ns: Sequence[int]) -> tuple[int, ...]:
 
 | 标准 | 阈值 | 验证 |
 |---|---|---|
-| 运行时长 | 30-minute run | 计时器 |
+| 运行时长 | 运行 30 分钟 | 计时器 |
 | 时间戳回退 | 0 | `test_timestamp_regression.py` |
 | 驱动重启 | 0 | 进程监视器 |
 | 丢失样本 | <0.1% | 健康监测器 |

@@ -42,33 +42,33 @@ ml/yolo/                          ros2_ws/src/ed_uav_perception/
 
 ## 2. AGPL-3.0 合规
 
-Ultralytics YOLOv8 采用 AGPL-3.0 许可证。任何分发或网络使用都会产生具体义务。
+Ultralytics YOLOv8 采用 AGPL-3.0 许可证。是否产生许可证义务取决于实际修改、分发、部署、网络交互和接收方等具体事实。
 
 ### 2.1 许可证义务
 
 | 义务 | 要求 | 缓解措施 |
 |---|---|---|
-| **源代码披露** | 必须向接收方提供完整源代码 | 固定确切的上游提交 |
-| **相同许可证** | 组合著作必须采用 AGPL-3.0 | 将 YOLO 保持在 `ml/yolo/` 中隔离 |
-| **对应源代码** | 必须提供所有链接组件的源代码 | 独立进程边界 |
-| **网络使用** | 如果通过网络使用，必须提供源代码 | 仅限内部使用（竞赛） |
+| **源代码披露** | 在适用的分发或网络交互情形下，向接收方提供所需的完整源代码 | 固定确切的上游提交 |
+| **相同许可证** | 组合著作是否受 AGPL-3.0 约束取决于实际组合和许可事实 | 将 YOLO 保持在 `ml/yolo/` 中隔离 |
+| **对应源代码** | 在义务触发时，为受涵盖版本及修改提供对应源代码 | 独立进程边界并保留来源记录 |
+| **网络使用** | 某些网络交互情形可能要求提供对应源代码，需按具体事实审阅 | 仅限内部竞赛使用仍需审阅实际部署方式 |
 
 ### 2.2 内部使用例外
 
-内部使用（竞赛准备、测试）**不会**触发分发义务。但是，活动后发布完整系统时，YOLO 组件必须符合 AGPL。
+内部使用（竞赛准备、测试）通常不构成分发，但实际部署方式和网络交互仍需按具体事实审阅。活动后发布完整系统时，必须根据工件组成、修改、分发和接收方评估 YOLO 组件适用的 AGPL 义务。
 
 ### 2.3 隔离策略
 
-项目通过以下方式保持 AGPL 隔离：
+项目通过以下方式维持技术隔离和来源可追溯性：
 
 1. **独立进程**：YOLO 推理作为独立 ROS 节点运行
 2. **标准接口**：通过 `vision_msgs/Detection2DArray` 通信
 3. **不导入**：ROS 进程永不导入 `ultralytics`
-4. **权重分离**：训练权重按 AGPL-3.0 单独发布
+4. **权重分离**：训练权重单独管理，并在发布前按实际许可事实审阅
 
 摘自 `docs/legal/OPEN_SOURCE.md`：
 
-> Ultralytics 记录为 AGPL-3.0-only。除分发问题外，AGPL 还可能要求向通过网络与修改后的受涵盖程序交互的用户提供对应源代码。项目因此保持使用隔离，固定上游源，并在形成特定任务的来源记录前阻止下载模型权重。
+> Ultralytics 记录为 AGPL-3.0-only。除分发问题外，AGPL 在特定事实下还可能要求向通过网络与修改后的受涵盖程序交互的用户提供对应源代码。项目因此保持使用隔离，固定上游源，并在形成特定任务的来源记录前阻止下载模型权重；隔离本身不决定组合工件是否属于衍生作品或组合作品。
 
 ### 2.4 验证
 
@@ -119,7 +119,7 @@ dependencies = [
 模式解析器在加载时强制执行该固定值：
 
 ```python
-# 摘自 schema.py（第 170-172 行）
+# From schema.py (lines 170-172)
 if training_provider != TrainingProvider(
     ULTRALYTICS_REPOSITORY, ULTRALYTICS_REVISION, ULTRALYTICS_LICENSE
 ):
@@ -206,7 +206,7 @@ def sha256_file(path: Path) -> str:
 ### 5.1 ONNX 导出
 
 ```bash
-# 试运行（仅验证计划，不执行实际导出）
+# Dry-run (validates plan only, no actual export)
 PYTHONPATH=ml/yolo/src ./.venv/bin/python -m yolo_contract.cli export \
   --model ml/yolo/models/v1/model-manifest.json \
   --format onnx \
@@ -255,7 +255,7 @@ exporter.add_argument("--dry-run", action="store_true")
 导出后验证：
 
 ```bash
-# 根据数据集验证模型
+# Validate model against dataset
 PYTHONPATH=ml/yolo/src ./.venv/bin/python -m yolo_contract.cli validate \
   --dataset ml/yolo/datasets/v1/dataset-manifest.json \
   --model ml/yolo/models/v1/model-manifest.json \

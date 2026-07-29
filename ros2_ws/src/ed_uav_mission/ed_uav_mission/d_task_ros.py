@@ -29,6 +29,7 @@ from ed_uav_mission.d_task_events import (
     VehicleSnapshot,
 )
 from ed_uav_mission.d_task_inputs import (
+    adapt_contact_message,
     adapt_target_observation,
     adapt_vehicle_telemetry,
 )
@@ -47,7 +48,6 @@ from ed_uav_mission.mission_model import CompetitionParams
 from ed_uav_mission.touchdown import (
     ContactObservation,
     TouchdownUpdate,
-    adapt_payload_contact_state,
 )
 
 
@@ -69,7 +69,7 @@ class DTaskRosBoundary:
         self._localization_valid = localization_valid
         self._selection_store = SelectionStore()
         self._events: deque[DTaskEvent] = deque(maxlen=256)
-        self._waiter: Future[DTaskEvent] | None = None
+        self._waiter: Future | None = None
         self._latest_vehicle: VehicleSnapshot | None = None
         self._latest_target: TargetSnapshot | None = None
         self._latest_contact: ContactObservation | None = None
@@ -138,12 +138,23 @@ class DTaskRosBoundary:
     async def next_event(self) -> DTaskEvent:
         if self._events:
             return self._events.popleft()
-        waiter = Future[DTaskEvent]()
+        waiter = Future()
         self._waiter = waiter
         try:
-            return await waiter
+            event = await waiter
         finally:
             self._waiter = None
+        match event:
+            case (
+                Tick()
+                | VehicleObserved()
+                | TargetObserved()
+                | ContactObserved()
+                | SafetyInterrupted()
+            ):
+                return event
+            case _:
+                raise RuntimeError("D-task event future returned an invalid value")
 
     def publish_status(self, phase: DTaskPhase, route_stage: RouteStage, reason: str) -> None:
         message = MissionStatus()
@@ -195,7 +206,7 @@ class DTaskRosBoundary:
     def _on_contact(self, message: PayloadContactState) -> None:
         now_s = steady_now_sec()
         self._payload_state = PayloadState(message.payload_state)
-        contact = adapt_payload_contact_state(message, now_s)
+        contact = adapt_contact_message(message, now_s)
         self._latest_contact = contact
         target_at = self._latest_target.observed_at_s if self._latest_target else -math.inf
         vehicle_at = self._latest_vehicle.observed_at_s if self._latest_vehicle else -math.inf

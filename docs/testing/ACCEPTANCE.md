@@ -46,15 +46,15 @@
 
 | 阶段 | 命令 | 成功标记 | 证据和调试用途 |
 |---|---|---|---|
-| 静态表面 | `bash tools/run_offline_static.sh` | `STATIC_OFFLINE_GREEN` | 合约、启动配置、接口、聚焦测试和旧版一致性日志。首先用于隔离静态和环境失败。 |
+| 静态检查 | `bash tools/run_offline_static.sh` | `STATIC_OFFLINE_GREEN` | 合约、启动配置、接口、聚焦测试和旧版一致性日志。首先用于隔离静态和环境失败。 |
 | 墙钟时间仿真 | `bash tools/run_offline_sim.sh` | `SIM_OFFLINE_GREEN` | 构建和实时仿真日志，检查确定性的墙钟时间合成图。 |
 | WSLg RViz | `bash tools/run_offline_rviz.sh` | `RVIZ_OFFLINE_GREEN` | 打包配置、RViz 进程和启动日志，检查可视化启动及显示连接。 |
-| FCU 空运行 | `bash tools/run_offline_fcu_dry_run.sh` | `FCU_DRY_RUN_GREEN` | 虚假 PTY 和真实桥接日志，检查遥测、成帧、PTY 清理和关闭。 |
+| FCU 空运行 | `bash tools/run_offline_fcu_dry_run.sh` | `FCU_DRY_RUN_GREEN` | 伪 PTY 和真实桥接日志，检查遥测、成帧、PTY 清理和关闭。 |
 | 完整事件回放 | `bash tools/run_offline_full_replay.sh` | `FULL_REPLAY_GREEN` | 事件创建、bag 信息、回放、构建和测试日志，检查 `/verification/events` 回放生命周期。 |
 
 实时确定性仿真只使用墙钟时间，因为该表面没有 `/clock`，因此拒绝 `use_sim_time=true`。RViz 阶段通过 `HUMBLE_GUI=1` 使用 WSLg，显示仅用于可视化的合成机器人几何体、TF、激光点和两幅图像。在存在授权 TF 所有者前，不显示里程计。
 
-rosbag 输出仅包含 `/verification/events`，属于事件回放，不是传感器回放或飞行回放。FCU 空运行使用虚假 PTY 和真实桥接，不使用 `/dev/ttyUSB*`，不建立 HIL、硬件或飞行验收。
+rosbag 输出仅包含 `/verification/events`，属于事件回放，不是传感器回放或飞行回放。FCU 空运行使用伪 PTY 和真实桥接，不使用 `/dev/ttyUSB*`，不建立 HIL、硬件或飞行验收。
 
 当前收据位于 `.omo/evidence/offline-integration/`，用于补充下述原始里程碑结果，不替代或重新编号历史测试总数。阶段证据包括 `wall-time/`、`rviz/`、`rviz-visual/`、`rosbag/`、`fcu-final/` 以及 `scripts/` 下的带时间戳运行目录。
 
@@ -295,6 +295,8 @@ tools/check_flight_readiness.py --bom docs/hardware/BOM.json --measurements <dat
 
 ## 7. 资源预算门禁
 
+### 7.1 内存增长
+
 来自 `ed_uav_verification/test/resource/test_memory_growth.py`：
 
 | 条件 | 阈值 | 测试 |
@@ -302,6 +304,8 @@ tools/check_flight_readiness.py --bom docs/hardware/BOM.json --measurements <dat
 | 预热后的堆增长 | <3× | 10 分钟 soak × 2 |
 | RSS 有界 | 低于 50 个周期 | 周期测试 |
 | 事件大小成比例 | 随 ticks | 成比例检查 |
+
+### 7.2 磁盘保留
 
 来自 `ed_uav_verification/test/resource/test_disk_reserve.py`：
 
@@ -311,6 +315,8 @@ tools/check_flight_readiness.py --bom docs/hardware/BOM.json --measurements <dat
 | 夹具 bag 大小 | <10 MiB | 大小检查 |
 | 部分写入清理 | 无遗留 `.partial` | 清理检查 |
 | 文件描述符泄漏 | 0 | 泄漏检查 |
+
+### 7.3 CPU 争用
 
 来自 `ed_uav_verification/test/resource/test_cpu_contention.py`：
 
@@ -324,13 +330,17 @@ tools/check_flight_readiness.py --bom docs/hardware/BOM.json --measurements <dat
 
 ## 8. 故障注入门禁
 
+### 8.1 时间戳回退
+
 来自 `ed_uav_verification/test/faults/test_timestamp_regression.py`：
 
 | 故障 | 预期行为 |
 |---|---|
 | 非单调时间戳 | 检测并拒绝 |
-| 回退后恢复 | survivor 流逐字节一致 |
+| 回退后恢复 | 未受故障影响的数据流逐字节一致 |
 | 有界回退 | 跟踪幅度 |
+
+### 8.2 激光雷达静默
 
 来自 `ed_uav_verification/test/faults/test_lidar_silence.py`：
 
@@ -342,6 +352,8 @@ tools/check_flight_readiness.py --bom docs/hardware/BOM.json --measurements <dat
 | 检测延迟 | 有界 |
 | 死锁 | 无 |
 
+### 8.3 相机热拔出
+
 来自 `ed_uav_verification/test/faults/test_camera_hot_unplug.py`：
 
 | 故障 | 预期行为 |
@@ -350,6 +362,8 @@ tools/check_flight_readiness.py --bom docs/hardware/BOM.json --measurements <dat
 | 流隔离 | 不损坏激光雷达 |
 | 接受陈旧数据 | 不接受 |
 | 电机切断 | 不发生 |
+
+### 8.4 串口碎片
 
 来自 `ed_uav_verification/test/faults/test_serial_fragmentation.py`：
 
@@ -360,6 +374,8 @@ tools/check_flight_readiness.py --bom docs/hardware/BOM.json --measurements <dat
 | 长度损坏 | 拒绝 |
 | 交错垃圾 | 拒绝 |
 | PTY 超时 | 无死锁 |
+
+### 8.5 关闭中断
 
 来自 `ed_uav_verification/test/faults/test_shutdown_interruption.py`：
 

@@ -96,8 +96,8 @@ Livox Mid-360 → livox_ros_driver2 → /livox/lidar (CustomMsg)
 | 状态 | 条件 |
 |---|---|
 | `LOST` | 从未收到消息、协方差非有限、协方差对角线大于 1e6，或超过 1.0 s 未收到消息 |
-| `DEGRADED` | 年龄大于 `max_age_degraded`（0.5 s），或年龄大于 `max_age_active`（LIO 为 0.15 s，视觉为 0.20 s），或发生时间回退 |
-| `ACTIVE` | 数据新鲜、协方差有限且年龄在阈值内 |
+| `DEGRADED` | 数据年龄大于 `max_age_degraded`（0.5 s），或数据年龄大于 `max_age_active`（LIO 为 0.15 s，视觉为 0.20 s），或发生时间回退 |
+| `ACTIVE` | 数据新鲜、协方差有限且数据年龄在阈值内 |
 
 ---
 
@@ -146,8 +146,8 @@ Camera (wide) → /camera/wide/image_raw
 
 ### 4.1 状态机
 
-实现于 `decide_source_switch()`，这是纯函数；相关测试位于
-`test_source_supervisor.py`。
+实现于 `decide_source_switch()`，这是纯函数，由
+`test_source_supervisor.py` 中的 17 项单元测试覆盖。
 
 ```
                     ┌─────────────┐

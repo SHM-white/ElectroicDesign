@@ -3,15 +3,48 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
-from ed_uav_interfaces.msg import TargetObservation, VehicleTelemetry
+from ed_uav_interfaces.msg import (
+    PayloadContactState,
+    TargetObservation,
+    VehicleTelemetry,
+)
 
 from ed_uav_mission.d_task_events import TargetSnapshot, VehicleSnapshot
 from ed_uav_mission.d_task_model import RouteStage
+from ed_uav_mission.touchdown import ContactObservation, adapt_payload_contact_state
 
 
 class DTaskInputError(ValueError):
     """A ROS contract could not be adapted into the mission domain."""
+
+
+@dataclass(frozen=True, slots=True)
+class ContactMessageShape:
+    contract_version: int
+    source_sequence: int
+    contact_state: int
+    contact_stable: bool
+    owner: str
+    frame_id: str
+
+
+def adapt_contact_message(
+    message: PayloadContactState,
+    observed_at_s: float,
+) -> ContactObservation:
+    return adapt_payload_contact_state(
+        ContactMessageShape(
+            contract_version=int(message.contract_version),
+            source_sequence=int(message.source_sequence),
+            contact_state=int(message.contact_state),
+            contact_stable=bool(message.contact_stable),
+            owner=str(message.owner),
+            frame_id=str(message.frame_id),
+        ),
+        observed_at_s,
+    )
 
 
 def adapt_vehicle_telemetry(

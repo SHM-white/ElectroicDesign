@@ -12,7 +12,8 @@ from nav2_msgs.action import ComputePathToPose
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.time import Time
-from tf2_ros import Buffer, TransformException, TransformListener
+from tf2_ros import Buffer, TransformListener
+from tf2_ros.buffer_interface import TransformException
 
 from ed_uav_mission.action_lifecycle import (
     MissionCancelled,

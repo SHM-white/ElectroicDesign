@@ -5,12 +5,11 @@
 
 ## 令牌
 
-- Canvas `#F4F4F4`, surface `#FFFFFF`, subtle `#E8E8E8`, border `#C6C6C6`.
-- Masthead `#161616`, primary text `#161616`, secondary `#525252`.
-- Interactive `#0F62FE`, pressed `#0353E9`, success `#198038`, warning
-  `#F1C21B`, error `#DA1E28`.
-- 8 px spacing grid, sharp corners, 800x480 target canvas, 48 px minimum
-  touch targets, built-in-style sans text with stable numeric columns.
+- 画布 `#F4F4F4`，界面 `#FFFFFF`，细微界面 `#E8E8E8`，边框 `#C6C6C6`。
+- 页眉 `#161616`，主要文字 `#161616`，次要文字 `#525252`。
+- 交互 `#0F62FE`，按下 `#0353E9`，成功 `#198038`，警告 `#F1C21B`，错误 `#DA1E28`。
+- 使用 8 px 间距网格、直角、800x480 目标画布和至少 48 px 的触摸目标；文字采用
+  内置风格的无衬线样式，并保持数字列宽稳定。
 
 ## 界面
 

@@ -37,7 +37,7 @@ ODOM_TOPIC=/localization/odom \
 `/localization/odom` 缺失、类型错误、没有发布者或在限定时间内没有消息，先修复现场链路；运行器
 会在开始采集前退出且不会报告指标。
 
-已构建且 `ros2_ws/install/setup.bash` 存在的工作区可跳过重复构建：
+已构建且 `ros2_ws/install/setup.bash` 存在的工作空间可跳过重复构建：
 
 ```bash
 ED_ODOMETRY_DEMO_SKIP_BUILD=1 ./tools/run_lidar_odometry.sh

@@ -147,15 +147,15 @@ idf.py -C embedded/ground_station_esp32s3/firmware -p COM12 flash
 
 ## Waveshare 官方参考
 
-- Board overview, specifications, pin mapping, and interface sharing:
+- 板卡概览、规格、引脚映射和接口复用：
   https://docs.waveshare.net/ESP32-S3-Touch-LCD-7/
-- Windows ESP-IDF setup and official board examples:
+- Windows ESP-IDF 设置和官方板卡示例：
   https://docs.waveshare.net/ESP32-S3-Touch-LCD-7/Development-Environment-Setup-ESP-IDF
-- Usage notes, BOOT recovery, CH422G/I2C restrictions, and LVGL guidance:
+- 使用说明、BOOT 恢复、CH422G/I2C 限制和 LVGL 指南：
   https://docs.waveshare.net/ESP32-S3-Touch-LCD-7/Instructions-For-Use
-- Vendor binary flashing and recovery procedure:
+- 厂商二进制烧录和恢复流程：
   https://docs.waveshare.net/ESP32-S3-Touch-LCD-7/Firmware-Flashing
-- Schematic, datasheets, board drawings, and demo archive:
+- 原理图、数据手册、板卡图纸和演示归档：
   https://docs.waveshare.net/ESP32-S3-Touch-LCD-7/Resources-And-Documents
 
 ## 验证限制
@@ -175,12 +175,12 @@ ROS 和视觉的新鲜度时长。重启和失去权威会使 HMI 返回锁定�
 
 显示和触摸是明确的 `DisplayPort` 和 `TouchPort` 接口。草图使用仅串行的未接线显示，
 不猜测面板控制器或触摸引脚。确定性的浏览器参考是
-[`arduino_preview/index.html`](arduino_preview/index.html); it mirrors the
+[`arduino_preview/index.html`](arduino_preview/index.html)；它复现
 800x480 几何布局，并包含用于受限 CJK 换行检查的双语标签。
 
 此同级项目的 Arduino CLI 固定项为 `esp32:esp32@3.2.0`、FQBN
 `esp32:esp32:esp32s3`、内置 `WiFi`/`WiFiUDP`，以及本地
-`EDSharedProtocol@1.0.0` plus `EDGroundStationHmi@1.0.0` libraries:
+`EDSharedProtocol@1.0.0` 和 `EDGroundStationHmi@1.0.0` 本地库：
 
 ```text
 arduino-cli compile --fqbn esp32:esp32:esp32s3 --libraries embedded/shared_protocol --libraries embedded/ground_station_esp32s3/arduino_hmi embedded/ground_station_esp32s3/arduino_sketch
