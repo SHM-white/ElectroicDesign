@@ -14,29 +14,49 @@ from pathlib import Path
 
 import rclpy
 from action_msgs.msg import GoalStatus
+from ed_uav_interfaces.action import ExecuteMission, FlightCommand
+from ed_uav_interfaces.msg import FcuState, LocalizationStatus
+from ed_uav_localization.field_profile.loader import load_profile_text
+from ed_uav_localization.field_profile.model import KnownFieldProfile
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
 from rclpy.action.server import ServerGoalHandle
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 
-from ed_uav_interfaces.action import ExecuteMission, FlightCommand
-from ed_uav_interfaces.msg import FcuState, LocalizationStatus
-from ed_uav_localization.field_profile.loader import load_profile_text
-from ed_uav_localization.field_profile.model import KnownFieldProfile
-
-from ed_uav_mission.mission_model import (
-    MISSION_SCHEMA, MissionConfig, MissionType, Waypoint,
+from ed_uav_mission.action_lifecycle import (
+    MissionCancelled,
+    MissionDeadline,
+    MissionTimeout,
+    steady_now_sec,
+    wait_with_deadline,
 )
+from ed_uav_mission.competition_runtime import (
+    CompetitionCallbacks,
+    CompetitionRuntime,
+)
+from ed_uav_mission.d_task_capability import evaluate_d_task_capability
+from ed_uav_mission.d_task_events import TargetSnapshot, VehicleSnapshot
+from ed_uav_mission.d_task_model import (
+    DTaskFault,
+    DTaskPhase,
+    DTaskTransition,
+    RouteStage,
+)
+from ed_uav_mission.d_task_ros import DTaskRosBoundary
 from ed_uav_mission.mission_config import (
     calibration_file_is_valid,
     load_mission_bundle,
     parse_mission_config_text,
 )
+from ed_uav_mission.mission_model import (
+    MissionConfig,
+    MissionType,
+    Waypoint,
+)
+from ed_uav_mission.payload_config import load_payload_boundary_config
 from ed_uav_mission.plugins.coverage import GridCoveragePlugin
 from ed_uav_mission.plugins.patrol import WaypointPatrolPlugin
-from ed_uav_mission.plugins.target_visit import TargetVisitPlugin
-from ed_uav_mission.plugins.terminal_landing import LandingStep, TerminalLandingPlugin
 from ed_uav_mission.plugins.payload import (
     ActuatorAcknowledged,
     FakePayloadActuator,
@@ -46,23 +66,9 @@ from ed_uav_mission.plugins.payload import (
     ReleasePhase,
     ReleaseRejected,
 )
-from ed_uav_mission.payload_config import load_payload_boundary_config
+from ed_uav_mission.plugins.target_visit import TargetVisitPlugin
+from ed_uav_mission.plugins.terminal_landing import LandingStep, TerminalLandingPlugin
 from ed_uav_mission.state_machine import MissionFSM, MissionState
-from ed_uav_mission.competition_runtime import (
-    CompetitionCallbacks,
-    CompetitionRuntime,
-)
-from ed_uav_mission.d_task_capability import evaluate_d_task_capability
-from ed_uav_mission.d_task_events import TargetSnapshot, VehicleSnapshot
-from ed_uav_mission.d_task_model import DTaskFault, DTaskPhase, DTaskTransition, RouteStage
-from ed_uav_mission.d_task_ros import DTaskRosBoundary
-from ed_uav_mission.action_lifecycle import (
-    MissionCancelled,
-    MissionDeadline,
-    MissionTimeout,
-    steady_now_sec,
-    wait_with_deadline,
-)
 
 
 class PreflightCode(Enum):
@@ -206,17 +212,19 @@ class MissionExecutorNode(Node):
         self._flight_client = ActionClient(
             self, FlightCommand, "/fcu/flight_command"
         )
-        from ed_uav_mission.competition_planner import CompetitionPlanner
-
-        self._competition_planner = CompetitionPlanner(
-            self,
-            self._send_move,
-            self._deadline_for_timeout,
-            self._raise_if_cancelled,
-        )
+        self._competition_planner = None
+        self._competition_runtime = None
         self._d_task_boundary = None
         if self._mission_config.mission_type == MissionType.COMPETITION:
+            from ed_uav_mission.competition_planner import CompetitionPlanner
+
             assert self._mission_config.competition is not None
+            self._competition_planner = CompetitionPlanner(
+                self,
+                self._send_move,
+                self._deadline_for_timeout,
+                self._raise_if_cancelled,
+            )
             self._d_task_boundary = DTaskRosBoundary(
                 self,
                 self._mission_config.mission_id,
@@ -224,22 +232,22 @@ class MissionExecutorNode(Node):
                 lambda: self._fsm.state == MissionState.IDLE,
                 self._localization_is_valid,
             )
-        self._competition_runtime = CompetitionRuntime(
-            CompetitionCallbacks(
-                execute_takeoff=self._execute_takeoff,
-                send_hover=self._send_hover,
-                track_target=self._track_d_task_target,
-                release_payload=self._release_d_task_payload,
-                descend_to_vehicle=self._descend_to_vehicle,
-                return_home=self._return_d_task_home,
-                land_home=self._land_d_task_home,
-                capture_home=self._competition_planner.capture_home,
-                next_event=self._next_d_task_event,
-                publish_transition=self._publish_d_task_transition,
-                now_s=steady_now_sec,
-            ),
-            self._payload_config,
-        )
+            self._competition_runtime = CompetitionRuntime(
+                CompetitionCallbacks(
+                    execute_takeoff=self._execute_takeoff,
+                    send_hover=self._send_hover,
+                    track_target=self._track_d_task_target,
+                    release_payload=self._release_d_task_payload,
+                    descend_to_vehicle=self._descend_to_vehicle,
+                    return_home=self._return_d_task_home,
+                    land_home=self._land_d_task_home,
+                    capture_home=self._competition_planner.capture_home,
+                    next_event=self._next_d_task_event,
+                    publish_transition=self._publish_d_task_transition,
+                    now_s=steady_now_sec,
+                ),
+                self._payload_config,
+            )
         self._fcu_sub = self.create_subscription(FcuState, "/fcu/state", self._on_fcu_state, 10)
         self._loc_sub = self.create_subscription(
             LocalizationStatus, "/localization/status", self._on_localization_status, 10
@@ -295,7 +303,8 @@ class MissionExecutorNode(Node):
         self.get_logger().info("Cancel requested")
         self._cancel_requested = True
         self._cancel_active_flight()
-        self._competition_planner.cancel_active()
+        if self._competition_planner is not None:
+            self._competition_planner.cancel_active()
         if self._d_task_boundary is not None:
             self._d_task_boundary.interrupt(DTaskFault.CANCELLED, "cancelled by user")
         return CancelResponse.ACCEPT
@@ -330,6 +339,8 @@ class MissionExecutorNode(Node):
             if config.mission_type == MissionType.COMPETITION:
                 if self._d_task_boundary is None or self._d_task_boundary.selection is None:
                     raise RuntimeError("committed D-task selection unavailable")
+                if self._competition_runtime is None:
+                    raise RuntimeError("D-task action runtime unavailable")
                 await self._competition_runtime.run(
                     config.competition,
                     self._d_task_boundary.selection,
@@ -455,6 +466,8 @@ class MissionExecutorNode(Node):
         vehicle: VehicleSnapshot,
         altitude_m: float,
     ) -> None:
+        if self._competition_planner is None:
+            raise RuntimeError("competition planner unavailable")
         await self._competition_planner.track_target(target, vehicle, altitude_m)
 
     async def _release_d_task_payload(
@@ -493,6 +506,8 @@ class MissionExecutorNode(Node):
         target: TargetSnapshot,
         vehicle: VehicleSnapshot,
     ) -> None:
+        if self._competition_planner is None:
+            raise RuntimeError("competition planner unavailable")
         await self._competition_planner.descend_to_vehicle(target, vehicle)
         await self._send_land()
 
@@ -500,9 +515,13 @@ class MissionExecutorNode(Node):
         config = self._mission_config
         if config is None or config.competition is None:
             raise RuntimeError("competition params unavailable")
+        if self._competition_planner is None:
+            raise RuntimeError("competition planner unavailable")
         await self._competition_planner.return_home(config.competition)
 
     async def _land_d_task_home(self, feedback: ExecuteMission.Feedback) -> None:
+        if self._competition_planner is None:
+            raise RuntimeError("competition planner unavailable")
         home = self._competition_planner.home
         await self._execute_landing(feedback, home.x_m, home.y_m, True)
 

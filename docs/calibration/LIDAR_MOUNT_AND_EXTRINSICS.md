@@ -12,19 +12,19 @@
 
 ### 当前状态
 
-| Component | File | Status |
+| 组件 | 文件 | 状态 |
 |---|---|---|
-| Lidar config | `ed_uav_lidar/config/lidar.yaml` | **Defined (disabled by default)** |
-| Mid-360 driver JSON | `ed_uav_lidar/config/mid360_driver.json` | **Placeholder** |
-| URDF/xacro | `ed_uav_description/urdf/ed_uav.urdf.xacro` | **Implemented** |
-| Calibration parser | `ed_uav_description/calibration.py` | **Implemented** |
-| TF ownership | `ed_uav_description/test/test_static_tf_ownership.py` | **Implemented** |
-| Health monitoring | `ed_uav_lidar/health.py` | **Implemented** |
-| Mid-360 adapter | `ed_uav_lidar/mid360_adapter.py` | **Implemented** |
-| Launch plan | `ed_uav_lidar/launch_plan.py` | **Implemented** |
-| Physical mount | — | **Not implemented (hardware pending)** |
-| PTP configuration | — | **Not implemented** |
-| Vibration testing | — | **Not implemented** |
+| 激光雷达配置 | `ed_uav_lidar/config/lidar.yaml` | **已定义（默认禁用）** |
+| Mid-360 驱动 JSON | `ed_uav_lidar/config/mid360_driver.json` | **占位文件** |
+| URDF/xacro | `ed_uav_description/urdf/ed_uav.urdf.xacro` | **已实现** |
+| 标定解析器 | `ed_uav_description/calibration.py` | **已实现** |
+| TF 所有权 | `ed_uav_description/test/test_static_tf_ownership.py` | **已实现** |
+| 健康监测 | `ed_uav_lidar/health.py` | **已实现** |
+| Mid-360 适配器 | `ed_uav_lidar/mid360_adapter.py` | **已实现** |
+| 启动计划 | `ed_uav_lidar/launch_plan.py` | **已实现** |
+| 物理安装 | — | **尚未实现（硬件待完成）** |
+| PTP 配置 | — | **尚未实现** |
+| 振动测试 | — | **尚未实现** |
 
 ---
 
@@ -32,40 +32,40 @@
 
 ### 2.1 物理安装
 
-| Requirement | Specification | Rationale |
+| 要求 | 规格 | 原因 |
 |---|---|---|
-| Mount surface | Rigid upper plate, metal heat spreader | Thermal management |
-| Plate thickness | ≥3 mm | Structural rigidity |
-| Exposed area | ≥10,000 mm² | Heat dissipation |
-| Airflow clearance | ≥10 mm around sensor | Convective cooling |
-| Orientation | Bottom-surface mount (laser pointing down) | FOV optimization |
-| Payload | No payload attached to sensor body | Vibration isolation |
-| Vibration | Rigid mount preferred | Signal quality |
+| 安装表面 | 刚性上板、金属散热板 | 热管理 |
+| 板厚 | ≥3 mm | 结构刚度 |
+| 暴露面积 | ≥10,000 mm² | 散热 |
+| 气流间隙 | 传感器周围 ≥10 mm | 对流冷却 |
+| 朝向 | 底面安装（激光向下） | FOV 优化 |
+| 载荷 | 传感器本体不得连接载荷 | 隔离振动 |
+| 振动 | 优先使用刚性安装 | 信号质量 |
 
 ### 2.2 安装位置
 
 Mid-360 应安装：
-- At the center of mass (CoM) or as close as possible
-- Above the propeller plane to minimize occlusion
-- Away from motors and ESCs to reduce EMI
-- With clear line of sight below for ground detection
+ - 位于质心（CoM）或尽可能靠近质心
+ - 位于螺旋桨平面上方，以尽量减少遮挡
+ - 远离电机和 ESC，以降低 EMI
+ - 下方视线清晰，用于地面检测
 
 ### 2.3 热管理
 
-| Parameter | Value | Source |
+| 参数 | 值 | 来源 |
 |---|---|---|
-| Average power | 6.5 W | Mid-360 datasheet |
-| Cold self-heating peak | 14 W | Mid-360 datasheet |
-| Shell temperature limit | ≤70°C | Mid-360 datasheet |
-| Thermal throttling | None (sensor continues at reduced accuracy) | Mid-360 datasheet |
+| 平均功耗 | 6.5 W | Mid-360 数据表 |
+| 冷启动自发热峰值 | 14 W | Mid-360 数据表 |
+| 外壳温度上限 | ≤70°C | Mid-360 数据表 |
+| 热降频 | 无（传感器继续运行但精度降低） | Mid-360 数据表 |
 
 散热板必须在峰值 14W 时仍能散热，且外壳温度不得超过 70°C。长时间运行时使用板载
 温度传感器监测。
 
-From `ed_uav_lidar/config/lidar.yaml`:
+来源：`ed_uav_lidar/config/lidar.yaml`：
 
 ```yaml
-# Health thresholds (to be configured for hardware)
+# 健康阈值（待根据硬件配置）
 # temperature_warn_c: 60
 # temperature_error_c: 70
 ```
@@ -77,38 +77,38 @@ From `ed_uav_lidar/config/lidar.yaml`:
 ### 3.1 Mid-360 FOV
 
 Mid-360 的 FOV 为 **360° × 59°**：
-- Horizontal: 360° (full rotation)
-- Vertical: 59° (29.5° above and below horizontal)
+ - 水平：360°（完整旋转）
+ - 垂直：59°（水平线上下各 29.5°）
 
 ### 3.2 遮挡要求
 
 遮挡分析必须验证：
 
-| Requirement | Threshold | Verification |
+| 要求 | 阈值 | 验证 |
 |---|---|---|
-| Horizontal sector blockage | No sector >15° blocked | FOV analysis |
-| Prop guard intrusion | None during hover | Static measurement |
-| Landing gear occlusion | No persistent occlusion | Dynamic analysis |
-| Camera body intrusion | Outside lidar FOV | CAD analysis |
+| 水平扇区遮挡 | 不得有 >15° 的扇区被遮挡 | FOV 分析 |
+| 螺旋桨保护圈侵入 | 悬停期间不得有侵入 | 静态测量 |
+| 起落架遮挡 | 不得有持续遮挡 | 动态分析 |
+| 相机机身侵入 | 位于激光雷达 FOV 外 | CAD 分析 |
 
 ### 3.3 遮挡来源
 
-| Source | Risk | Mitigation |
+| 来源 | 风险 | 缓解措施 |
 |---|---|---|
-| Prop guards | High (near propellers) | Design clearance |
-| Landing gear | Medium (below CoM) | Retractable or slim design |
-| Camera bodies | Low (side-mounted) | Mount outside FOV |
-| Wiring | Low | Route away from FOV |
-| Frame arms | Medium (depends on design) | Minimize arm thickness |
+| 螺旋桨保护圈 | 高（靠近螺旋桨） | 设计间隙 |
+| 起落架 | 中（位于质心下方） | 可收起或采用纤细设计 |
+| 相机机身 | 低（侧装） | 安装在 FOV 外 |
+| 线缆 | 低 | 避开 FOV 布线 |
+| 机架臂 | 中（取决于设计） | 尽量减小臂厚度 |
 
 ### 3.4 FOV 验证流程
 
-1. Mount sensor on airframe
-2. Place airframe on level surface
-3. Capture 360° point cloud
-4. Analyze horizontal sectors for gaps
-5. Verify no sector >15° is blocked by contiguous structure
-6. Document occlusion map
+1. 将传感器安装到机架
+2. 将机架放在水平表面
+3. 采集 360° 点云
+4. 分析水平扇区中的间隙
+5. 验证没有扇区 >15° 被连续结构遮挡
+6. 记录遮挡图
 
 ---
 
@@ -116,7 +116,7 @@ Mid-360 的 FOV 为 **360° × 59°**：
 
 ### 4.1 TF 树结构
 
-From `ros2_contract_manifest.json`:
+来源：`ros2_contract_manifest.json`：
 
 ```
 map → odom → base_link → lidar_link
@@ -146,14 +146,14 @@ From `ros2_contract_manifest.json`:
 
 ### 4.3 动态坐标系
 
-| Edge | Publisher | Topic |
+| 边 | 发布者 | 主题 |
 |---|---|---|
 | `map → odom` | `ed_uav_localization.field_anchor` | `/tf_static` |
 | `odom → base_link` | `ed_uav_localization.source_supervisor` | `/tf` |
 
 ### 4.4 URDF 定义
 
-From `ed_uav_description/urdf/ed_uav.urdf.xacro`:
+来源：`ed_uav_description/urdf/ed_uav.urdf.xacro`：
 
 ```xml
 <link name="lidar_link"/>
@@ -164,8 +164,7 @@ From `ed_uav_description/urdf/ed_uav.urdf.xacro`:
 </joint>
 ```
 
-The `lidar_xyz` and `lidar_rpy` arguments are populated from the calibration
-YAML during launch.
+启动时，`lidar_xyz` 和 `lidar_rpy` 参数从标定 YAML 填充。
 
 ---
 
@@ -173,7 +172,7 @@ YAML during launch.
 
 ### 5.1 标定 YAML 格式
 
-From `ed_uav_description/config/synthetic_calibrated.yaml`:
+来源：`ed_uav_description/config/synthetic_calibrated.yaml`：
 
 ```yaml
 schema_version: 1
@@ -194,32 +193,32 @@ transforms:
 
 ### 5.2 变换字段
 
-| Field | Type | Description |
+| 字段 | 类型 | 描述 |
 |---|---|---|
-| `xyz_m` | [x, y, z] | Position offset from `base_link` in meters |
-| `rpy_rad` | [roll, pitch, yaw] | Orientation offset in radians |
+| `xyz_m` | [x, y, z] | 相对于 `base_link` 的位置偏移，单位为米 |
+| `rpy_rad` | [roll, pitch, yaw] | 姿态偏移，单位为弧度 |
 
 ### 5.3 标准安装值
 
-For a standard bottom-surface mount with laser pointing down:
+对于激光向下的标准底面安装：
 
-| Frame | xyz_m | rpy_rad | Notes |
+| 坐标系 | xyz_m | rpy_rad | 说明 |
 |---|---|---|---|
-| `lidar_link` | [0.0, 0.0, 0.15] | [0.0, 0.0, 0.0] | 15cm above CoM, identity rotation |
-| `fcu_link` | [0.0, 0.0, 0.0] | [0.0, 0.0, 0.0] | At CoM |
-| `rangefinder_link` | [0.0, 0.0, -0.06] | [0.0, 0.0, 0.0] | 6cm below CoM |
+| `lidar_link` | [0.0, 0.0, 0.15] | [0.0, 0.0, 0.0] | 质心上方 15cm，单位旋转 |
+| `fcu_link` | [0.0, 0.0, 0.0] | [0.0, 0.0, 0.0] | 位于质心 |
+| `rangefinder_link` | [0.0, 0.0, -0.06] | [0.0, 0.0, 0.0] | 质心下方 6cm |
 
 ### 5.4 标定流程
 
-1. Mount sensor rigidly on airframe
-2. Measure physical offset from `base_link` origin to sensor center
-3. Measure physical rotation (should be identity for standard mount)
-4. Update calibration YAML with measured values
-5. Set `calibration_status: CALIBRATED`
-6. Run `check_urdf` to verify TF tree
-7. Capture static TF and compare with expected values
+1. 将传感器刚性安装到机架
+2. 测量 `base_link` 原点到传感器中心的物理偏移
+3. 测量物理旋转（标准安装应为单位旋转）
+4. 用实测值更新标定 YAML
+5. 设置 `calibration_status: CALIBRATED`
+6. 运行 `check_urdf` 验证 TF 树
+7. 采集静态 TF 并与预期值比较
 
-From `ed_uav_description/calibration.py`:
+来源：`ed_uav_description/calibration.py`：
 
 ```python
 SENSOR_NAMES: Final = ("camera_narrow", "camera_wide", "lidar")
@@ -238,7 +237,7 @@ FRAME_NAMES: Final = (
 
 ### 6.1 时间权威模式
 
-From `ed_uav_lidar/config.py`:
+来源：`ed_uav_lidar/config.py`：
 
 ```python
 class TimeAuthority(str, Enum):
@@ -246,17 +245,17 @@ class TimeAuthority(str, Enum):
     PTP = "ptp"
 ```
 
-| Mode | Status Code | Description |
+| 模式 | 状态码 | 描述 |
 |---|---|---|
-| `host` | `HOST_TIME_UNVERIFIED` | Sensor uses host system time |
-| `ptp` | `PTP_CONFIGURED_UNVERIFIED` | Sensor clock synchronized to PTP master |
+| `host` | `HOST_TIME_UNVERIFIED` | 传感器使用主机系统时间 |
+| `ptp` | `PTP_CONFIGURED_UNVERIFIED` | 传感器时钟与 PTP 主时钟同步 |
 
-**Note**: Neither mode claims measured synchronization. Both report UNVERIFIED
-status until hardware validation (Task 24).
+**注意**：两种模式都不声称已经完成实测同步。在硬件验证（Task 24）前，两者都报告
+UNVERIFIED 状态。
 
 ### 6.2 PTP 配置
 
-The Mid-360 supports PTPv2 (IEEE 1588) for time synchronization.
+Mid-360 支持使用 PTPv2（IEEE 1588）进行时间同步。
 
 From `ed_uav_lidar/config/lidar.yaml`:
 
@@ -268,22 +267,22 @@ From `ed_uav_lidar/config/lidar.yaml`:
 
 ### 6.3 PTP 设置要求
 
-To enable PTP:
+启用 PTP：
 
-1. **Network**: Mid-360 connected via Ethernet to host
-2. **PTP master**: Host runs ptp4l as master
-3. **PHC sync**: phc2sys synchronizes host clock to PTP hardware clock
-4. **Verification**: PTP offset ≤1 ms
+1. **网络**：Mid-360 通过以太网连接到主机
+2. **PTP 主时钟**：主机运行 ptp4l 作为主时钟
+3. **PHC 同步**：phc2sys 将主机时钟同步到 PTP 硬件时钟
+4. **验证**：PTP 偏移 ≤1 ms
 
 ```bash
-# Example PTP setup (to be verified with hardware)
+# PTP 设置示例（需使用硬件验证）
 sudo ptp4l -i eth0 -m -S &
 sudo phc2sys -s eth0 -c CLOCK_REALTIME -w &
 ```
 
 ### 6.4 时间验证
 
-From `ed_uav_lidar/health.py`:
+来源：`ed_uav_lidar/health.py`：
 
 ```python
 def evaluate_health(
@@ -301,12 +300,12 @@ def evaluate_health(
     return HealthReport(code="LIDAR_ACTIVE", active=True)
 ```
 
-Health states:
-- `LIDAR_ACTIVE` — All timestamps fresh
-- `LIDAR_POINT_STALE` — Point cloud timestamp stale
-- `LIDAR_IMU_STALE` — IMU timestamp stale
-- `LIDAR_DRIVER_TIMEOUT` — Driver heartbeat stale
-- `LIDAR_DRIVER_DEAD` — Driver process exited
+健康状态：
+- `LIDAR_ACTIVE` — 所有时间戳均为新鲜
+- `LIDAR_POINT_STALE` — 点云时间戳过期
+- `LIDAR_IMU_STALE` — IMU 时间戳过期
+- `LIDAR_DRIVER_TIMEOUT` — 驱动心跳过期
+- `LIDAR_DRIVER_DEAD` — 驱动进程已退出
 
 ---
 
@@ -314,7 +313,7 @@ Health states:
 
 ### 7.1 激光雷达配置
 
-From `ed_uav_lidar/config/lidar.yaml`:
+来源：`ed_uav_lidar/config/lidar.yaml`：
 
 ```yaml
 /lidar_transport:
@@ -333,7 +332,7 @@ From `ed_uav_lidar/config/lidar.yaml`:
 
 ### 7.2 Mid-360 驱动 JSON
 
-From `ed_uav_lidar/config/mid360_driver.json`:
+来源：`ed_uav_lidar/config/mid360_driver.json`：
 
 ```json
 {
@@ -372,7 +371,7 @@ From `ed_uav_lidar/config/mid360_driver.json`:
 
 ### 7.3 现场配置门控
 
-From `ed_uav_lidar/config.py`:
+来源：`ed_uav_lidar/config.py`：
 
 ```python
 def _field_check(config: LidarConfig) -> FieldCheck:
@@ -395,10 +394,10 @@ def _field_check(config: LidarConfig) -> FieldCheck:
 ```
 
 在以下条件满足前，系统拒绝启动 Livox 驱动：
-- `serial_number` is not `UNSET`
-- `sensor_ip` is not `0.0.0.0`
-- `firmware_version` is not `UNSET`
-- `driver_config_path` is not the built-in placeholder
+- `serial_number` 不是 `UNSET`
+- `sensor_ip` 不是 `0.0.0.0`
+- `firmware_version` 不是 `UNSET`
+- `driver_config_path` 不是内置占位配置
 
 ---
 
@@ -406,7 +405,7 @@ def _field_check(config: LidarConfig) -> FieldCheck:
 
 ### 8.1 启动计划
 
-From `ed_uav_lidar/launch_plan.py`:
+来源：`ed_uav_lidar/launch_plan.py`：
 
 ```python
 def build_launch_plan(config: LidarConfig) -> LaunchPlan:
@@ -465,7 +464,7 @@ Livox Mid-360 (hardware)
 
 ### 8.3 主题所有权
 
-From `ros2_contract_manifest.json`:
+来源：`ros2_contract_manifest.json`：
 
 ```json
 {
@@ -486,7 +485,7 @@ From `ros2_contract_manifest.json`:
 
 ### 9.1 Mid-360 CustomMsg
 
-From `ed_uav_lidar/contracts.py`:
+来源：`ed_uav_lidar/contracts.py`：
 
 ```python
 MONITORING_FIELDS = ("x", "y", "z", "intensity", "offset_time")
@@ -503,7 +502,7 @@ class LivoxPoint(Protocol):
 
 ### 9.2 规范化
 
-The `mid360_adapter` converts Livox CustomMsg to standard PointCloud2:
+`mid360_adapter` 将 Livox CustomMsg 转换为标准 PointCloud2：
 
 ```python
 fields = (
@@ -533,10 +532,10 @@ def validate_offset_times(offset_times_ns: Sequence[int]) -> tuple[int, ...]:
     return offsets
 ```
 
-Error conditions:
-- `MissingPointTiming` — Per-point offset_time is required
-- `PointTimeRegression` — offset_time regression detected
-- `PacketShapeError` — Declared point count mismatch
+错误条件：
+- `MissingPointTiming` — 每个点都必须有 offset_time
+- `PointTimeRegression` — 检测到 offset_time 回退
+- `PacketShapeError` — 声明的点数不匹配
 
 ---
 

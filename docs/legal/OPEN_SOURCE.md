@@ -8,13 +8,13 @@
 
 ## 调用边界
 
-Livox ROS Driver 2 and FAST-LIO remain independently imported and launched from `ros2_ws/src/third_party`. Project-owned `ed_*` packages communicate only through declared ROS interfaces and must not copy their sources. Future Ultralytics training/export runs remain in the isolated `ml/yolo` environment; ROS runtime code consumes provider-neutral outputs and must not import Ultralytics.
+Livox ROS Driver 2 和 FAST-LIO 仍从 `ros2_ws/src/third_party` 独立导入和启动。项目自有的 `ed_*` 软件包只能通过已声明的 ROS 接口通信，不得复制其源代码。未来的 Ultralytics 训练/导出仍在隔离的 `ml/yolo` 环境中运行；ROS 运行时代码消费与提供方无关的输出，不得导入 Ultralytics。
 
 这些独立进程边界保留了技术所有权和可追溯性。但仅凭这些边界，不能判断组合工件是否构成任何许可证下的衍生作品或组合作品；该问题需要基于具体事实进行法律审阅。
 
 ## 著作权左派审阅要点
 
-FAST-LIO is recorded as GPL-2.0-only. Distribution of the covered program or a modified/combined artifact can create notice, license-text, and corresponding-source obligations. Ultralytics is recorded as AGPL-3.0-only. In addition to distribution questions, AGPL can require an offer of corresponding source to users who interact with a modified covered program over a network. The project therefore keeps its use isolated, pins the upstream source, and blocks model-weight downloads until task-specific provenance exists.
+FAST-LIO 记录为 GPL-2.0-only。分发受涵盖程序或经修改/组合的工件，可能产生通知、许可证文本和对应源代码义务。Ultralytics 记录为 AGPL-3.0-only。除分发问题外，AGPL 还可能要求向通过网络与修改后的受涵盖程序交互的用户提供对应源代码。因此，项目保持其使用隔离，固定上游源，并在形成特定任务的来源记录前阻止下载模型权重。
 
 义务触发后，应保留适用的通知，并按要求的渠道和时限提供受涵盖版本及其修改的对应源代码。仅在活动结束后发布材料可以支持合规工作，但不能追溯性地绕过已经适用的义务。MIT 许可的 Livox 材料仍须保留适用的版权和许可通知。
 

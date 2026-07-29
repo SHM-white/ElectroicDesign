@@ -4,7 +4,7 @@ from collections.abc import Coroutine
 from dataclasses import dataclass, field
 
 import pytest
-
+from d_task_fakes import contact_update, payload_config, selection, target, vehicle
 from ed_uav_interfaces.action import ExecuteMission
 from ed_uav_mission.competition_runtime import (
     CompetitionCallbacks,
@@ -18,10 +18,13 @@ from ed_uav_mission.d_task_events import (
     Tick,
     VehicleObserved,
 )
-from ed_uav_mission.d_task_model import DTaskKind, DTaskPhase, DTaskTransition, RouteStage
+from ed_uav_mission.d_task_model import (
+    DTaskKind,
+    DTaskPhase,
+    DTaskTransition,
+    RouteStage,
+)
 from ed_uav_mission.mission_model import CompetitionParams
-
-from d_task_fakes import contact_update, payload_config, selection, target, vehicle
 
 
 def _run_immediate(coroutine: Coroutine[None, None, None]) -> None:
@@ -34,7 +37,7 @@ def _run_immediate(coroutine: Coroutine[None, None, None]) -> None:
     raise AssertionError("deterministic replay unexpectedly suspended")
 
 
-@dataclass(slots=True)  # noqa: MUTABLE_OK
+@dataclass(slots=True)  # Mutation records the fake action surface's observable trace.
 class FakeActionSurface:
     events: list[DTaskEvent]
     now: float = 0.0
@@ -44,7 +47,10 @@ class FakeActionSurface:
 
     async def next_event(self) -> DTaskEvent:
         if not self.events:
-            raise RuntimeError("replay exhausted before terminal phase")
+            raise RuntimeError(
+                "replay exhausted before terminal phase: "
+                f"phases={[phase.value for phase in self.phases]}, effects={self.effects}"
+            )
         event = self.events.pop(0)
         match event:
             case ContactObserved(update=update):

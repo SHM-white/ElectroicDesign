@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum, IntEnum
 from threading import Lock
 from types import MappingProxyType
-from typing import Final, Literal, Mapping
+from typing import Final, Literal
 
 
 class DTaskKind(IntEnum):

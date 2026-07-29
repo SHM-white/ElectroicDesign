@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from ed_uav_mission.d_task_model import D_TASK_BRANCHES, DTaskPhase
+
+from ed_uav_mission.d_task_model import DTaskPhase
 
 CompetitionStep = DTaskPhase
 

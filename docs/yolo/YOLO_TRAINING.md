@@ -1,7 +1,7 @@
 # YOLO 训练与部署操作手册
 
 > 来源：`ml/yolo/`（契约层）、`ros2_ws/src/ed_uav_perception/`（运行时）、
-> `THIRD_PARTY_NOTICES.md` (license pinning), `docs/legal/OPEN_SOURCE.md` (release gate).
+> `THIRD_PARTY_NOTICES.md`（许可证固定）、`docs/legal/OPEN_SOURCE.md`（发布门槛）。
 
 ---
 
@@ -11,9 +11,9 @@ Ultralytics 固定为：
 
 | 字段 | 值 |
 |---|---|
-| Repository | `https://github.com/ultralytics/ultralytics.git` |
-| Revision | `7a159ea24ec94c47cf25c75785e0a56e47ba4e7b` |
-| License | **AGPL-3.0-only** |
+| 代码库 | `https://github.com/ultralytics/ultralytics.git` |
+| 修订版本 | `7a159ea24ec94c47cf25c75785e0a56e47ba4e7b` |
+| 许可证 | **AGPL-3.0-only** |
 | SHA-256 | `0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0` |
 
 ### AGPL 影响
@@ -26,8 +26,7 @@ Ultralytics 固定为：
 ### 发布门槛
 
 在分发任何模型工件前，审阅：
-`docs/legal/OPEN_SOURCE.md` — artifact composition, GPL/AGPL conditions,
-modifications, source-offer mechanics, model/dataset licenses.
+`docs/legal/OPEN_SOURCE.md` — 工件组成、GPL/AGPL 条件、修改、源代码提供机制、模型/数据集许可证。
 
 ---
 
@@ -35,22 +34,22 @@ modifications, source-offer mechanics, model/dataset licenses.
 
 ```
 ml/yolo/
-├── pyproject.toml                    # Package: ed-yolo-contract v0.1.0
+├── pyproject.toml                    # 软件包：ed-yolo-contract v0.1.0
 ├── schemas/
-│   ├── dataset-manifest.schema.json  # JSON Schema for dataset manifest
-│   └── model-manifest.schema.json    # JSON Schema for model manifest
+│   ├── dataset-manifest.schema.json  # 数据集清单的 JSON Schema
+│   └── model-manifest.schema.json    # 模型清单的 JSON Schema
 ├── src/yolo_contract/
-│   ├── __init__.py                   # Public API surface
+│   ├── __init__.py                   # 公共 API 表面
 │   ├── models.py                     # 冻结数据类（DatasetManifest、ModelManifest 等）
-│   ├── schema.py                     # Strict parsers, split validation
+│   ├── schema.py                     # 严格解析器、分区验证
 │   ├── runtime.py                    # 与提供方无关的 ONNX/OpenVINO 协议
-│   ├── cli.py                        # Dry-run CLI (train, validate, export, detect-mock)
-│   ├── errors.py                     # Typed error hierarchy
-│   └── jsonio.py                     # JSON loading + SHA-256 hashing
+│   ├── cli.py                        # 试运行 CLI（train、validate、export、detect-mock）
+│   ├── errors.py                     # 类型化错误层级
+│   └── jsonio.py                     # JSON 加载 + SHA-256 哈希
 └── tests/
-    ├── test_schema.py                # Manifest parser tests
-    ├── test_runtime.py               # Runtime determinism tests
-    └── test_cli.py                   # CLI integration tests
+    ├── test_schema.py                # 清单解析器测试
+    ├── test_runtime.py               # 运行时确定性测试
+    └── test_cli.py                   # CLI 集成测试
 ```
 
 **不存在训练权重、数据集文件或实际训练脚本。**契约层定义模式和验证，训练执行属于未来工作。
@@ -63,9 +62,9 @@ ml/yolo/
 
 | 来源 | 用途 | 分辨率 |
 |---|---|---|
-| `/camera/narrow/image_raw` | Narrow-field detections | Per runtime profile |
-| `/camera/wide/image_raw` | Wide-field boundary/localization | Per runtime profile |
-| Manual capture (USB camera) | Offline dataset building | Match target resolution |
+| `/camera/narrow/image_raw` | 窄视场检测 | 按运行时配置 |
+| `/camera/wide/image_raw` | 宽视场边界/定位 | 按运行时配置 |
+| 手动采集（USB 摄像头） | 离线构建数据集 | 匹配目标分辨率 |
 
 ### 3.2 采集指南
 
@@ -76,7 +75,7 @@ ml/yolo/
 - 包含负样本（看不到目标）
 - 初始训练每类至少 **200 张图像**
 
-### 3.3 Storage
+### 3.3 存储
 
 ```
 datasets/
@@ -103,11 +102,11 @@ datasets/
 
 | 规则 | 描述 |
 |---|---|
-| Tight fit | Box should be 1–2 pixels inside the object boundary |
-| Full object | Include the entire object, even if partially occluded |
-| Occluded parts | Draw the box as if the object were fully visible |
-| Truncated objects | If >30% visible, label it. If <30%, skip |
-| Overlapping boxes | Allowed — each object gets its own box |
+| 紧密贴合 | 边界框应位于对象边界内 1–2 个像素处 |
+| 完整对象 | 包含整个对象，即使对象部分被遮挡 |
+| 遮挡部分 | 按对象完全可见时的样子绘制边界框 |
+| 截断对象 | 可见部分 >30% 时标注；<30% 时跳过 |
+| 重叠边界框 | 允许，每个对象都有自己的边界框 |
 
 ### 4.3 类别定义
 
@@ -136,10 +135,10 @@ datasets/
 | 要求 | 强制方式 |
 |---|---|
 | 三个分区均存在 | 任一分区为空则为 `MissingMetadataError` |
-| No cross-split hash overlap | `SplitOverlapError` if SHA-256 appears in multiple splits |
-| No duplicate hashes within split | `DuplicateHashError` |
-| Every sample has license | `MissingMetadataError` |
-| Every sample has SHA-256 | Schema validation failure |
+| 分区之间无哈希重叠 | SHA-256 出现在多个分区时为 `SplitOverlapError` |
+| 分区内无重复哈希 | `DuplicateHashError` |
+| 每个样本都有许可证 | `MissingMetadataError` |
+| 每个样本都有 SHA-256 | 模式验证失败 |
 
 ### 5.2 数据集清单格式
 
@@ -228,11 +227,11 @@ yolo detect train \
 
 | 参数 | 值 | 理由 |
 |---|---|---|
-| `model` | `yolov8n.pt` | Nano — fits Intel i5 CPU inference budget |
-| `imgsz` | 640 | Standard YOLO input, matches preprocessing contract |
-| `batch` | 8 | Conservative for 16 GB RAM |
-| `device` | `cpu` | No GPU on target platform |
-| `epochs` | 100 | Start here; increase if underfitting |
+| `model` | `yolov8n.pt` | Nano，适合 Intel i5 CPU 推理预算 |
+| `imgsz` | 640 | 标准 YOLO 输入，匹配预处理契约 |
+| `batch` | 8 | 针对 16 GB 内存的保守设置 |
+| `device` | `cpu` | 目标平台没有 GPU |
+| `epochs` | 100 | 从此处开始；欠拟合时增加 |
 
 ### 6.4 监控
 
@@ -250,8 +249,8 @@ cat runs/train/marker-v1/results.csv
 |---|---|
 | mAP@50 | ≥ 0.85 |
 | mAP@50-95 | ≥ 0.60 |
-| Inference latency (CPU, i5) | < 100 ms per frame |
-| False positive rate | < 5% on test set |
+| 推理延迟（CPU、i5） | 每帧 < 100 ms |
+| 假阳性率 | 测试集上 < 5% |
 
 ---
 
@@ -347,11 +346,11 @@ yolo benchmark model=best_openvino_model imgsz=640 device=cpu
 
 | 门槛 | 标准 |
 |---|---|
-| ONNX loads | `onnxruntime.InferenceSession` succeeds |
-| OpenVINO loads | `openvino.Core.compile_model` succeeds |
+| ONNX 加载 | `onnxruntime.InferenceSession` 成功 |
+| OpenVINO 加载 | `openvino.Core.compile_model` 成功 |
 | 输出形状匹配 | YOLOv8 为 `[1, num_classes+4, num_anchors]` |
-| Numerical parity | ONNX output within 1e-4 of PyTorch output on test image |
-| Artifact SHA-256 | Matches `model-manifest.json` `artifact.sha256` |
+| 数值一致性 | 测试图像上的 ONNX 输出与 PyTorch 输出相差不超过 1e-4 |
+| 工件 SHA-256 | 匹配 `model-manifest.json` 的 `artifact.sha256` |
 
 ---
 
@@ -412,7 +411,7 @@ class ONNXDetectorProvider(DetectorProvider):
 
 ## 10. CLI 参考
 
-Entry point: `ed-yolo` (maps to `yolo_contract.cli:main`)
+入口点：`ed-yolo`（映射到 `yolo_contract.cli:main`）
 
 **所有命令都要求 `--dry-run`，不会执行实际训练/导出。**
 

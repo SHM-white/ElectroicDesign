@@ -6,10 +6,6 @@ import math
 from collections import deque
 from collections.abc import Callable
 
-from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.node import Node
-from rclpy.task import Future
-
 from ed_uav_interfaces.msg import (
     MissionStatus,
     PayloadContactState,
@@ -17,24 +13,28 @@ from ed_uav_interfaces.msg import (
     VehicleTelemetry,
 )
 from ed_uav_interfaces.srv import SelectDTaskMission
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.node import Node
+from rclpy.task import Future
+
 from ed_uav_mission.action_lifecycle import steady_now_sec
-from ed_uav_mission.d_task_inputs import (
-    adapt_target_observation,
-    adapt_vehicle_telemetry,
-)
 from ed_uav_mission.d_task_events import (
     ContactObserved,
     DTaskEvent,
+    SafetyInterrupted,
     TargetObserved,
     TargetSnapshot,
     Tick,
     VehicleObserved,
     VehicleSnapshot,
-    SafetyInterrupted,
+)
+from ed_uav_mission.d_task_inputs import (
+    adapt_target_observation,
+    adapt_vehicle_telemetry,
 )
 from ed_uav_mission.d_task_model import (
-    DTaskKind,
     DTaskFault,
+    DTaskKind,
     DTaskPhase,
     DTaskSelection,
     PayloadState,
@@ -42,8 +42,8 @@ from ed_uav_mission.d_task_model import (
     SelectionAccepted,
     SelectionStore,
 )
-from ed_uav_mission.mission_model import CompetitionParams
 from ed_uav_mission.d_task_status import mission_status_state
+from ed_uav_mission.mission_model import CompetitionParams
 from ed_uav_mission.touchdown import (
     ContactObservation,
     TouchdownUpdate,

@@ -5,7 +5,6 @@ from pathlib import Path
 
 from ed_uav_mission.action_lifecycle import ActiveGoals, MissionDeadline
 
-
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -53,6 +52,9 @@ def test_lifecycle_sources_use_steady_timer_deadlines_and_recovery() -> None:
     runtime_source = (PACKAGE_ROOT / "ed_uav_mission" / "competition_runtime.py").read_text(
         encoding="utf-8"
     )
+    planner_source = (PACKAGE_ROOT / "ed_uav_mission" / "competition_planner.py").read_text(
+        encoding="utf-8"
+    )
 
     # When: cancellation, deadline, and recovery paths are inspected.
     # Then: active goals are canceled, waits are steady-clock bounded, and recovery is FlightCommand only.
@@ -63,7 +65,7 @@ def test_lifecycle_sources_use_steady_timer_deadlines_and_recovery() -> None:
     assert "class MissionCancelled" in lifecycle_source
     assert "class MissionTimeout" in lifecycle_source
     assert "self._active_flight_goal" in executor_source
-    assert "self._competition_runtime.cancel_active()" in executor_source
+    assert "self._competition_planner.cancel_active()" in executor_source
     assert executor_source.count("await wait_with_deadline") >= 2
     assert "goal.timeout_sec + 0.5" in executor_source
     assert "goal_handle.request.timeout_sec" in executor_source
@@ -72,11 +74,14 @@ def test_lifecycle_sources_use_steady_timer_deadlines_and_recovery() -> None:
     assert "Recovery command failed" in executor_source
     assert "goal_handle.canceled()" in executor_source
     assert "RESULT_TIMEOUT" in executor_source
-    assert executor_source.index("self._send_hover(1.0") < executor_source.index(
+    recovery_source = executor_source[
+        executor_source.index("    async def _recover_after_airborne_failure"):
+    ]
+    assert recovery_source.index("self._send_hover(1.0") < recovery_source.index(
         "self._send_land("
-    ) < executor_source.index("self._send_disarm(")
-    assert "_active_planner_goal" in runtime_source
-    assert "def cancel_active" in runtime_source
-    assert "await wait_with_deadline" in runtime_source
-    assert "GoalStatus.STATUS_SUCCEEDED" in runtime_source
-    assert "asyncio" not in lifecycle_source + executor_source + runtime_source
+    ) < recovery_source.index("self._send_disarm(")
+    assert "_active_planner_goal" in planner_source
+    assert "def cancel_active" in planner_source
+    assert "await wait_with_deadline" in planner_source
+    assert "GoalStatus.STATUS_SUCCEEDED" in planner_source
+    assert "asyncio" not in lifecycle_source + executor_source + runtime_source + planner_source

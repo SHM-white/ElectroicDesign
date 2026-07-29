@@ -3,7 +3,14 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-
+from d_task_fakes import (
+    contact_update,
+    payload_config,
+    selection,
+    stale_target,
+    target,
+    vehicle,
+)
 from ed_uav_mission.d_task_model import (
     DTaskEffect,
     DTaskFault,
@@ -23,8 +30,6 @@ from ed_uav_mission.d_task_reducer import (
     Tick,
     VehicleObserved,
 )
-
-from d_task_fakes import contact_update, payload_config, selection, stale_target, target, vehicle
 
 
 def _airborne_runtime(task: DTaskKind = DTaskKind.PAYLOAD_DROP) -> DTaskRuntime:

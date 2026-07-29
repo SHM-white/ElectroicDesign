@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 from ed_uav_interfaces.msg import TargetObservation, VehicleTelemetry
+
 from ed_uav_mission.d_task_events import TargetSnapshot, VehicleSnapshot
 from ed_uav_mission.d_task_model import RouteStage
 

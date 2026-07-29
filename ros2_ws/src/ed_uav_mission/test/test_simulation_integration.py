@@ -1,23 +1,20 @@
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pytest
 import rclpy
-from rclpy import _rclpy_pybind11
-from rclpy.action import GoalResponse
-
-from ed_uav_interfaces.action import ExecuteMission
 from ed_uav_description.calibration import CalibrationError, load_calibration
-from ed_uav_mission.state_machine import MissionState
-
+from ed_uav_interfaces.action import ExecuteMission
 from ed_uav_mission.mission_config import (
     calibration_file_is_valid,
     load_mission_bundle,
     parse_mission_config_text,
 )
-
+from ed_uav_mission.state_machine import MissionState
+from rclpy import _rclpy_pybind11
+from rclpy.action import GoalResponse
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT))
@@ -103,9 +100,9 @@ def test_simulator_forwards_bringup_calibration_to_mission_executor() -> None:
     # When: its bringup and mission include arguments are inspected.
     calibration_forwarding = '"calibration_file": str(calibration)'
 
-    # Then: both includes receive the same existing synthetic record.
+    # Then: bringup, FAST-LIO simulation, and mission receive the same record.
     assert 'calibration = description_share / "config" / "synthetic_calibrated.yaml"' in launch_text
-    assert launch_text.count(calibration_forwarding) == 2
+    assert launch_text.count(calibration_forwarding) == 3
 
 
 def test_calibration_boundary_accepts_valid_synthetic_record() -> None:

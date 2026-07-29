@@ -4,7 +4,6 @@ import math
 from pathlib import Path
 
 import pytest
-
 from ed_uav_fcu_bridge.authority import ProgrammableCapabilityError
 from ed_uav_interfaces.msg import MissionStatus, TargetObservation, VehicleTelemetry
 from ed_uav_mission import d_task_capability

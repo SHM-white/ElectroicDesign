@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing_extensions import assert_never
 
 from ed_uav_interfaces.action import ExecuteMission
+from typing_extensions import assert_never
+
 from ed_uav_mission.action_lifecycle import MissionCancelled, MissionTimeout
 from ed_uav_mission.d_task_events import (
     CommandCompleted,

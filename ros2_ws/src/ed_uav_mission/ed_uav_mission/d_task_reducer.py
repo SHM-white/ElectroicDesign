@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+
 from typing_extensions import assert_never
 
 from ed_uav_mission.d_task_events import (
@@ -29,7 +30,12 @@ from ed_uav_mission.d_task_model import (
     RouteStage,
 )
 from ed_uav_mission.payload_config import PayloadBoundaryConfig
-from ed_uav_mission.touchdown import DwellComplete, DwellInterrupted, DwellProgress, TouchdownDwellTracker
+from ed_uav_mission.touchdown import (
+    DwellComplete,
+    DwellInterrupted,
+    DwellProgress,
+    TouchdownDwellTracker,
+)
 
 
 class DTaskRuntime:
@@ -41,9 +47,7 @@ class DTaskRuntime:
         config: DTaskRuntimeConfig,
         payload_config: PayloadBoundaryConfig,
     ) -> None:
-        self.selection = selection
-        self.config = config
-        self.payload_config = payload_config
+        self.selection, self.config = selection, config
         self.state = DTaskState(
             phase=DTaskPhase.WAITING_START,
             task=selection.task,
@@ -57,7 +61,9 @@ class DTaskRuntime:
         now_s = self._event_time(event)
         deadline = self._deadline_fault(now_s)
         if deadline is not None:
-            return self._interrupt(now_s, deadline, deadline.value)
+            transition = self._interrupt(now_s, deadline, deadline.value)
+            self.state = transition.state
+            return transition
         match event:
             case Tick():
                 transition = self._on_tick(now_s)
@@ -123,7 +129,7 @@ class DTaskRuntime:
     def _on_tick(self, now_s: float) -> DTaskTransition:
         if (
             self.state.phase is DTaskPhase.STABILIZING
-            and now_s - self.state.phase_started_at_s >= self.config.stable_s
+            and now_s - self.state.phase_started_at_s + 1e-9 >= self.config.stable_s
         ):
             return self._transition(DTaskPhase.ACQUIRING, now_s)
         return DTaskTransition(state=self.state)

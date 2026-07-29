@@ -8,22 +8,20 @@ for every built-in mission plugin.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Annotated, Any, Literal
-
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    FiniteFloat,
-    StringConstraints,
-    TypeAdapter,
-    model_validator,
-)
+from typing import Literal
 
 from ed_uav_localization.field_profile.model import (
     Identifier,
     KnownFieldProfile,
     Point2D,
+)
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    FiniteFloat,
+    TypeAdapter,
+    model_validator,
 )
 
 
@@ -180,9 +178,6 @@ def validate_mission_against_field(
 
     Delegates geometry containment checks to the field-profile polygon operators.
     """
-    from ed_uav_localization.field_profile.geometry import (
-        polygon_strictly_contains,
-    )
 
     allowed = field_profile.allowed_zone.vertices
     no_fly_list = field_profile.no_fly_zones

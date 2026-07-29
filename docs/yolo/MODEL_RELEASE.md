@@ -30,7 +30,7 @@ ml/yolo/                          ros2_ws/src/ed_uav_perception/
 |---|---|---|
 | 模式验证 | `ml/yolo/src/yolo_contract/schema.py` | **已实现** |
 | 哈希校验 | `ml/yolo/src/yolo_contract/jsonio.py` | **已实现** |
-| MockDetectionProvider | `ml/yolo/src/yolo_contract/runtime.py` | **Implemented** |
+| MockDetectionProvider | `ml/yolo/src/yolo_contract/runtime.py` | **已实现** |
 | CLI（仅试运行） | `ml/yolo/src/yolo_contract/cli.py` | **已实现** |
 | ONNXDetectorProvider | `ros2_ws/src/ed_uav_perception/provider_interface.py` | **Stub** |
 | OpenVINODetectorProvider | `ros2_ws/src/ed_uav_perception/provider_interface.py` | **Stub** |
@@ -88,9 +88,9 @@ Ultralytics 在三个位置固定为同一个提交，并进行交叉校验。
 
 | 位置 | 文件 | 行 |
 |---|---|---|
-| pip install source | `ml/yolo/pyproject.toml` | Line 8 |
-| VCS import | `ros2_ws/dependencies.repos` | Line 16 |
-| Runtime constants | `ml/yolo/src/yolo_contract/schema.py` | Lines 25-27 |
+| pip 安装源 | `ml/yolo/pyproject.toml` | 第 8 行 |
+| VCS 导入 | `ros2_ws/dependencies.repos` | 第 16 行 |
+| 运行时常量 | `ml/yolo/src/yolo_contract/schema.py` | 第 25-27 行 |
 
 ### 3.2 固定值
 
@@ -268,34 +268,34 @@ PYTHONPATH=ml/yolo/src ./.venv/bin/python -m yolo_contract.cli validate \
 
 ### 6.1 数据集验证
 
-- [ ] Immutable train/val/test splits verified (no overlap)
+- [ ] 已验证不可变的 train/val/test 分区（无重叠）
 - [ ] 清单中记录了所有图像哈希
-- [ ] Class map is consistent across all splits
+- [ ] 所有分区中的类别映射一致
 - [ ] 为每张图像记录了来源/许可证
-- [ ] No duplicate images across splits
+- [ ] 分区之间没有重复图像
 
 ### 6.2 模型训练
 
-- [ ] Training script uses pinned Ultralytics commit
-- [ ] Hyperparameters documented
-- [ ] Training logs preserved
+- [ ] 训练脚本使用固定的 Ultralytics 提交
+- [ ] 已记录超参数
+- [ ] 已保留训练日志
 - [ ] 记录了验证指标（mAP50、mAP50-95）
-- [ ] No overfitting detected (train/val gap < 10%)
+- [ ] 未检测到过拟合（train/val 差距 < 10%）
 
 ### 6.3 导出验证
 
-- [ ] ONNX export successful
-- [ ] ONNX inference matches PyTorch within tolerance
-- [ ] OpenVINO export successful (Intel target)
-- [ ] Export metadata includes input shape, class names
-- [ ] Model hash recorded in manifest
+- [ ] ONNX 导出成功
+- [ ] ONNX 推理结果与 PyTorch 在容差范围内一致
+- [ ] OpenVINO 导出成功（Intel 目标）
+- [ ] 导出元数据包含输入形状和类别名称
+- [ ] 清单中记录了模型哈希
 
 ### 6.4 集成测试
 
-- [ ] Mock provider returns deterministic detections
-- [ ] ONNX provider loads and infers correctly
-- [ ] Terminal geometry produces valid poses
-- [ ] No `ultralytics` import in ROS process
+- [ ] 模拟提供方返回确定性检测结果
+- [ ] ONNX 提供方能正确加载并推理
+- [ ] 终端几何生成有效位姿
+- [ ] ROS 进程中没有 `ultralytics` 导入
 - [ ] 无模型权重时所有测试通过
 
 ### 6.5 测试套件
@@ -305,9 +305,9 @@ PYTHONPATH=ml/yolo/src ./.venv/bin/python -m yolo_contract.cli validate \
 | 测试文件 | 测试内容 | 覆盖范围 |
 |---|---|---|
 | `test_schema.py` | 225 行 | 清单解析、分区重叠、重复哈希、类别漂移 |
-| `test_runtime.py` | 102 lines | Hash rejection, provider failure, determinism |
+| `test_runtime.py` | 102 行 | 哈希拒绝、提供方失败、确定性 |
 | `test_cli.py` | 119 行 | 试运行、模拟检测、格式错误输入 |
-| `manual_cli_smoke.py` | 86 lines | Cleanup-safe acceptance driver |
+| `manual_cli_smoke.py` | 86 行 | 可安全清理的验收驱动程序 |
 
 ---
 
@@ -416,13 +416,13 @@ class OpenVINODetectorProvider(DetectorProvider):
 
 | 组件 | 固定位置 | 固定值 |
 |---|---|---|
-| Ultralytics commit | `ml/yolo/pyproject.toml` | `7a159ea24ec94c47cf25c75785e0a56e47ba4e7b` |
-| Ultralytics commit | `ros2_ws/dependencies.repos` | `7a159ea24ec94c47cf25c75785e0a56e47ba4e7b` |
-| Ultralytics commit | `ml/yolo/src/yolo_contract/schema.py` | `7a159ea24ec94c47cf25c75785e0a56e47ba4e7b` |
-| Livox driver | `ros2_ws/dependencies.repos` | `13eb05e` |
-| FAST-LIO | `ros2_ws/dependencies.repos` | Pinned |
-| ONNX opset | `ml/yolo/pyproject.toml` | 17 |
-| Input shape | `ml/yolo/src/yolo_contract/schema.py` | `[640, 640, 3]` |
+| Ultralytics 提交 | `ml/yolo/pyproject.toml` | `7a159ea24ec94c47cf25c75785e0a56e47ba4e7b` |
+| Ultralytics 提交 | `ros2_ws/dependencies.repos` | `7a159ea24ec94c47cf25c75785e0a56e47ba4e7b` |
+| Ultralytics 提交 | `ml/yolo/src/yolo_contract/schema.py` | `7a159ea24ec94c47cf25c75785e0a56e47ba4e7b` |
+| Livox 驱动 | `ros2_ws/dependencies.repos` | `13eb05e` |
+| FAST-LIO | `ros2_ws/dependencies.repos` | 已固定 |
+| ONNX 操作集 | `ml/yolo/pyproject.toml` | 17 |
+| 输入形状 | `ml/yolo/src/yolo_contract/schema.py` | `[640, 640, 3]` |
 
 ---
 
@@ -432,16 +432,16 @@ class OpenVINODetectorProvider(DetectorProvider):
 
 | 标准 | 验证 |
 |---|---|
-| Schema rejects unknown metadata | `test_schema.py` — unknown field tests |
-| Schema rejects split overlap | `test_schema.py` — `SplitOverlapError` tests |
-| Schema rejects duplicate hashes | `test_schema.py` — `DuplicateHashError` tests |
-| Schema rejects class drift | `test_schema.py` — `ClassMapDriftError` tests |
-| Schema rejects unpinned provider | `test_schema.py` — provider mismatch tests |
-| Mock provider verifies hash | `test_runtime.py` — hash rejection tests |
-| Mock provider surfaces failures | `test_runtime.py` — provider failure tests |
-| CLI dry-run validates plans | `test_cli.py` — dry-run tests |
-| No ultralytics in ROS workspace | `grep -r "import ultralytics" ros2_ws/src/` |
-| All tests pass without weights | `pytest ml/yolo/tests/` |
+| 模式拒绝未知元数据 | `test_schema.py` — 未知字段测试 |
+| 模式拒绝分区重叠 | `test_schema.py` — `SplitOverlapError` 测试 |
+| 模式拒绝重复哈希 | `test_schema.py` — `DuplicateHashError` 测试 |
+| 模式拒绝类别漂移 | `test_schema.py` — `ClassMapDriftError` 测试 |
+| 模式拒绝未固定的提供方 | `test_schema.py` — 提供方不匹配测试 |
+| 模拟提供方验证哈希 | `test_runtime.py` — 哈希拒绝测试 |
+| 模拟提供方报告失败 | `test_runtime.py` — 提供方失败测试 |
+| CLI 试运行验证计划 | `test_cli.py` — 试运行测试 |
+| ROS 工作区中没有 ultralytics | `grep -r "import ultralytics" ros2_ws/src/` |
+| 无权重时所有测试通过 | `pytest ml/yolo/tests/` |
 
 ---
 
@@ -449,13 +449,13 @@ class OpenVINODetectorProvider(DetectorProvider):
 
 - `ml/yolo/src/yolo_contract/schema.py` — 清单解析器和验证
 - `ml/yolo/src/yolo_contract/runtime.py` — 提供方接口和模拟适配器
-- `ml/yolo/src/yolo_contract/cli.py` — Export CLI
-- `ml/yolo/src/yolo_contract/jsonio.py` — Hash verification functions
-- `ml/yolo/src/yolo_contract/errors.py` — Typed error hierarchy
-- `ml/yolo/schemas/model-manifest.schema.json` — JSON Schema for model manifests
-- `ml/yolo/schemas/dataset-manifest.schema.json` — JSON Schema for dataset manifests
-- `ml/yolo/pyproject.toml` — Ultralytics version pin
-- `ros2_ws/src/ed_uav_perception/ed_uav_perception/provider_interface.py` — ROS provider stubs
+- `ml/yolo/src/yolo_contract/cli.py` — 导出 CLI
+- `ml/yolo/src/yolo_contract/jsonio.py` — 哈希校验函数
+- `ml/yolo/src/yolo_contract/errors.py` — 类型化错误层级
+- `ml/yolo/schemas/model-manifest.schema.json` — 模型清单的 JSON Schema
+- `ml/yolo/schemas/dataset-manifest.schema.json` — 数据集清单的 JSON Schema
+- `ml/yolo/pyproject.toml` — Ultralytics 版本固定
+- `ros2_ws/src/ed_uav_perception/ed_uav_perception/provider_interface.py` — ROS 提供方存根
 - `ros2_ws/src/ed_uav_perception/ed_uav_perception/model_validator.py` — 清单验证
-- `docs/legal/OPEN_SOURCE.md` — Open source use boundary
-- `docs/provenance/third-party-sources.json` — Machine-readable provenance
+- `docs/legal/OPEN_SOURCE.md` — 开源使用边界
+- `docs/provenance/third-party-sources.json` — 机器可读的来源记录

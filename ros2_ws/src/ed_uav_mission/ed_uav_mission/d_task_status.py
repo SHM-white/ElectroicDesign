@@ -1,6 +1,7 @@
 """Map internal D-task phases to the operator-visible MissionStatus contract."""
 
 from ed_uav_interfaces.msg import MissionStatus
+
 from ed_uav_mission.d_task_model import DTaskPhase
 
 

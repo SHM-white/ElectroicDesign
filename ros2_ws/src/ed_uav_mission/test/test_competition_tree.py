@@ -4,7 +4,6 @@ import math
 from pathlib import Path
 
 import pytest
-
 from ed_uav_mission import competition_tree
 from ed_uav_mission.competition_tree import (
     CompetitionStep,
@@ -13,6 +12,7 @@ from ed_uav_mission.competition_tree import (
     moves_from_planner_path,
     return_goal,
 )
+
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 PROFILE_PATH = (
     PACKAGE_ROOT.parent

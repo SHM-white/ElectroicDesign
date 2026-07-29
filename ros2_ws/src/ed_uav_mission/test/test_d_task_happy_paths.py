@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from d_task_fakes import contact_update, payload_config, selection, target, vehicle
 from ed_uav_mission.d_task_model import DTaskEffect, DTaskKind, DTaskPhase, RouteStage
 from ed_uav_mission.d_task_reducer import (
     CommandCompleted,
@@ -10,8 +11,6 @@ from ed_uav_mission.d_task_reducer import (
     Tick,
     VehicleObserved,
 )
-
-from d_task_fakes import contact_update, payload_config, selection, target, vehicle
 
 
 def _advance(runtime: DTaskRuntime, event, trace: list[DTaskPhase]):
