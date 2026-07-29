@@ -25,6 +25,7 @@ setup(
     entry_points={
         "console_scripts": [
             "odometry_accuracy_demo = ed_uav_localization.odometry_accuracy_demo:main",
+            "lidar_odometry_offset_demo = ed_uav_localization.odometry_offset_demo:main",
             "lio_adapter = ed_uav_localization.lio_adapter:main",
             "source_supervisor = ed_uav_localization.source_supervisor:main",
             "field_anchor = ed_uav_localization.field_anchor:main",
