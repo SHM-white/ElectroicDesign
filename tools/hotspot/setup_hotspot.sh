@@ -22,7 +22,7 @@ CON_NAME="ed-hotspot"
 IFACE="${ED_HOTSPOT_IFACE:-}"           # 留空则自动检测第一个 wlan 接口
 STA_IFACE=""                            # 保存原始 STA 接口名（AP+STA 共存时使用）
 SSID="${ED_HOTSPOT_SSID:-ED-UAV}"
-PASSWORD="${ED_HOTSPOT_PASSWORD:-}"     # 留空则开放网络（推荐测试时使用）
+PASSWORD="${ED_HOTSPOT_PASSWORD:-5RQqDVzbg5GxZpLz}"     # 留空则开放网络（推荐测试时使用）
 CHANNEL="${ED_HOTSPOT_CHANNEL:-6}"
 BAND="${ED_HOTSPOT_BAND:-bg}"           # bg = 2.4GHz, a = 5GHz
 

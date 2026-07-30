@@ -17,10 +17,11 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # ─── 配置 ───────────────────────────────────────────────────────────────────
 CON_NAME="ed-hotspot"
 SSID="${ED_HOTSPOT_SSID:-ED-UAV}"
-PASSWORD="${ED_HOTSPOT_PASSWORD:-}"
+PASSWORD="${ED_HOTSPOT_PASSWORD:-5RQqDVzbg5GxZpLz}"
 CHANNEL="${ED_HOTSPOT_CHANNEL:-6}"
 BAND="${ED_HOTSPOT_BAND:-bg}"
 IFACE="${ED_HOTSPOT_IFACE:-}"
+STA_IFACE=""
 
 NUC_IP="192.168.20.1"
 CAR_IP="192.168.20.2"
@@ -49,8 +50,32 @@ check_tools() {
 
 detect_iface() {
     [[ -n "$IFACE" ]] && return
-    IFACE=$(nmcli -t -f DEVICE,TYPE device status 2>/dev/null | grep ':wifi$' | head -1 | cut -d: -f1)
-    [[ -n "$IFACE" ]] || die "未检测到无线网卡。设置 ED_HOTSPOT_IFACE=wlan0 手动指定。"
+    local -a wifi_ifaces
+    mapfile -t wifi_ifaces < <(nmcli -t -f DEVICE,TYPE device status 2>/dev/null | grep ':wifi$' | cut -d: -f1)
+
+    if [[ ${#wifi_ifaces[@]} -eq 0 ]]; then
+        die "未检测到无线网卡。请插入 USB 无线网卡或设置 ED_HOTSPOT_IFACE 手动指定。"
+    fi
+
+    if [[ ${#wifi_ifaces[@]} -ge 2 ]]; then
+        # 多个无线接口：已连接的做 STA（互联网），另一个做 AP（热点）
+        ok "检测到 ${#wifi_ifaces[@]} 个无线接口: ${wifi_ifaces[*]}"
+        for iface in "${wifi_ifaces[@]}"; do
+            local state
+            state=$(nmcli -t -f DEVICE,STATE device status 2>/dev/null | grep "^${iface}:" | cut -d: -f2)
+            if [[ "$state" == "已连接" || "$state" == "connected" ]]; then
+                STA_IFACE="$iface"
+                ok "  $iface → STA (互联网)"
+            else
+                IFACE="$iface"
+                ok "  $iface → AP (热点)"
+            fi
+        done
+        [[ -n "$IFACE" ]] || die "无法确定 AP 接口"
+    else
+        IFACE="${wifi_ifaces[0]}"
+        warn "仅检测到 1 个无线接口 ($IFACE)，热点会断开当前 Wi-Fi"
+    fi
 }
 
 # ─── 热点管理 ───────────────────────────────────────────────────────────────
@@ -70,14 +95,18 @@ hotspot_ensure() {
         hotspot_create
     fi
 
-    # 断开当前无线连接
-    local active
-    active=$(nmcli -t -f NAME,DEVICE,TYPE connection show --active 2>/dev/null \
-        | grep ":${IFACE}:802-11-wireless" | head -1 | cut -d: -f1 || true)
-    if [[ -n "$active" && "$active" != "$CON_NAME" ]]; then
-        warn "断开当前无线: $active"
-        nmcli connection down "$active" 2>/dev/null || true
-        sleep 1
+    # 仅在单网卡模式下断开当前无线连接
+    if [[ -z "$STA_IFACE" ]]; then
+        local active
+        active=$(nmcli -t -f NAME,DEVICE,TYPE connection show --active 2>/dev/null \
+            | grep ":${IFACE}:802-11-wireless" | head -1 | cut -d: -f1 || true)
+        if [[ -n "$active" && "$active" != "$CON_NAME" ]]; then
+            warn "断开当前无线: $active"
+            nmcli connection down "$active" 2>/dev/null || true
+            sleep 1
+        fi
+    else
+        ok "双网卡模式: $STA_IFACE 保持互联网连接"
     fi
 
     # 启动热点
@@ -121,6 +150,11 @@ hotspot_create() {
     nmcli "${args[@]}" || die "创建连接失败"
     ok "连接配置已创建"
 
+    # 设置 WPA2 明确参数（ESP32 兼容）
+    nmcli connection modify "$CON_NAME" 802-11-wireless-security.proto rsn 2>/dev/null || true
+    nmcli connection modify "$CON_NAME" 802-11-wireless-security.pairwise ccmp 2>/dev/null || true
+    nmcli connection modify "$CON_NAME" 802-11-wireless-security.group ccmp 2>/dev/null || true
+
     # IP 转发
     echo "net.ipv4.ip_forward = 1" > /etc/sysctl.d/99-ed-hotspot.conf
     sysctl -p /etc/sysctl.d/99-ed-hotspot.conf >/dev/null 2>&1
@@ -136,6 +170,12 @@ hotspot_create() {
     # 客户端互通
     iptables -C FORWARD -i "$IFACE" -o "$IFACE" -j ACCEPT 2>/dev/null \
         || iptables -A FORWARD -i "$IFACE" -o "$IFACE" -j ACCEPT
+
+    # 允许热点子网的 UDP/TCP 入站（ESP32 通讯需要）
+    iptables -C INPUT -i "$IFACE" -p udp -s "$SUBNET" -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT 1 -i "$IFACE" -p udp -s "$SUBNET" -j ACCEPT
+    iptables -C INPUT -i "$IFACE" -p tcp -s "$SUBNET" -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT 2 -i "$IFACE" -p tcp -s "$SUBNET" -j ACCEPT
 
     # DHCP 静态绑定
     mkdir -p "$(dirname "$DNSMASQ_CONF")"
