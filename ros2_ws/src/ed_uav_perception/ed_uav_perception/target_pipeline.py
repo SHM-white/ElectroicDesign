@@ -7,7 +7,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from ed_uav_perception.target_detector import DetectionFailure, TARGET_REVISION, detect_target
+from ed_uav_perception.target_detector import DetectionFailure, REVISION_APRILTAG, REVISION_CIRCLE_CROSS, detect_target
 from ed_uav_perception.target_pose import estimate_target_pose
 from ed_uav_perception.target_types import (
     AcceptedObservation,
@@ -31,7 +31,7 @@ def _reject(request: ObservationRequest, reason: RejectReason) -> RejectedObserv
 
 def observe_target(request: ObservationRequest) -> ObservationResult:
     """Return a quality-gated observation and never infer missing context."""
-    if request.frame.target_revision != TARGET_REVISION:
+    if request.frame.target_revision not in (REVISION_APRILTAG, REVISION_CIRCLE_CROSS):
         return _reject(request, RejectReason.WRONG_REVISION)
     if (
         not request.camera.calibrated

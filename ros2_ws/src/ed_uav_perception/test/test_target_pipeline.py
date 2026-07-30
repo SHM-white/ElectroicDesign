@@ -20,7 +20,7 @@ def _request(
     evaluation_steady_sec: float = 100.10,
     vehicle_receipt_steady_sec: float = 100.02,
     calibrated: bool = True,
-    revision: str = "d2026-circle-cross-v1",
+    revision: str = "d2026-circle-cross-v1",  # Use circle-cross for test fixtures
 ):
     from ed_uav_perception.target_types import (
         CameraModel,

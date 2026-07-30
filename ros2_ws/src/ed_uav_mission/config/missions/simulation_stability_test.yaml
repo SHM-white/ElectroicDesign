@@ -1,39 +1,25 @@
 version: 1
 mission_id: simulation-stability-test
-mission_type: competition
+mission_type: stability_test
 field_profile_id: simulation-arena
 timeout_sec: 120.0
 takeoff_altitude_m: 1.5
-competition:
-  mission_profile_id: d2026-simulation
-  deployment_preset_id: simulation
-  target_revision: d2026-circle-cross-v1
+stability_params:
   altitude_m: 1.5
-  forward_distance_m: 2.0
-  stable_sec: 3.0
-  start_deadline_s: 15.0
-  b_deadline_s: 45.0
-  d_deadline_s: 75.0
-  vehicle_freshness_s: 0.5
-  target_freshness_s: 0.2
-  maximum_relative_error_m: 2.0
-  planner_timeout_sec: 5.0
-  stability_params:
-    altitude_m: 1.5
-    # 起飞后悬停时间
-    pre_hover_sec: 5.0
-    # 降落前悬停时间
-    post_hover_sec: 5.0
-    # 正方形边长
-    square_side_m: 2.0
-    # 正方形每段细分距离，越小轨迹越接近直线
-    square_segment_m: 0.5
-    # 圆形直径
-    circle_diameter_m: 2.0
-    # 圆形每段细分距离，越小轨迹越接近圆弧
-    circle_segment_m: 0.5
-    # 航向保持误差容限，当前仅做占位，后续接入闭环时可用于判定
-    heading_hold_tolerance_rad: 0.05
+  # 起飞后悬停时间
+  pre_hover_sec: 5.0
+  # 降落前悬停时间
+  post_hover_sec: 5.0
+  # 正方形边长
+  square_side_m: 2.0
+  # 正方形每段细分距离，越小轨迹越接近直线
+  square_segment_m: 0.5
+  # 圆形直径
+  circle_diameter_m: 2.0
+  # 圆形每段细分距离，越小轨迹越接近圆弧
+  circle_segment_m: 0.5
+  # 航向保持误差容限，当前仅做占位，后续接入闭环时可用于判定
+  heading_hold_tolerance_rad: 0.05
 terminal_landing:
   land_altitude_m: 0.0
   descent_speed_m_s: 0.5

@@ -217,50 +217,52 @@ class MissionExecutorNode(Node):
         self._competition_planner = None
         self._competition_runtime = None
         self._d_task_boundary = None
-        if self._mission_config.mission_type == MissionType.COMPETITION:
+        if self._mission_config.mission_type in (MissionType.COMPETITION, MissionType.STABILITY_TEST):
             from ed_uav_mission.competition_planner import CompetitionPlanner
 
-            assert self._mission_config.competition is not None
             self._competition_planner = CompetitionPlanner(
                 self,
                 self._send_move,
                 self._deadline_for_timeout,
                 self._raise_if_cancelled,
             )
-            self._d_task_boundary = DTaskRosBoundary(
-                self,
-                self._mission_config.mission_id,
-                self._mission_config.competition,
-                lambda: self._fsm.state == MissionState.IDLE,
-                self._localization_is_valid,
+            if self._mission_config.mission_type == MissionType.COMPETITION:
+                assert self._mission_config.competition is not None
+                self._d_task_boundary = DTaskRosBoundary(
+                    self,
+                    self._mission_config.mission_id,
+                    self._mission_config.competition,
+                    lambda: self._fsm.state == MissionState.IDLE,
+                    self._localization_is_valid,
+                )
+        if self._competition_planner is not None:
+            self._competition_runtime = CompetitionRuntime(
+                CompetitionCallbacks(
+                    execute_takeoff=self._execute_takeoff,
+                    send_hover=self._send_hover,
+                    track_target=self._track_d_task_target,
+                    release_payload=self._release_d_task_payload,
+                    descend_to_vehicle=self._descend_to_vehicle,
+                    return_home=self._return_d_task_home,
+                    land_home=self._land_d_task_home,
+                    capture_home=self._competition_planner.capture_home,
+                    next_event=self._next_d_task_event,
+                    publish_transition=self._publish_d_task_transition,
+                    now_s=steady_now_sec,
+                ),
+                self._payload_config,
+                stability_callbacks=StabilityCallbacks(
+                    execute_takeoff=self._execute_takeoff,
+                    send_hover=self._send_hover,
+                    capture_home=self._competition_planner.capture_home,
+                    send_move=self._send_stability_move,
+                    land_home=self._land_d_task_home,
+                    next_event=self._next_d_task_event,
+                    publish_transition=self._publish_d_task_transition,
+                    now_s=steady_now_sec,
+                    capture_pose=self._capture_stability_pose,
+                ),
             )
-        self._competition_runtime = CompetitionRuntime(
-            CompetitionCallbacks(
-                execute_takeoff=self._execute_takeoff,
-                send_hover=self._send_hover,
-                track_target=self._track_d_task_target,
-                release_payload=self._release_d_task_payload,
-                descend_to_vehicle=self._descend_to_vehicle,
-                return_home=self._return_d_task_home,
-                land_home=self._land_d_task_home,
-                capture_home=self._competition_planner.capture_home,
-                next_event=self._next_d_task_event,
-                publish_transition=self._publish_d_task_transition,
-                now_s=steady_now_sec,
-            ),
-            self._payload_config,
-            stability_callbacks=StabilityCallbacks(
-                execute_takeoff=self._execute_takeoff,
-                send_hover=self._send_hover,
-                capture_home=self._competition_planner.capture_home,
-                send_move=self._send_stability_move,
-                land_home=self._land_d_task_home,
-                next_event=self._next_d_task_event,
-                publish_transition=self._publish_d_task_transition,
-                now_s=steady_now_sec,
-                capture_pose=self._capture_stability_pose,
-            ),
-        )
 
         self._fcu_sub = self.create_subscription(FcuState, "/fcu/state", self._on_fcu_state, 10)
         self._loc_sub = self.create_subscription(

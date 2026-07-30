@@ -13,6 +13,7 @@ from typing import Final, Literal
 class DTaskKind(IntEnum):
     PAYLOAD_DROP = 1
     DYNAMIC_LANDING = 2
+    STABILITY_TEST = 3
 
 
 class DTaskPhase(str, Enum):
@@ -118,6 +119,19 @@ D_TASK_BRANCHES: Final[Mapping[DTaskKind, DTaskBranch]] = MappingProxyType(
                 DTaskPhase.VEHICLE_DWELL,
                 DTaskPhase.RETAKEOFF,
                 DTaskPhase.RETURNING_HOME,
+                DTaskPhase.LANDING_HOME,
+                DTaskPhase.SUCCEEDED,
+            ),
+        ),
+        DTaskKind.STABILITY_TEST: DTaskBranch(
+            task=DTaskKind.STABILITY_TEST,
+            nominal_phases=(
+                DTaskPhase.WAITING_START,
+                DTaskPhase.TAKEOFF,
+                DTaskPhase.STABILITY_PRE_HOVER,
+                DTaskPhase.STABILITY_SQUARE,
+                DTaskPhase.STABILITY_CIRCLE,
+                DTaskPhase.STABILITY_POST_HOVER,
                 DTaskPhase.LANDING_HOME,
                 DTaskPhase.SUCCEEDED,
             ),

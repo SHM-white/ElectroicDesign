@@ -23,7 +23,7 @@ def generate_launch_description() -> LaunchDescription:
     bridge = package_share / "config" / "bridge.yaml"
     rviz = package_share / "rviz" / "sim.rviz"
     profile = localization_share / "config" / "fields" / "simulation_arena.yaml"
-    mission = mission_share / "config" / "missions" / "simulation_competition.yaml"
+    default_mission = mission_share / "config" / "missions" / "simulation_competition.yaml"
     calibration = description_share / "config" / "synthetic_calibrated.yaml"
     localization_mode = LaunchConfiguration("localization_mode")
     fast_lio_mode = PythonExpression(["'", localization_mode, "' == 'fast_lio'"])
@@ -33,6 +33,11 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument("gui", default_value="true"),
             DeclareLaunchArgument("use_rviz", default_value="true"),
+            DeclareLaunchArgument(
+                "mission_config",
+                default_value=str(default_mission),
+                description="Path to mission config YAML (e.g. simulation_stability_test.yaml)",
+            ),
             DeclareLaunchArgument(
                 "localization_mode",
                 default_value="fast_lio",
@@ -96,7 +101,7 @@ def generate_launch_description() -> LaunchDescription:
                 launch_arguments={
                     "use_sim_time": LaunchConfiguration("use_sim_time"),
                     "profile_path": str(profile),
-                    "mission_config_path": str(mission),
+                    "mission_config_path": LaunchConfiguration("mission_config"),
                     "calibration_file": str(calibration),
                     "simulation_only": "true",
                 }.items(),

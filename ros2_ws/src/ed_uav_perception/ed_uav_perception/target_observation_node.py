@@ -66,7 +66,7 @@ class TargetObservationNode(Node):
         self, *, steady_clock: Callable[[], float] = time.monotonic
     ) -> None:
         super().__init__("target_observation_node")
-        self.declare_parameter("target_revision", "d2026-circle-cross-v1")
+        self.declare_parameter("target_revision", "d2026-apriltag-v1")
         self.declare_parameter("max_reprojection_rms_px", 2.0)
         self.declare_parameter("last_candidate_count", 0)
         self.declare_parameter("last_reprojection_rms_px", -1.0)
