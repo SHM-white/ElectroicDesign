@@ -148,7 +148,11 @@ HUMBLE_TIMEOUT_SECONDS=0 \
 HUMBLE_V4L2_DEVICES="$forwarded_devices" \
 bash "$repo_root/tools/run_humble.sh" bash -lc '
 source /opt/ros/humble/setup.bash
-source ros2_ws/install/setup.bash
+[[ -r install/setup.bash ]] || {
+    printf "run_landing_marker_recognition: root workspace overlay is missing or unreadable: install/setup.bash\n" >&2
+    exit 64
+}
+source install/setup.bash
 camera_plan="$2"
 if [[ -r "$1" ]]; then
     camera_plan="$1"

@@ -12,6 +12,10 @@ From the repository root, launch the physical cameras, observer, and RViz:
 ./tools/run_landing_marker_recognition.sh --camera-plan config/cameras/landing_marker_camera_plan.local.json
 ```
 
+The documented root-level colcon build must already have produced a readable
+`install/setup.bash`; the runner fails clearly before ROS launch when that
+overlay is missing.
+
 The command requires exactly narrow and wide stable by-id bindings. In
 container mode it mounts `/dev/v4l/by-id` read-only and forwards only the two
 resolved `/dev/videoN` character devices. It fails before ROS startup when a

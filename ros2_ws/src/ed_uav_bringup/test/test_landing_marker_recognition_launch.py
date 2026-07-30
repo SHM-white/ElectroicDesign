@@ -63,7 +63,8 @@ def test_launch_surface_composes_camera_observer_without_rviz() -> None:
         for action in description.entities
         if hasattr(action, "name") and action.__class__.__name__ == "DeclareLaunchArgument"
     }
-    actions = module._build_actions(_context("false"))
+    context = _context("false")
+    actions = module._build_actions(context)
     includes = [action for action in actions if isinstance(action, IncludeLaunchDescription)]
     nodes = [action for action in actions if isinstance(action, Node)]
 
@@ -79,7 +80,8 @@ def test_launch_surface_composes_camera_observer_without_rviz() -> None:
     } <= argument_names
     assert len(includes) == 2
     include_text = [
-        include.launch_description_source.get_location() for include in includes
+        include.launch_description_source.location.perform(context)
+        for include in includes
     ]
     assert any("dual_uvc.launch.py" in value for value in include_text)
     assert any("target_observation.launch.py" in value for value in include_text)
@@ -118,9 +120,10 @@ def test_launch_surface_starts_one_rviz_when_requested(
 
     # Then: exactly one RViz node is added with the selected config substitution.
     assert len(nodes) == 1
-    assert nodes[0].package == "rviz2"
-    assert nodes[0].arguments[0] == "-d"
-    assert nodes[0].arguments[1].name == "rviz_config"
+    assert nodes[0].node_package == "rviz2"
+    node_arguments = nodes[0]._Node__arguments
+    assert node_arguments[0] == "-d"
+    assert node_arguments[1].name == "rviz_config"
 
 
 def test_rviz_config_displays_annotated_image_only() -> None:

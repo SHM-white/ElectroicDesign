@@ -84,6 +84,7 @@ class BlockingWriter:
 
 def _snapshot(
     *,
+    source_sequence: int = 1,
     forward_m: float = 0.0,
     right_m: float = 0.0,
     position_valid: bool = True,
@@ -95,7 +96,7 @@ def _snapshot(
 ) -> TelemetrySnapshot:
     channels = primary_channels_us + (aux1_us, 1500, 1500, 1500, 1500, 1800)
     return TelemetrySnapshot(
-        position=PositionSample(1, 0.0, forward_m, right_m, position_valid, 0.0, None),
+        position=PositionSample(source_sequence, 0.0, forward_m, right_m, position_valid, 0.0, None),
         status=StatusSample(1, 0.0, status_mode, True, status_valid, 0.0, None),
         aux=AuxSample(1, 0.0, channels, aux_valid, 0.0, None),
         flow_diagnostic=None,
@@ -145,7 +146,14 @@ def test_move_stream_maps_ros_target_to_forward_and_adjustable_right_speed() -> 
     realtime = _realtime_module()
     clock = FakeClock()
     written: list[bytes] = []
-    snapshots = SnapshotSequence((_snapshot(), _snapshot(forward_m=0.40, right_m=0.30)))
+    snapshots = SnapshotSequence(
+        (
+            _snapshot(source_sequence=1),
+            _snapshot(source_sequence=2, forward_m=0.40, right_m=0.30),
+            _snapshot(source_sequence=3, forward_m=0.40, right_m=0.30),
+            _snapshot(source_sequence=4, forward_m=0.40, right_m=0.30),
+        )
+    )
     config = realtime.RealtimeControlConfig(
         enable_realtime_control=True,
         stop_frame_count=2,
@@ -162,7 +170,7 @@ def test_move_stream_maps_ros_target_to_forward_and_adjustable_right_speed() -> 
         timeout_s=1.0,
     )
 
-    # When: the closed loop observes the target on its second sample.
+    # When: the closed loop observes three consecutive fresh arrivals at the target.
     result = controller.execute(request, lambda: False)
 
     # Then: SPD_X is forward, SPD_Y owns one explicit firmware-axis sign, and completion stops.
@@ -176,6 +184,8 @@ def test_move_stream_maps_ros_target_to_forward_and_adjustable_right_speed() -> 
         30 * realtime.REALTIME_SPD_Y_SIGN,
         0,
     )
+    assert clock.sleeps == [0.02, 0.02, 0.02]
+    assert len(written) == 5
     assert [_control_fields(frame) for frame in written[-2:]] == [(0,) * 7, (0,) * 7]
 
 

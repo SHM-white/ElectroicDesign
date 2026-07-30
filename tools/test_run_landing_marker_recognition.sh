@@ -196,7 +196,12 @@ if grep -Fq 'not-forwarded' "$FAKE_HUMBLE_ENV"; then
     fail 'runner forwarded calibration metadata instead of exactly the two camera bindings'
 fi
 assert_contains 'source /opt/ros/humble/setup.bash' "$FAKE_HUMBLE_ARGS"
-assert_contains 'source ros2_ws/install/setup.bash' "$FAKE_HUMBLE_ARGS"
+assert_contains '[[ -r install/setup.bash ]]' "$FAKE_HUMBLE_ARGS"
+assert_contains 'root workspace overlay is missing or unreadable: install/setup.bash' "$FAKE_HUMBLE_ARGS"
+assert_contains 'source install/setup.bash' "$FAKE_HUMBLE_ARGS"
+if grep -Fq 'ros2_ws/install/setup.bash' "$FAKE_HUMBLE_ARGS"; then
+    fail 'runner still sources the unused ros2_ws/install overlay'
+fi
 assert_contains 'ros2 launch ed_uav_bringup landing_marker_recognition.launch.py' "$FAKE_HUMBLE_ARGS"
 assert_contains 'camera_plan:="$camera_plan"' "$FAKE_HUMBLE_ARGS"
 assert_contains 'if [[ -r "$1" ]]' "$FAKE_HUMBLE_ARGS"

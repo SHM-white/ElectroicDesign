@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Protocol
 
+from .command_arbiter import CommandArbiter
 from .v7_codec import (
     V7Frame,
     cmd_ascend,
@@ -173,8 +174,13 @@ class CommandRejectedError(RuntimeError):
 class FlightActionController:
     """Single-flight ACK controller; late and duplicate acknowledgements are ignored."""
 
-    def __init__(self, writer: WireWriter) -> None:
+    def __init__(
+        self,
+        writer: WireWriter,
+        arbiter: CommandArbiter | None = None,
+    ) -> None:
         self._writer = writer
+        self._arbiter = arbiter if arbiter is not None else CommandArbiter()
         self.pending: PendingCommand | None = None
         self.last_result: CommandResult | None = None
         self._used_ack_signatures: set[tuple[int, int, int]] = set()
@@ -189,14 +195,30 @@ class FlightActionController:
             raise CommandRejectedError(
                 "V7 protocol cannot correlate repeated identical command acknowledgements"
             )
-        self.last_result = None
-        written = self._writer(raw)
-        if written is not None and written != len(raw):
-            self.last_result = CommandResult(request.command, ResultCode.FCU_ERROR, "short serial write", False, steady_now)
-            raise CommandRejectedError("serial transport did not accept the complete V7 command")
-        self.pending = PendingCommand(request.command, raw, steady_now + timeout_s)
-        self._used_ack_signatures.add(signature)
-        return self.pending
+        if not self._arbiter.try_acquire():
+            raise CommandRejectedError("another FCU command is already active")
+        started = False
+        try:
+            self.last_result = None
+            written = self._writer(raw)
+            if written is not None and written != len(raw):
+                self.last_result = CommandResult(
+                    request.command,
+                    ResultCode.FCU_ERROR,
+                    "short serial write",
+                    False,
+                    steady_now,
+                )
+                raise CommandRejectedError(
+                    "serial transport did not accept the complete V7 command"
+                )
+            self.pending = PendingCommand(request.command, raw, steady_now + timeout_s)
+            self._used_ack_signatures.add(signature)
+            started = True
+            return self.pending
+        finally:
+            if not started:
+                self._arbiter.release()
 
     def handle_frame(self, frame: V7Frame, steady_now: float) -> CommandResult | None:
         """Resolve the pending command only for a matching ID=0 checksum acknowledgement."""
@@ -209,6 +231,7 @@ class FlightActionController:
         result = CommandResult(pending.command, ResultCode.SUCCEEDED, "matching V7 acknowledgement", True, steady_now)
         self.pending = None
         self.last_result = result
+        self._arbiter.release()
         return result
 
     def tick(self, steady_now: float) -> CommandResult | None:
@@ -219,4 +242,5 @@ class FlightActionController:
         result = CommandResult(pending.command, ResultCode.TIMEOUT, "V7 acknowledgement deadline exceeded", False, steady_now)
         self.pending = None
         self.last_result = result
+        self._arbiter.release()
         return result

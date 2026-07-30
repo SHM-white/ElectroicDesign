@@ -13,3 +13,4 @@
 [submodule "readonly"]
 	path = readonly
 	url = https://github.com/SHM-white/car.git
+	branch = main
