@@ -41,6 +41,58 @@ validate_mode_and_timeout() {
     esac
 }
 
+v4l2_args() {
+    local requested_devices="${HUMBLE_V4L2_DEVICES:-}"
+    local device_root="${HUMBLE_V4L2_DEVICE_ROOT:-}"
+    local stable_path
+    local host_stable_path
+    local link_target
+    local host_resolved_path
+    local resolved_path
+    local by_id_source="/dev/v4l/by-id"
+    local -a stable_paths=()
+    local -A seen_stable_paths=()
+    local -A seen_resolved_paths=()
+
+    v4l2_run_args=()
+    [[ -n "$requested_devices" ]] || {
+        [[ -z "$device_root" ]] || require_test_hook HUMBLE_V4L2_DEVICE_ROOT
+        return
+    }
+    command -v realpath >/dev/null 2>&1 || die "realpath is required for V4L2 device forwarding"
+    if [[ -n "$device_root" ]]; then
+        require_test_hook HUMBLE_V4L2_DEVICE_ROOT
+        [[ "$device_root" == /* && -d "$device_root/dev" ]] || die "HUMBLE_V4L2_DEVICE_ROOT must contain a dev directory"
+        device_root="${device_root%/}"
+        by_id_source="$device_root/dev/v4l/by-id"
+    fi
+    [[ -d "$by_id_source" ]] || die "V4L2 by-id directory '$by_id_source' does not exist"
+
+    mapfile -t stable_paths <<<"$requested_devices"
+    ((${#stable_paths[@]} > 0)) || die "HUMBLE_V4L2_DEVICES must contain at least one path"
+    v4l2_run_args=(--volume "$by_id_source:/dev/v4l/by-id:ro")
+    for stable_path in "${stable_paths[@]}"; do
+        [[ "$stable_path" =~ ^/dev/v4l/by-id/[^/[:space:]]+$ ]] || die "V4L2 device '$stable_path' must be a stable /dev/v4l/by-id path"
+        [[ -z "${seen_stable_paths[$stable_path]:-}" ]] || die "duplicate V4L2 by-id path '$stable_path'"
+        seen_stable_paths[$stable_path]=1
+        host_stable_path="$device_root$stable_path"
+        [[ -L "$host_stable_path" ]] || die "V4L2 by-id path '$stable_path' does not exist or is not a symbolic link"
+        link_target="$(readlink "$host_stable_path")"
+        if [[ "$link_target" == /* ]]; then
+            resolved_path="$(realpath --canonicalize-missing --no-symlinks "$link_target")"
+            host_resolved_path="$device_root$resolved_path"
+        else
+            host_resolved_path="$(realpath --canonicalize-missing --no-symlinks "$(dirname "$host_stable_path")/$link_target")"
+            resolved_path="${host_resolved_path#"$device_root"}"
+        fi
+        [[ "$resolved_path" =~ ^/dev/video[0-9]+$ ]] || die "V4L2 by-id path '$stable_path' must resolve to /dev/videoN, got '$resolved_path'"
+        [[ -c "$host_resolved_path" ]] || die "resolved V4L2 path '$resolved_path' is not a character device"
+        [[ -z "${seen_resolved_paths[$resolved_path]:-}" ]] || die "V4L2 by-id paths resolve to duplicate device '$resolved_path'"
+        seen_resolved_paths[$resolved_path]=1
+        v4l2_run_args+=(--device "$resolved_path:$resolved_path")
+    done
+}
+
 image_matches_base() {
     local runtime="$1"
     local base_ref="$2"

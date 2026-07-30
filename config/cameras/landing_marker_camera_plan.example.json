@@ -1,0 +1,61 @@
+{
+  "controller_budget_mbit_s": 384.0,
+  "cameras": [
+    {
+      "role": "narrow",
+      "serial": "usb-revision:0ac8:3460:0122",
+      "by_id": "/dev/v4l/by-id/usb-DHZJ-250122-ZW_W19_HD_Webcam-video-index0",
+      "observed_serial": "usb-revision:0ac8:3460:0122",
+      "controller_id": "REPLACE_WITH_P25_CONTROLLER_ID",
+      "profile": "narrow_live",
+      "frame_id": "camera_narrow_optical_frame",
+      "mode": {
+        "fourcc": "MJPG",
+        "width": 1280,
+        "height": 720,
+        "frames_per_second": 20,
+        "compression": "mjpeg",
+        "declared_peak_mbit_s": 64.0
+      },
+      "calibration": {
+        "serial": "usb-revision:0ac8:3460:0122",
+        "width": 1280,
+        "height": 720,
+        "captured_at_ns": 1785340796844314977,
+        "valid_for_ns": 31536000000000000,
+        "camera_info_url": "file:///workspace/calibration_data/narrow_1280x720_20260729T155820Z/camera_info.yaml",
+        "capture_provenance": "direct_v4l2",
+        "observed_serial": "usb-revision:0ac8:3460:0122",
+        "observed_by_id": "/dev/v4l/by-id/usb-DHZJ-250122-ZW_W19_HD_Webcam-video-index0"
+      }
+    },
+    {
+      "role": "wide",
+      "serial": "usb-revision:0ac8:3460:0708",
+      "by_id": "/dev/v4l/by-id/usb-DHZJ-240708-XH_W19_HD_Webcam-video-index0",
+      "observed_serial": "usb-revision:0ac8:3460:0708",
+      "controller_id": "REPLACE_WITH_P25_CONTROLLER_ID",
+      "profile": "wide_live",
+      "frame_id": "camera_wide_optical_frame",
+      "mode": {
+        "fourcc": "MJPG",
+        "width": 1280,
+        "height": 720,
+        "frames_per_second": 15,
+        "compression": "mjpeg",
+        "declared_peak_mbit_s": 48.0
+      },
+      "calibration": {
+        "serial": "usb-revision:0ac8:3460:0708",
+        "width": 1280,
+        "height": 720,
+        "captured_at_ns": 1785341018686903931,
+        "valid_for_ns": 31536000000000000,
+        "camera_info_url": "file:///workspace/calibration_data/wide_1280x720_20260729T160215Z/camera_info.yaml",
+        "capture_provenance": "direct_v4l2",
+        "observed_serial": "usb-revision:0ac8:3460:0708",
+        "observed_by_id": "/dev/v4l/by-id/usb-DHZJ-240708-XH_W19_HD_Webcam-video-index0"
+      }
+    }
+  ]
+}

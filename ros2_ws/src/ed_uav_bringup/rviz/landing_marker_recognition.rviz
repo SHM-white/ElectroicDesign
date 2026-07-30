@@ -1,0 +1,26 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /Annotated Image1
+      Splitter Ratio: 0.6
+    Tree Height: 780
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Annotated Image
+      Topic:
+        Reliability Policy: Best Effort
+        Value: /d_task/target_observation/annotated_image
+      Value: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Frame Rate: 30
+  Name: root
+Window Geometry:
+  Height: 900
+  Width: 1200

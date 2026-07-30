@@ -19,7 +19,7 @@
 | `MCUSerial._mode`、`_locked`、`_aux6` | 整数/位/脉冲 us | V7 模式；`locked=1` 表示已解锁 | 规范化为带类型的 FCU 状态，并保留源序列号和采集时间。 |
 | `cmd_move(distance_cm, speed_cmps, direction_deg)` | cm、cm/s、度 | 相对于机体：0 为机头前方，顺时针为正 | 仅 `ed_uav_fcu_bridge` 将获批准的 SI/ENU 命令转换为 V7。 |
 
-旧版 `DroneStateMachine` 是当前的执行器仲裁器。ROS 将其所有权替换为唯一的动作服务端所有者 `ed_uav_fcu_bridge`；任务客户端和安全客户端从不打开 FCU 端点。V7 `0x41` 被排除。
+旧版 `DroneStateMachine` 是当前的执行器仲裁器。ROS 将其所有权替换为唯一的动作服务端所有者 `ed_uav_fcu_bridge`；任务客户端和安全客户端从不打开 FCU 端点。V7 `0x41` 仅作为 bridge 内部的 MOVE/HOVER 实时后端，不新增图接口、不进入 ACK 控制器，并同时受源码回退宏和默认关闭的运行时硬件门禁约束。
 
 ## 图契约
 
@@ -91,7 +91,7 @@ QoS 配置固定如下：`sensor_data_best_effort` 表示 keep-last 5、best-eff
 `ed_uav_interfaces/contracts/d_task`。真实 Mid-360 序列号、传感器/主机 IP、固件和地面站对端值只允许出现在被 git 忽略的 `deployment_preset.local.yaml` 中；现场加载会拒绝占位值和 RFC 5737 文档地址，不会用默认值替代。
 
 `.msg` 和 `.action` 源文件中的枚举值已冻结：FCU 来源为 V7 或
-仿真器；FCU 模式为 stabilize（0）、altitude hold（1）、position hold（2）或 program（3）。定位源为 none、LIO、visual boundary 或 fused，状态为 uninitialized、active、degraded 或 lost。边界掩码位为 X=1、Y=2、Z=4、roll=8、pitch=16、yaw=32。飞行动作为 arm、disarm、mode、takeoff、move、hover 和 land，结果为 succeeded/rejected/timeout/FCU-error。任务结果为 succeeded、rejected、aborted 或 timeout。没有任何枚举映射到 V7 `0x41`。
+仿真器；FCU 模式为 stabilize（0）、altitude hold（1）、position hold（2）或 program（3）。定位源为 none、LIO、visual boundary 或 fused，状态为 uninitialized、active、degraded 或 lost。边界掩码位为 X=1、Y=2、Z=4、roll=8、pitch=16、yaw=32。飞行动作为 arm、disarm、mode、takeoff、move、hover 和 land，结果为 succeeded/rejected/timeout/FCU-error。任务结果为 succeeded、rejected、aborted 或 timeout。没有任何枚举直接映射到线协议帧号；bridge 可在内部把 MOVE/HOVER 选择为 V7 `0x41` 实时流，源码宏关闭时仍使用原 `0xE0` 高级命令。
 
 使用以下命令运行独立检查：
 

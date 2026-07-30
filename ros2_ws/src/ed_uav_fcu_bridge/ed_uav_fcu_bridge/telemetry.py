@@ -44,10 +44,20 @@ class StatusSample:
 class AuxSample:
     source_sequence: int
     received_steady_s: float
-    aux6_us: int
+    channels_us: tuple[int, ...]
     valid: bool
     steady_age_s: float
     source_stamp_ns: int | None
+
+    @property
+    def aux1_us(self) -> int:
+        """Return AUX1, the fifth channel in the complete 0x40 payload."""
+        return self.channels_us[4]
+
+    @property
+    def aux6_us(self) -> int:
+        """Return AUX6, preserving the existing mission-start switch mapping."""
+        return self.channels_us[9]
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,10 +150,11 @@ class TelemetryCache:
                 )
             case 0x40 if len(frame.data) >= 20:
                 self._aux_sequence += 1
+                channels_us = struct.unpack_from("<10h", frame.data)
                 self._aux = AuxSample(
                     self._aux_sequence,
                     steady_now,
-                    struct.unpack_from("<h", frame.data, 18)[0],
+                    channels_us,
                     True,
                     0.0,
                     source_stamp_ns,

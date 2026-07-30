@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import math
 import os
 import threading
 import time
 from pathlib import Path
-from typing import Protocol
 
 import rclpy
 from diagnostic_msgs.msg import DiagnosticArray
@@ -20,7 +18,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import BatteryState
 
-from .actions import CommandKind, CommandRejectedError, CommandRequest, ResultCode
+from .action_execution import FlightGoalHandle, execute_goal
 from .authority import (
     FlightCommandAuthorityError,
     ProgrammableCapabilityError,
@@ -28,7 +26,7 @@ from .authority import (
     require_flight_command_authority,
     require_programmable_capability,
 )
-from .command_validation import goal_rejection_reason
+from .realtime_control import RealtimeControlConfig
 from .ros_messages import (
     battery_message,
     diagnostic_message,
@@ -48,16 +46,6 @@ __all__ = (
 )
 
 
-class FlightGoalHandle(Protocol):
-    """The action-handle capabilities used by this bridge's execute callback."""
-
-    request: FlightCommand.Goal
-
-    def abort(self) -> None: ...
-    def succeed(self) -> None: ...
-    def publish_feedback(self, feedback: FlightCommand.Feedback) -> None: ...
-
-
 class FcuBridgeNode(Node):
     """Own the FCU endpoint, native protocol, and frozen `/fcu` ROS graph surface."""
 
@@ -71,6 +59,11 @@ class FcuBridgeNode(Node):
         self.declare_parameter("link_max_age_s", 0.50)
         self.declare_parameter("command_ack_timeout_s", 0.50)
         self.declare_parameter("move_speed_cmps", 30)
+        self.declare_parameter("enable_realtime_control", False)
+        self.declare_parameter("realtime_stream_period_s", 0.02)
+        self.declare_parameter("realtime_stop_frame_count", 3)
+        self.declare_parameter("realtime_position_tolerance_m", 0.05)
+        self.declare_parameter("realtime_proportional_gain_cmps_per_m", 100.0)
         self.declare_parameter("enable_experimental_0x32_0x33", False)
         self.declare_parameter("enable_flight_commands", False)
         self.declare_parameter("enable_programmable_commands", False)
@@ -103,7 +96,27 @@ class FcuBridgeNode(Node):
             lock_dir=Path(str(self.get_parameter("serial_lock_dir").value)),
         )
         self._port.open()
-        self._bridge = NativeV7Bridge(self._port.write, BridgeConfig(freshness=policy))
+        realtime_config = RealtimeControlConfig(
+            enable_realtime_control=bool(
+                self.get_parameter("enable_realtime_control").value
+            ),
+            stream_period_s=float(
+                self.get_parameter("realtime_stream_period_s").value
+            ),
+            stop_frame_count=int(
+                self.get_parameter("realtime_stop_frame_count").value
+            ),
+            position_tolerance_m=float(
+                self.get_parameter("realtime_position_tolerance_m").value
+            ),
+            proportional_gain_cmps_per_m=float(
+                self.get_parameter("realtime_proportional_gain_cmps_per_m").value
+            ),
+        )
+        self._bridge = NativeV7Bridge(
+            self._port.write,
+            BridgeConfig(freshness=policy, realtime_control=realtime_config),
+        )
         self._command_result = threading.Event()
         group = ReentrantCallbackGroup()
         self._state_publisher = self.create_publisher(FcuState, "/fcu/state", 10)
@@ -151,103 +164,7 @@ class FcuBridgeNode(Node):
             self._diagnostic_publisher.publish(diagnostic)
 
     def _execute(self, goal_handle: FlightGoalHandle) -> FlightCommand.Result:
-        rejection_reason = goal_rejection_reason(goal_handle.request)
-        if rejection_reason is not None:
-            return self._reject_goal(goal_handle, rejection_reason)
-        try:
-            request = self._request_for_goal(goal_handle.request)
-        except ValueError as error:
-            return self._reject_goal(goal_handle, str(error))
-        if request is None:
-            return self._reject_goal(
-                goal_handle,
-                "goal does not map to a supported high-level V7 command",
-            )
-        result = FlightCommand.Result()
-        self._command_result.clear()
-        try:
-            pending = self._bridge.start(request, self._steady_now(), self._goal_timeout(goal_handle.request))
-        except (CommandRejectedError, ValueError) as error:
-            result.result_code = FlightCommand.Result.RESULT_REJECTED
-            result.reason = str(error)
-            goal_handle.abort()
-            return result
-        feedback = FlightCommand.Feedback()
-        feedback.execution_state = FlightCommand.Feedback.STATE_SENT
-        feedback.correlation_id = goal_handle.request.correlation_id
-        goal_handle.publish_feedback(feedback)
-        self._command_result.wait(self._goal_timeout(goal_handle.request) + 0.10)
-        completed = self._bridge.actions.last_result
-        if completed is None or completed.command is not pending.command:
-            completed = self._bridge.tick(self._steady_now())
-        if completed is None:
-            result.result_code = FlightCommand.Result.RESULT_TIMEOUT
-            result.reason = "V7 acknowledgement deadline elapsed"
-            goal_handle.abort()
-            return result
-        result.result_code, result.reason = self._ros_result(completed.code, completed.reason)
-        result.completed_stamp = self.get_clock().now().to_msg()
-        if completed.code is ResultCode.SUCCEEDED:
-            goal_handle.succeed()
-        else:
-            goal_handle.abort()
-        return result
-
-    def _request_for_goal(self, goal: FlightCommand.Goal) -> CommandRequest | None:
-        match goal.command:
-            case FlightCommand.Goal.COMMAND_ARM:
-                return CommandRequest.unlock()
-            case FlightCommand.Goal.COMMAND_DISARM:
-                return CommandRequest(CommandKind.LOCK)
-            case FlightCommand.Goal.COMMAND_SET_MODE:
-                return CommandRequest(CommandKind.SET_MODE, mode=goal.requested_mode)
-            case FlightCommand.Goal.COMMAND_TAKEOFF:
-                return CommandRequest(CommandKind.TAKEOFF, height_cm=round(goal.target_pose.pose.position.z * 100.0))
-            case FlightCommand.Goal.COMMAND_MOVE:
-                return self._move_request(goal)
-            case FlightCommand.Goal.COMMAND_HOVER:
-                return CommandRequest.hover()
-            case FlightCommand.Goal.COMMAND_LAND:
-                return CommandRequest.land()
-            case _:
-                return None
-
-    def _move_request(self, goal: FlightCommand.Goal) -> CommandRequest | None:
-        position = self._bridge.snapshot(self._steady_now()).position
-        if position is None or not position.valid:
-            return None
-        forward_m = goal.target_pose.pose.position.y - position.forward_m
-        right_m = goal.target_pose.pose.position.x - position.right_m
-        distance_cm = round(math.hypot(forward_m, right_m) * 100.0)
-        direction_deg = round(math.degrees(math.atan2(right_m, forward_m)) % 360.0)
-        requested_speed = math.hypot(goal.target_velocity.linear.x, goal.target_velocity.linear.y)
-        speed_cmps = round(requested_speed * 100.0) if requested_speed > 0.0 else int(self.get_parameter("move_speed_cmps").value)
-        return CommandRequest.move(distance_cm, speed_cmps, direction_deg)
-
-    def _goal_timeout(self, goal: FlightCommand.Goal) -> float:
-        return goal.timeout_sec if goal.timeout_sec > 0.0 else float(self.get_parameter("command_ack_timeout_s").value)
-
-    @staticmethod
-    def _ros_result(code: ResultCode, reason: str) -> tuple[int, str]:
-        match code:
-            case ResultCode.SUCCEEDED:
-                return FlightCommand.Result.RESULT_SUCCEEDED, reason
-            case ResultCode.TIMEOUT:
-                return FlightCommand.Result.RESULT_TIMEOUT, reason
-            case ResultCode.REJECTED:
-                return FlightCommand.Result.RESULT_REJECTED, reason
-            case ResultCode.FCU_ERROR:
-                return FlightCommand.Result.RESULT_FCU_ERROR, reason
-            case _:
-                raise RuntimeError(f"unknown result code: {code}")
-
-    @staticmethod
-    def _reject_goal(goal_handle: FlightGoalHandle, reason: str) -> FlightCommand.Result:
-        result = FlightCommand.Result()
-        result.result_code = FlightCommand.Result.RESULT_REJECTED
-        result.reason = reason
-        goal_handle.abort()
-        return result
+        return execute_goal(self, goal_handle)
 
     @staticmethod
     def _cancel(goal_handle: FlightGoalHandle) -> CancelResponse:

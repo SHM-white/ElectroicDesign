@@ -172,6 +172,49 @@ expect_success 'native Jammy behavior remains direct with GUI opt-in set' \
 assert_not_contains 'docker ' "$FAKE_DOCKER_LOG"
 
 : >"$FAKE_DOCKER_LOG"
+native_v4l2_root="$tmpdir/native-v4l2-root"
+mkdir -p "$native_v4l2_root/dev/v4l/by-id" "$native_v4l2_root/dev"
+ln -s /dev/null "$native_v4l2_root/dev/video0"
+ln -s ../../video0 "$native_v4l2_root/dev/v4l/by-id/native-camera-video-index0"
+expect_success 'native Jammy dispatch must validate V4L2 without adding container flags' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/jammy.os-release" \
+        HUMBLE_NATIVE_SETUP="$tmpdir/native-setup.bash" \
+        HUMBLE_V4L2_DEVICE_ROOT="$native_v4l2_root" \
+        HUMBLE_V4L2_DEVICES=/dev/v4l/by-id/native-camera-video-index0 \
+        NATIVE_ARGS="$tmpdir/native.args" \
+        "$runner" bash -lc 'printf "%s\n" "$@" >"$NATIVE_ARGS"' bash native-command-argument
+assert_not_contains 'docker ' "$FAKE_DOCKER_LOG"
+assert_contains 'native-command-argument' "$tmpdir/native.args"
+assert_not_contains '--device' "$tmpdir/native.args"
+assert_not_contains '--volume' "$tmpdir/native.args"
+
+native_command_marker="$tmpdir/native-command-ran"
+expect_failure 'missing V4L2 request must fail before native Jammy command execution' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/jammy.os-release" \
+        HUMBLE_NATIVE_SETUP="$tmpdir/native-setup.bash" \
+        HUMBLE_V4L2_DEVICE_ROOT="$native_v4l2_root" \
+        HUMBLE_V4L2_DEVICES=/dev/v4l/by-id/missing-camera-video-index0 \
+        NATIVE_COMMAND_MARKER="$native_command_marker" \
+        "$runner" bash -lc 'touch "$NATIVE_COMMAND_MARKER"' \
+        >"$tmpdir/native-v4l2-missing.out" 2>&1
+assert_contains 'does not exist' "$tmpdir/native-v4l2-missing.out"
+[[ ! -e "$native_command_marker" ]] || fail 'native command ran before missing V4L2 request was rejected'
+
+expect_failure 'unsafe V4L2 request must fail before native Jammy command execution' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/jammy.os-release" \
+        HUMBLE_NATIVE_SETUP="$tmpdir/native-setup.bash" \
+        HUMBLE_V4L2_DEVICE_ROOT="$native_v4l2_root" \
+        HUMBLE_V4L2_DEVICES=/dev/video0 \
+        NATIVE_COMMAND_MARKER="$native_command_marker" \
+        "$runner" bash -lc 'touch "$NATIVE_COMMAND_MARKER"' \
+        >"$tmpdir/native-v4l2-unsafe.out" 2>&1
+assert_contains 'must be a stable /dev/v4l/by-id path' "$tmpdir/native-v4l2-unsafe.out"
+[[ ! -e "$native_command_marker" ]] || fail 'native command ran before unsafe V4L2 request was rejected'
+
+: >"$FAKE_DOCKER_LOG"
 expect_success 'non-Jammy host must select the container' \
     env HUMBLE_TESTING=1 \
         HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
@@ -181,6 +224,106 @@ expect_success 'non-Jammy host must select the container' \
 assert_contains 'container-selected' "$tmpdir/container.out"
 assert_contains 'build ' "$FAKE_DOCKER_LOG"
 assert_contains 'run --interactive --rm' "$FAKE_DOCKER_LOG"
+assert_not_contains '/dev/v4l/by-id:/dev/v4l/by-id:ro' "$FAKE_DOCKER_LOG"
+assert_not_contains '--device /dev/video' "$FAKE_DOCKER_LOG"
+
+v4l2_root="$tmpdir/v4l2-root"
+mkdir -p "$v4l2_root/dev/v4l/by-id" "$v4l2_root/dev"
+ln -s /dev/null "$v4l2_root/dev/video0"
+ln -s /dev/zero "$v4l2_root/dev/video2"
+ln -s ../../video0 "$v4l2_root/dev/v4l/by-id/narrow-camera-video-index0"
+ln -s ../../video2 "$v4l2_root/dev/v4l/by-id/wide-camera-video-index0"
+
+: >"$FAKE_DOCKER_LOG"
+expect_success 'stable V4L2 opt-in must forward only resolved character devices' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
+        HUMBLE_CONTAINER_RUNTIME=docker \
+        HUMBLE_V4L2_DEVICE_ROOT="$v4l2_root" \
+        HUMBLE_V4L2_DEVICES=$'/dev/v4l/by-id/narrow-camera-video-index0\n/dev/v4l/by-id/wide-camera-video-index0' \
+        FAKE_IMAGE_STATE=matching \
+        "$runner" bash -lc true >"$tmpdir/v4l2.out"
+assert_contains "--volume $v4l2_root/dev/v4l/by-id:/dev/v4l/by-id:ro" "$FAKE_DOCKER_LOG"
+assert_contains '--device /dev/video0:/dev/video0' "$FAKE_DOCKER_LOG"
+assert_contains '--device /dev/video2:/dev/video2' "$FAKE_DOCKER_LOG"
+assert_not_contains '--device /dev/v4l/by-id' "$FAKE_DOCKER_LOG"
+assert_not_contains '--device /dev/null' "$FAKE_DOCKER_LOG"
+
+absent_v4l2_root="$tmpdir/absent-v4l2-root"
+mkdir -p "$absent_v4l2_root/dev"
+expect_failure 'V4L2 opt-in must fail clearly when no by-id directory is attached' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
+        HUMBLE_CONTAINER_RUNTIME=docker \
+        HUMBLE_V4L2_DEVICE_ROOT="$absent_v4l2_root" \
+        HUMBLE_V4L2_DEVICES=/dev/v4l/by-id/narrow-camera-video-index0 \
+        FAKE_IMAGE_STATE=matching \
+        "$runner" bash -lc true >"$tmpdir/v4l2-unattached.out" 2>&1
+assert_contains 'V4L2 by-id directory' "$tmpdir/v4l2-unattached.out"
+assert_contains 'does not exist' "$tmpdir/v4l2-unattached.out"
+
+expect_failure 'V4L2 opt-in must reject non-by-id paths' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
+        HUMBLE_CONTAINER_RUNTIME=docker \
+        HUMBLE_V4L2_DEVICE_ROOT="$v4l2_root" \
+        HUMBLE_V4L2_DEVICES=/dev/video0 \
+        FAKE_IMAGE_STATE=matching \
+        "$runner" bash -lc true >"$tmpdir/v4l2-non-by-id.out" 2>&1
+assert_contains 'must be a stable /dev/v4l/by-id path' "$tmpdir/v4l2-non-by-id.out"
+
+expect_failure 'V4L2 opt-in must reject missing by-id paths' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
+        HUMBLE_CONTAINER_RUNTIME=docker \
+        HUMBLE_V4L2_DEVICE_ROOT="$v4l2_root" \
+        HUMBLE_V4L2_DEVICES=/dev/v4l/by-id/missing-camera-video-index0 \
+        FAKE_IMAGE_STATE=matching \
+        "$runner" bash -lc true >"$tmpdir/v4l2-missing.out" 2>&1
+assert_contains 'does not exist' "$tmpdir/v4l2-missing.out"
+
+: >"$v4l2_root/dev/video1"
+ln -s ../../video1 "$v4l2_root/dev/v4l/by-id/regular-file-video-index0"
+expect_failure 'V4L2 opt-in must reject non-character targets' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
+        HUMBLE_CONTAINER_RUNTIME=docker \
+        HUMBLE_V4L2_DEVICE_ROOT="$v4l2_root" \
+        HUMBLE_V4L2_DEVICES=/dev/v4l/by-id/regular-file-video-index0 \
+        FAKE_IMAGE_STATE=matching \
+        "$runner" bash -lc true >"$tmpdir/v4l2-regular.out" 2>&1
+assert_contains 'is not a character device' "$tmpdir/v4l2-regular.out"
+
+ln -s ../../../../outside "$v4l2_root/dev/v4l/by-id/outside-video-index0"
+expect_failure 'V4L2 opt-in must reject links resolving outside /dev/videoN' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
+        HUMBLE_CONTAINER_RUNTIME=docker \
+        HUMBLE_V4L2_DEVICE_ROOT="$v4l2_root" \
+        HUMBLE_V4L2_DEVICES=/dev/v4l/by-id/outside-video-index0 \
+        FAKE_IMAGE_STATE=matching \
+        "$runner" bash -lc true >"$tmpdir/v4l2-outside.out" 2>&1
+assert_contains 'must resolve to /dev/videoN' "$tmpdir/v4l2-outside.out"
+
+ln -s ../../video-camera "$v4l2_root/dev/v4l/by-id/non-numbered-video-index0"
+expect_failure 'V4L2 opt-in must reject non-numbered video targets' \
+    env HUMBLE_TESTING=1 \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
+        HUMBLE_CONTAINER_RUNTIME=docker \
+        HUMBLE_V4L2_DEVICE_ROOT="$v4l2_root" \
+        HUMBLE_V4L2_DEVICES=/dev/v4l/by-id/non-numbered-video-index0 \
+        FAKE_IMAGE_STATE=matching \
+        "$runner" bash -lc true >"$tmpdir/v4l2-non-numbered.out" 2>&1
+assert_contains 'must resolve to /dev/videoN' "$tmpdir/v4l2-non-numbered.out"
+
+expect_failure 'V4L2 test root must remain test-only' \
+    env HUMBLE_V4L2_DEVICE_ROOT="$v4l2_root" \
+        HUMBLE_OS_RELEASE_FILE="$tmpdir/noble.os-release" \
+        HUMBLE_CONTAINER_RUNTIME=docker \
+        HUMBLE_V4L2_DEVICES=/dev/v4l/by-id/narrow-camera-video-index0 \
+        FAKE_IMAGE_STATE=matching \
+        "$runner" bash -lc true >"$tmpdir/v4l2-test-root.out" 2>&1
+assert_contains 'is test-only' "$tmpdir/v4l2-test-root.out"
 
 : >"$FAKE_DOCKER_LOG"
 expect_success 'old image with matching base must rebuild after toolchain changes' \

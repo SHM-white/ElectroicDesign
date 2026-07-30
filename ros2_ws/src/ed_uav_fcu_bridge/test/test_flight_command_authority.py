@@ -173,6 +173,26 @@ def test_node_parameter_defaults_flight_commands_to_disabled() -> None:
     assert declarations[0].args[1].value is False
 
 
+def test_node_parameter_defaults_realtime_hardware_control_to_disabled() -> None:
+    # Given: the bridge node source tree.
+    tree = ast.parse(NODE_SOURCE.read_text(encoding="utf-8"))
+
+    # When: the realtime compatibility gate declaration is inspected.
+    declarations = [
+        call
+        for call in ast.walk(tree)
+        if _is_call_named(call, "declare_parameter")
+        and len(call.args) >= 2
+        and isinstance(call.args[0], ast.Constant)
+        and call.args[0].value == "enable_realtime_control"
+    ]
+
+    # Then: omission cannot activate V7 0x41 on real hardware.
+    assert len(declarations) == 1
+    assert isinstance(declarations[0].args[1], ast.Constant)
+    assert declarations[0].args[1].value is False
+
+
 def test_action_server_creation_is_conditional_on_authority_guard() -> None:
     # Given: the bridge node source tree.
     tree = ast.parse(NODE_SOURCE.read_text(encoding="utf-8"))

@@ -9,16 +9,23 @@ import pytest
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from ed_uav_fcu_bridge.telemetry import FreshnessPolicy, TelemetryCache  # noqa: E402
-from ed_uav_fcu_bridge.v7_codec import build_frame  # noqa: E402
+from ed_uav_fcu_bridge.telemetry import FreshnessPolicy, TelemetryCache
+from ed_uav_fcu_bridge.v7_codec import build_frame
 
 
 def position_frame(x_cm: int, y_cm: int) -> bytes:
     return build_frame(0xFF, 0x08, struct.pack("<ii", x_cm, y_cm))
 
 
-def aux_frame(aux6_us: int) -> bytes:
+def aux_frame(
+    aux6_us: int,
+    *,
+    aux1_us: int = 1500,
+    primary_channels_us: tuple[int, int, int, int] = (1500, 1500, 1500, 1500),
+) -> bytes:
     channels = [1500] * 10
+    channels[:4] = primary_channels_us
+    channels[4] = aux1_us
     channels[9] = aux6_us
     return build_frame(0xFF, 0x40, struct.pack("<10h", *channels))
 
@@ -72,6 +79,30 @@ def test_aux_start_permission_requires_a_fresh_rc_frame() -> None:
     # Then: stale AUX cannot authorize mission start.
     assert fresh
     assert not stale
+
+
+def test_0x40_retains_all_channels_for_realtime_mode_gating() -> None:
+    # Given: one complete RC frame with distinct primary, AUX1, and AUX6 values.
+    cache = TelemetryCache(FreshnessPolicy())
+    expected_channels = (1450, 1500, 1550, 1490, 1510, 1500, 1500, 1500, 1500, 1800)
+    cache.ingest_raw(
+        aux_frame(
+            1800,
+            aux1_us=1510,
+            primary_channels_us=(1450, 1500, 1550, 1490),
+        ),
+        steady_now=5.0,
+    )
+
+    # When: the fresh telemetry snapshot is read.
+    snapshot = cache.snapshot(steady_now=5.1)
+
+    # Then: all ten channels remain available while AUX6 keeps its start semantics.
+    assert snapshot.aux is not None
+    assert snapshot.aux.channels_us == expected_channels
+    assert snapshot.aux.aux1_us == 1510
+    assert snapshot.aux.aux6_us == 1800
+    assert cache.has_fresh_start_switch(steady_now=5.1)
 
 
 def test_status_and_link_track_source_sequence_and_steady_age_independently() -> None:

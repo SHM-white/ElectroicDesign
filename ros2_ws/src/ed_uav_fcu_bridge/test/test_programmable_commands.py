@@ -64,8 +64,41 @@ def test_programmable_request_rejects_overlap_bad_ack_and_late_ack() -> None:
     assert written == [pending.raw]
 
 
-def test_realtime_streaming_field_0x41_has_no_product_encoder() -> None:
-    # Given / When / Then: undocumented streaming activation remains unavailable.
-    assert not hasattr(v7_codec, "cmd_realtime_control")
-    supported_ids = getattr(v7_codec, "PROGRAMMABLE_FRAME_IDS", frozenset())
-    assert 0x41 not in supported_ids
+def test_realtime_control_frame_is_byte_exact() -> None:
+    # Given: seven signed V7 realtime fields with positive and negative values.
+    fields_type = getattr(v7_codec, "RealtimeControlFields", None)
+    encoder = getattr(v7_codec, "cmd_realtime_control", None)
+    assert fields_type is not None, "missing typed V7 realtime-control fields"
+    assert callable(encoder), "missing V7 realtime-control encoder"
+    fields = fields_type(
+        roll=0,
+        pitch=0,
+        thr=0,
+        yaw_dps=0,
+        spd_x=100,
+        spd_y=-200,
+        spd_z=300,
+    )
+
+    # When: the native V7 realtime frame is encoded.
+    actual = encoder(fields)
+
+    # Then: AA FF 41 0E, seven little-endian int16 fields, SC, and AC match.
+    assert actual.hex().upper() == "AAFF410E0000000000000000640038FF2C01C053"
+
+
+def test_realtime_control_frame_never_enters_the_ack_controller() -> None:
+    # Given: one legacy command awaiting ACK and one valid zero-velocity 0x41 frame.
+    written: list[bytes] = []
+    controller = actions.FlightActionController(written.append)
+    pending = controller.start(actions.CommandRequest.unlock(), steady_now=1.0, timeout_s=0.5)
+    fields = v7_codec.RealtimeControlFields(0, 0, 0, 0, 0, 0, 0)
+    realtime_frame = v7_codec.decode_frame(v7_codec.cmd_realtime_control(fields))
+
+    # When: the realtime frame is offered to the ACK correlation path.
+    result = controller.handle_frame(realtime_frame, steady_now=1.1)
+
+    # Then: only ID 0x00 can resolve the existing 0xE0 command.
+    assert result is None
+    assert controller.pending is pending
+    assert written == [pending.raw]

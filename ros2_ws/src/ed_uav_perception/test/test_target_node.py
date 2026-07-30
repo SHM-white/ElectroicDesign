@@ -19,11 +19,20 @@ def test_node_consumes_typed_camera_and_vehicle_context() -> None:
     from ed_uav_interfaces.msg import VehicleTelemetry
     from ed_uav_perception.target_observation_node import TargetObservationNode
     from ed_uav_perception.target_types import AcceptedObservation
-    from sensor_msgs.msg import CameraInfo
+    from sensor_msgs.msg import CameraInfo, Image
+
+    class ImageCapture:
+        def __init__(self) -> None:
+            self.messages: list[Image] = []
+
+        def publish(self, message: Image) -> None:
+            self.messages.append(message)
 
     rclpy.init()
     node = TargetObservationNode()
+    capture = ImageCapture()
     try:
+        node._annotated_publisher = capture
         rendered = render_target()
         now = node.get_clock().now().to_msg()
         camera = CameraInfo()
@@ -58,6 +67,13 @@ def test_node_consumes_typed_camera_and_vehicle_context() -> None:
         assert node.last_result.candidate_count == 8
         assert node.get_parameter("last_reject_reason").value == ""
         assert node.get_parameter("last_reprojection_rms_px").value < 0.5
+        assert len(capture.messages) == 1
+        annotated = capture.messages[0]
+        assert annotated.encoding == "bgr8"
+        assert annotated.width == image.width
+        assert annotated.height == image.height
+        assert annotated.header.frame_id == image.header.frame_id
+        assert annotated.header.stamp == image.header.stamp
     finally:
         node.destroy_node()
         rclpy.shutdown()

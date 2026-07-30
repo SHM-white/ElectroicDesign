@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass
 from typing import Final
 
 FRAME_HEADER: Final = 0xAA
 MAX_PAYLOAD_BYTES: Final = 255
 PROGRAMMABLE_FRAME_IDS: Final = frozenset((0xE0,))
+REALTIME_FRAME_IDS: Final = frozenset((0x41,))
 
 
 class FrameDecodeError(ValueError):
@@ -24,6 +26,19 @@ class V7Frame:
     sum_check: int
     add_check: int
     raw: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class RealtimeControlFields:
+    """The seven signed int16 fields in one Lingxiao V7 realtime frame."""
+
+    roll: int
+    pitch: int
+    thr: int
+    yaw_dps: int
+    spd_x: int
+    spd_y: int
+    spd_z: int
 
 
 def _checksums(prefix: bytes) -> tuple[int, int]:
@@ -44,6 +59,22 @@ def build_frame(address: int, frame_id: int, data: bytes) -> bytes:
     prefix = bytes((FRAME_HEADER, address, frame_id, len(data))) + data
     sum_check, add_check = _checksums(prefix)
     return prefix + bytes((sum_check, add_check))
+
+
+def cmd_realtime_control(fields: RealtimeControlFields) -> bytes:
+    """Encode ID 0x41 with seven little-endian signed int16 control fields."""
+    values = (
+        fields.roll,
+        fields.pitch,
+        fields.thr,
+        fields.yaw_dps,
+        fields.spd_x,
+        fields.spd_y,
+        fields.spd_z,
+    )
+    if any(value < -0x8000 or value > 0x7FFF for value in values):
+        raise ValueError("V7 realtime-control fields must fit signed int16")
+    return build_frame(0xFF, 0x41, struct.pack("<7h", *values))
 
 
 def decode_frame(raw: bytes) -> V7Frame:

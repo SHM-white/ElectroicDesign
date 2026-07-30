@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 
-from .actions import CommandRequest, CommandResult, FlightActionController, PendingCommand, WireWriter
+from .actions import (
+    CommandRequest,
+    CommandResult,
+    FlightActionController,
+    PendingCommand,
+    WireWriter,
+)
+from .realtime_control import (
+    RealtimeControlConfig,
+    RealtimeController,
+    RealtimeDependencies,
+    SerializedWireWriter,
+)
 from .telemetry import FreshnessPolicy, TelemetryCache, TelemetrySnapshot
 from .v7_codec import V7StreamDecoder
 
@@ -13,18 +26,32 @@ from .v7_codec import V7StreamDecoder
 class BridgeConfig:
     """Native bridge defaults; experimental sensor injection remains disabled."""
 
-    freshness: FreshnessPolicy = FreshnessPolicy()
+    freshness: FreshnessPolicy = field(default_factory=FreshnessPolicy)
     enable_experimental_position_velocity_injection: bool = False
+    realtime_control: RealtimeControlConfig = field(
+        default_factory=RealtimeControlConfig
+    )
 
 
 class NativeV7Bridge:
     """Mutable owner of the native V7 protocol state for one FCU serial endpoint."""
 
-    def __init__(self, writer: WireWriter, config: BridgeConfig = BridgeConfig()) -> None:
-        self.config = config
+    def __init__(self, writer: WireWriter, config: BridgeConfig | None = None) -> None:
+        resolved_config = config if config is not None else BridgeConfig()
+        self.config = resolved_config
         self.decoder = V7StreamDecoder()
-        self.telemetry = TelemetryCache(config.freshness)
-        self.actions = FlightActionController(writer)
+        self.telemetry = TelemetryCache(resolved_config.freshness)
+        serialized_writer = SerializedWireWriter(writer)
+        self.actions = FlightActionController(serialized_writer)
+        self.realtime = RealtimeController(
+            RealtimeDependencies(
+                serialized_writer,
+                self.snapshot,
+                time.monotonic,
+                time.sleep,
+            ),
+            resolved_config.realtime_control,
+        )
 
     def feed(self, chunk: bytes, steady_now: float, source_stamp_ns: int | None = None) -> tuple[CommandResult, ...]:
         """Decode serial input, update source-separated telemetry, and resolve matching ACKs."""

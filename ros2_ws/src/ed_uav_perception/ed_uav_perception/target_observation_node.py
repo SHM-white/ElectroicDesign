@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import time
 from collections.abc import Callable
 
@@ -11,7 +10,6 @@ import rclpy
 from cv_bridge import CvBridge, CvBridgeError
 from ed_uav_interfaces.msg import TargetObservation, VehicleTelemetry
 from rclpy.node import Node
-from rclpy.parameter import Parameter
 from rclpy.qos import (
     DurabilityPolicy,
     HistoryPolicy,
@@ -21,14 +19,16 @@ from rclpy.qos import (
 )
 from sensor_msgs.msg import CameraInfo, Image
 
+from ed_uav_perception.target_annotation import AnnotationFrame
+from ed_uav_perception.target_observation_output import (
+    ObservationOutputContext,
+    emit_observation,
+    reject_observation,
+)
 from ed_uav_perception.target_input import (
     stamp_seconds,
     validate_camera_binding,
     validate_vehicle,
-)
-from ed_uav_perception.target_message import (
-    InvalidPoseMessageError,
-    to_target_observation,
 )
 from ed_uav_perception.target_pipeline import observe_target
 from ed_uav_perception.target_types import (
@@ -41,10 +41,10 @@ from ed_uav_perception.target_types import (
     PoseLimits,
     PosePrior,
     RejectReason,
-    RejectedObservation,
 )
 
 VEHICLE_TOPIC = "/d_task/vehicle/telemetry"
+ANNOTATED_IMAGE_TOPIC = "/d_task/target_observation/annotated_image"
 VEHICLE_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=10,
@@ -105,6 +105,9 @@ class TargetObservationNode(Node):
         self._publisher = self.create_publisher(
             TargetObservation, "/d_task/target_observation", qos_profile_sensor_data
         )
+        self._annotated_publisher = self.create_publisher(
+            Image, ANNOTATED_IMAGE_TOPIC, qos_profile_sensor_data
+        )
 
     @property
     def last_result(self) -> ObservationResult | None:
@@ -113,6 +116,16 @@ class TargetObservationNode(Node):
     @property
     def vehicle_topic(self) -> str:
         return VEHICLE_TOPIC
+
+    def _output_context(self) -> ObservationOutputContext:
+        return ObservationOutputContext(
+            self._bridge,
+            self._publisher,
+            self._annotated_publisher,
+            self.set_parameters,
+            str(self.get_parameter("target_revision").value),
+            self._sequence,
+        )
 
     def _camera_callback(self, message: CameraInfo) -> None:
         self._camera_info = message
@@ -136,55 +149,25 @@ class TargetObservationNode(Node):
             message.acquisition_stamp
         )
 
-    def _record(self, result: ObservationResult) -> None:
-        self._last_result = result
-        if isinstance(result, AcceptedObservation):
-            values = (
-                result.candidate_count,
-                result.reprojection_rms_px,
-                result.quality,
-                "",
-            )
-        else:
-            values = (
-                result.candidate_count,
-                result.reprojection_rms_px
-                if math.isfinite(result.reprojection_rms_px)
-                else -1.0,
-                0.0,
-                result.reject_reason.value,
-            )
-        self.set_parameters(
-            [
-                Parameter("last_candidate_count", value=values[0]),
-                Parameter("last_reprojection_rms_px", value=values[1]),
-                Parameter("last_quality", value=values[2]),
-                Parameter("last_reject_reason", value=values[3]),
-            ]
-        )
-
-    def _emit(self, result: ObservationResult, image: Image) -> ObservationResult:
-        final = result
-        try:
-            message_out = to_target_observation(final, image.header.stamp)
-        except InvalidPoseMessageError:
-            final = self._rejection(image, RejectReason.INVALID_INPUT)
-            message_out = to_target_observation(final, image.header.stamp)
-        self._record(final)
-        self._publisher.publish(message_out)
+    def _emit(
+        self,
+        result: ObservationResult,
+        image: Image,
+        frame: AnnotationFrame | None = None,
+    ) -> ObservationResult:
+        final = emit_observation(self._output_context(), result, image, frame)
+        self._last_result = final
         return final
 
-    def _rejection(self, image: Image, reason: RejectReason) -> RejectedObservation:
-        return RejectedObservation(
-            stamp_seconds(image.header.stamp),
-            self._sequence,
-            image.header.frame_id or "camera_unknown",
-            str(self.get_parameter("target_revision").value),
-            reason,
+    def _reject(
+        self,
+        image: Image,
+        reason: RejectReason,
+        frame: AnnotationFrame | None = None,
+    ) -> None:
+        self._last_result = reject_observation(
+            self._output_context(), image, reason, frame
         )
-
-    def _reject(self, image: Image, reason: RejectReason) -> None:
-        self._emit(self._rejection(image, reason), image)
 
     def _image_callback(self, message: Image) -> None:
         image_receipt = self._steady_clock()
@@ -208,23 +191,24 @@ class TargetObservationNode(Node):
             self._reject(message, binding_reason)
             return
         try:
-            image = self._bridge.imgmsg_to_cv2(message, desired_encoding="bgr8")
+            decoded = self._bridge.imgmsg_to_cv2(message, desired_encoding="bgr8")
         except CvBridgeError:
             self._reject(message, RejectReason.INVALID_INPUT)
             return
         info = self._camera_info
         matrix = np.asarray(info.k, dtype=np.float64).reshape(3, 3)
         vehicle = self._vehicle
+        camera_model = CameraModel(
+            matrix,
+            np.asarray(info.d, dtype=np.float64),
+            int(info.width),
+            int(info.height),
+            message.header.frame_id,
+            bool(matrix[0, 0] > 0.0 and matrix[1, 1] > 0.0),
+        )
         request = ObservationRequest(
-            image,
-            CameraModel(
-                matrix,
-                np.asarray(info.d, dtype=np.float64),
-                int(info.width),
-                int(info.height),
-                message.header.frame_id,
-                bool(matrix[0, 0] > 0.0 and matrix[1, 1] > 0.0),
-            ),
+            decoded,
+            camera_model,
             FrameContext(
                 acquisition_sec,
                 image_receipt,
@@ -247,7 +231,9 @@ class TargetObservationNode(Node):
                 )
             ),
         )
-        final = self._emit(observe_target(request), message)
+        final = self._emit(
+            observe_target(request), message, AnnotationFrame(decoded, camera_model)
+        )
         if isinstance(final, AcceptedObservation):
             self._prior = PosePrior(
                 final.pose.translation_m,

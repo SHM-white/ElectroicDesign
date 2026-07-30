@@ -22,6 +22,11 @@ Ubuntu 22.04 (Jammy); every other host uses the pinned linux/amd64 container.
 Container mode is bounded by HUMBLE_TIMEOUT_SECONDS (default: 900). Set
 HUMBLE_INTERACTIVE=1 for an attached, unbounded container session; in that
 mode HUMBLE_TIMEOUT_SECONDS may be 0 because no outer timeout is used.
+
+Set HUMBLE_V4L2_DEVICES to newline-separated /dev/v4l/by-id paths to opt in
+to camera validation before native/container selection. Container mode mounts
+the by-id directory read-only and forwards only the character devices resolved
+as /dev/videoN; native commands receive no container arguments.
 EOF
 }
 
@@ -84,6 +89,7 @@ main() {
     local interactive_mode=0
     local exit_code
     local -a gui_run_args=()
+    local -a v4l2_run_args=()
     local -a container_run_args=()
 
     if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
@@ -104,6 +110,7 @@ main() {
         require_test_hook HUMBLE_NATIVE_SETUP
         native_setup="$HUMBLE_NATIVE_SETUP"
     fi
+    v4l2_args
     if is_jammy && [[ -r "$native_setup" ]]; then
         # shellcheck disable=SC1090
         set +u
@@ -135,6 +142,7 @@ main() {
         run --interactive --rm --init --platform linux/amd64
         --env ROS_HOME=/opt/ed-ros-home
         "${gui_run_args[@]}"
+        "${v4l2_run_args[@]}"
         --volume "$repo_root:/workspace"
         --workdir /workspace
         "$image_name"
