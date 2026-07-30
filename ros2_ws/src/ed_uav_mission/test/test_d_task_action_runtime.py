@@ -203,30 +203,33 @@ def test_never_start_fake_action_surface_aborts_without_motion() -> None:
 
 class RecordingStabilityCallbacks:
     def __init__(self) -> None:
-        self.now: float = 0.0
+        self._now: float = 0.0
         self.phases: list[DTaskPhase] = []
         self.moves: list[tuple[float, float, float]] = []
         self.hovers: list[float] = []
 
+    def now_s(self) -> float:
+        return self._now
+
     async def execute_takeoff(self, feedback: ExecuteMission.Feedback) -> None:
-        self.now += 0.1
+        self._now += 0.1
 
     async def send_hover(self, duration_sec: float) -> None:
         self.hovers.append(duration_sec)
-        self.now += duration_sec
+        self._now += duration_sec
 
     def capture_home(self) -> None:
         return None
 
     async def send_move(self, x_m: float, y_m: float, altitude_m: float) -> None:
         self.moves.append((x_m, y_m, altitude_m))
-        self.now += 0.01
+        self._now += 0.01
 
     async def land_home(self, feedback: ExecuteMission.Feedback) -> None:
-        self.now += 0.1
+        self._now += 0.1
 
     async def next_event(self) -> DTaskEvent:
-        return Tick(now_s=self.now)
+        return Tick(now_s=self._now)
 
     def publish_transition(self, transition: DTaskTransition, feedback: ExecuteMission.Feedback) -> None:
         self.phases.append(transition.state.phase)

@@ -193,6 +193,9 @@ class MissionConfig(BaseModel):
                     raise ValueError(
                         "2026 competition missions require 1.5 m takeoff altitude and 90 s deadline"
                     )
+            case MissionType.STABILITY_TEST:
+                if self.stability_params is None:
+                    raise ValueError("stability_test mission requires stability_params")
         return self
 
 

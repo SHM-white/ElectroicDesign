@@ -75,14 +75,14 @@ class StabilityRunner:
         state = replace(state, phase=DTaskPhase.ACQUIRING, phase_started_at_s=self._callbacks.now_s())
         self._callbacks.publish_transition(DTaskTransition(state=state), feedback)
         for waypoint in self._square_waypoints(x, y, yaw):
-            await self._handle_next_event(state)
+            await self._handle_next_event(state, feedback)
             await self._callbacks.send_move(waypoint.x_m, waypoint.y_m, self._params.altitude_m)
 
         # 顺时针圆形轨迹
         state = replace(state, phase=DTaskPhase.TRACKING, phase_started_at_s=self._callbacks.now_s())
         self._callbacks.publish_transition(DTaskTransition(state=state), feedback)
         for waypoint in self._circle_waypoints(x, y, yaw):
-            await self._handle_next_event(state)
+            await self._handle_next_event(state, feedback)
             await self._callbacks.send_move(waypoint.x_m, waypoint.y_m, self._params.altitude_m)
 
         # 降落前悬停
