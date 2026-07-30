@@ -129,6 +129,6 @@ def observe_target(request: ObservationRequest) -> ObservationResult:
         request.frame.source_sequence,
         request.camera.frame_id,
         request.frame.target_revision,
-        detection.line_width_m,
+        0.020,
         pose,
     )

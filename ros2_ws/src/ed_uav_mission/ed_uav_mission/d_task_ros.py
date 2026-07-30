@@ -260,6 +260,6 @@ class DTaskRosBoundary:
             return "selection deployment preset does not match loaded preset"
         if request.target_revision != self._params.target_revision:
             return "selection target revision does not match loaded revision"
-        if request.task not in (int(DTaskKind.PAYLOAD_DROP), int(DTaskKind.DYNAMIC_LANDING)):
+        if request.task not in (int(DTaskKind.PAYLOAD_DROP), int(DTaskKind.DYNAMIC_LANDING), int(DTaskKind.STABILITY_TEST)):
             return "selection task is unsupported"
         return ""

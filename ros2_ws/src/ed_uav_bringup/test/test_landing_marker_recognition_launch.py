@@ -45,9 +45,9 @@ def _context(use_rviz: str) -> LaunchContext:
     return context
 
 
-def _launch_arguments(include: IncludeLaunchDescription) -> dict[str, str]:
+def _launch_arguments(include: IncludeLaunchDescription, context: LaunchContext) -> dict[str, str]:
     return {
-        name: value.name
+        name: value.perform(context)
         for name, value in include.launch_arguments
     }
 
@@ -80,7 +80,7 @@ def test_launch_surface_composes_camera_observer_without_rviz() -> None:
     } <= argument_names
     assert len(includes) == 2
     include_text = [
-        include.launch_description_source.location.perform(context)
+        include.launch_description_source._LaunchDescriptionSource__location[0].perform(context)
         for include in includes
     ]
     assert any("dual_uvc.launch.py" in value for value in include_text)
@@ -96,14 +96,14 @@ def test_launch_surface_composes_camera_observer_without_rviz() -> None:
         for include, location in zip(includes, include_text)
         if "target_observation.launch.py" in location
     )
-    assert _launch_arguments(camera_include) == {
-        "camera_plan": "camera_plan",
-        "profile_catalog": "profile_catalog",
+    assert _launch_arguments(camera_include, context) == {
+        "camera_plan": "/secure/p25-runtime-plan.json",
+        "profile_catalog": "/secure/profile-catalog.yaml",
     }
-    assert _launch_arguments(observation_include) == {
-        "vehicle_topic": "vehicle_topic",
-        "target_revision": "target_revision",
-        "max_reprojection_rms_px": "max_reprojection_rms_px",
+    assert _launch_arguments(observation_include, context) == {
+        "vehicle_topic": "/external/vehicle/telemetry",
+        "target_revision": "d2026-circle-cross-v1",
+        "max_reprojection_rms_px": "1.5",
     }
 
 
@@ -115,7 +115,8 @@ def test_launch_surface_starts_one_rviz_when_requested(
     monkeypatch.setattr(shutil, "which", lambda _: "/usr/bin/rviz2")
 
     # When: the deferred actions are evaluated.
-    actions = module._build_actions(_context("true"))
+    context = _context("true")
+    actions = module._build_actions(context)
     nodes = [action for action in actions if isinstance(action, Node)]
 
     # Then: exactly one RViz node is added with the selected config substitution.
@@ -123,7 +124,7 @@ def test_launch_surface_starts_one_rviz_when_requested(
     assert nodes[0].node_package == "rviz2"
     node_arguments = nodes[0]._Node__arguments
     assert node_arguments[0] == "-d"
-    assert node_arguments[1].name == "rviz_config"
+    assert node_arguments[1].perform(context) == str(RVIZ_PATH)
 
 
 def test_rviz_config_displays_annotated_image_only() -> None:

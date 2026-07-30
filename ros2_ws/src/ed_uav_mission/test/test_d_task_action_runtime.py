@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Coroutine
 from dataclasses import dataclass, field
 
@@ -24,7 +25,7 @@ from ed_uav_mission.d_task_model import (
     DTaskTransition,
     RouteStage,
 )
-from ed_uav_mission.mission_model import CompetitionParams
+from ed_uav_mission.mission_model import CompetitionParams, StabilityParams
 
 
 def _run_immediate(coroutine: Coroutine[None, None, None]) -> None:
@@ -198,3 +199,56 @@ def test_never_start_fake_action_surface_aborts_without_motion() -> None:
 
     assert surface.effects == []
     assert surface.phases[-1] is DTaskPhase.ABORTED
+
+
+class RecordingStabilityCallbacks:
+    def __init__(self) -> None:
+        self.now: float = 0.0
+        self.phases: list[DTaskPhase] = []
+        self.moves: list[tuple[float, float, float]] = []
+        self.hovers: list[float] = []
+
+    async def execute_takeoff(self, feedback: ExecuteMission.Feedback) -> None:
+        self.now += 0.1
+
+    async def send_hover(self, duration_sec: float) -> None:
+        self.hovers.append(duration_sec)
+        self.now += duration_sec
+
+    def capture_home(self) -> None:
+        return None
+
+    async def send_move(self, x_m: float, y_m: float, altitude_m: float) -> None:
+        self.moves.append((x_m, y_m, altitude_m))
+        self.now += 0.01
+
+    async def land_home(self, feedback: ExecuteMission.Feedback) -> None:
+        self.now += 0.1
+
+    async def next_event(self) -> DTaskEvent:
+        return Tick(now_s=self.now)
+
+    def publish_transition(self, transition: DTaskTransition, feedback: ExecuteMission.Feedback) -> None:
+        self.phases.append(transition.state.phase)
+
+    def capture_pose(self) -> tuple[float, float, float]:
+        return (0.0, 0.0, 0.0)
+
+
+def test_stability_runner_executes_requested_trajectory_sequence() -> None:
+    from ed_uav_mission.stability_runner import StabilityRunner
+    from ed_uav_mission.mission_model import StabilityParams
+
+    callbacks = RecordingStabilityCallbacks()
+
+    async def scenario() -> None:
+        params = StabilityParams()
+        runner = StabilityRunner(callbacks, params)
+        await runner.run(selection(DTaskKind.PAYLOAD_DROP), ExecuteMission.Feedback())
+
+    _run_immediate(scenario())
+
+    assert callbacks.hovers == [5.0, 5.0]
+    assert len(callbacks.moves) == 4
+    assert callbacks.phases[0] is DTaskPhase.STABILIZING
+    assert callbacks.phases[-1] is DTaskPhase.SUCCEEDED

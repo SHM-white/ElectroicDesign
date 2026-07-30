@@ -69,6 +69,7 @@ class RealtimeController:
         config: RealtimeControlConfig,
         arbiter: CommandArbiter | None = None,
     ) -> None:
+        # 调参：stream_period_s / stop_frame_count / position_tolerance_m 均来自 RealtimeControlConfig
         self._dependencies = dependencies
         self.config = config
         self._arbiter = arbiter if arbiter is not None else CommandArbiter()
@@ -180,6 +181,7 @@ class RealtimeController:
                 self._dependencies.snapshot(now),
             ):
                 return self._gated("HOVER", now)
+            # 保持当前航向并持续输出零速度，直到悬停时间结束
             self._write(ZERO_CONTROL)
             self._dependencies.sleeper(self.config.stream_period_s)
 

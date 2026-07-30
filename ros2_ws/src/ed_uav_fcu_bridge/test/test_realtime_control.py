@@ -200,7 +200,12 @@ def test_hover_streams_zero_velocity_for_the_requested_duration() -> None:
         stop_frame_count=2,
     )
     controller = realtime.RealtimeController(
-        realtime.RealtimeDependencies(written.append, SnapshotSequence((_snapshot(),)), clock, clock.sleep),
+        realtime.RealtimeDependencies(
+            written.append,
+            SnapshotSequence((_snapshot(), _snapshot(), _snapshot())),
+            clock,
+            clock.sleep,
+        ),
         config,
     )
 
@@ -271,6 +276,41 @@ def test_cancel_failure_and_timeout_end_with_configurable_zero_frames(
     assert [_control_fields(frame) for frame in written[-3:]] == [(0,) * 7] * 3
 
 
+def test_hover_aborts_when_mode_gate_is_lost_during_hover() -> None:
+    # Given: three valid samples followed by one invalid mode sample during a 80 ms hover.
+    realtime = _realtime_module()
+    clock = FakeClock()
+    written: list[bytes] = []
+    config = realtime.RealtimeControlConfig(
+        enable_realtime_control=True,
+        stream_period_s=0.02,
+        stop_frame_count=2,
+    )
+    controller = realtime.RealtimeController(
+        realtime.RealtimeDependencies(
+            written.append,
+            SnapshotSequence((
+                _snapshot(),
+                _snapshot(),
+                _snapshot(),
+                _snapshot(status_mode=3),
+            )),
+            clock,
+            clock.sleep,
+        ),
+        config,
+    )
+
+    # When: the hover loop encounters an invalid mode after several zero-velocity frames.
+    result = controller.execute(realtime.RealtimeHoverRequest(duration_s=0.08), lambda: False)
+
+    # Then: the hover aborts with CONTROL_GATED and trailing stop frames are still emitted.
+    assert result.code is realtime.RealtimeResultCode.CONTROL_GATED
+    assert clock.sleeps == [0.02, 0.02, 0.02]
+    assert len(written) == 5
+    assert all(_control_fields(frame) == (0,) * 7 for frame in written[-2:])
+
+
 def test_source_macro_false_restores_legacy_move_and_hover_vectors(monkeypatch: pytest.MonkeyPatch) -> None:
     # Given: realtime MOVE/HOVER is the default source selection.
     realtime = _realtime_module()
@@ -287,6 +327,47 @@ def test_source_macro_false_restores_legacy_move_and_hover_vectors(monkeypatch: 
     assert not selected
     assert move.hex().upper() == "AAFFE00B10020364001E005A00000085E7"
     assert hover.hex().upper() == "AAFFE00B1000040000000000000000A8A0"
+
+
+def test_semantic_arbiter_prevents_concurrent_realtime_requests() -> None:
+    # Given: a realtime HOVER blocked inside the first complete frame write.
+    realtime = _realtime_module()
+    clock = FakeClock()
+    written: list[bytes] = []
+    snapshots = SnapshotSequence((_snapshot(), _snapshot(), _snapshot()))
+    blocking = BlockingWriter()
+    arbiter = realtime.CommandArbiter()
+    controller = realtime.RealtimeController(
+        realtime.RealtimeDependencies(blocking, snapshots, clock, clock.sleep),
+        realtime.RealtimeControlConfig(enable_realtime_control=True, stream_period_s=0.02, stop_frame_count=1),
+        arbiter,
+    )
+    first_result: realtime.RealtimeResult | None = None
+
+    def run_first() -> None:
+        nonlocal first_result
+        first_result = controller.execute(realtime.RealtimeHoverRequest(duration_s=0.02), lambda: False)
+
+    first = threading.Thread(target=run_first)
+    first.start()
+    assert blocking.first_entered.wait(timeout=1.0)
+
+    # When: a second realtime request arrives while the first request owns the semantic arbiter.
+    second = controller.execute(
+        realtime.RealtimeMoveRequest(
+            target=realtime.PositionTarget(forward_m=1.0, right_m=0.0),
+            max_speed_cmps=30,
+            timeout_s=0.5,
+        ),
+        lambda: False,
+    )
+
+    # Then: the second request is rejected immediately and the first request completes after release.
+    assert second.code is realtime.RealtimeResultCode.REJECTED
+    blocking.release_first.set()
+    first.join(timeout=1.0)
+    assert first_result is not None
+    assert first_result.code is realtime.RealtimeResultCode.SUCCEEDED
 
 
 def test_serialized_writer_prevents_legacy_and_realtime_frame_interleaving() -> None:

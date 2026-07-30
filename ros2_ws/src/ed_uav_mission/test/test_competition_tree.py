@@ -12,6 +12,7 @@ from ed_uav_mission.competition_tree import (
     moves_from_planner_path,
     return_goal,
 )
+from ed_uav_mission.d_task_model import DTaskKind
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 PROFILE_PATH = (
@@ -22,32 +23,43 @@ PROFILE_PATH = (
     / "simulation_arena.yaml"
 )
 COMPETITION_CONFIG = PACKAGE_ROOT / "config" / "missions" / "simulation_competition.yaml"
+STABILITY_CONFIG = PACKAGE_ROOT / "config" / "missions" / "simulation_stability_test.yaml"
+
+
+def test_stability_profile_can_load_when_blocked_profile_is_allowed(tmp_path: Path) -> None:
+    # Given: the checked-in stability-test mission config and simulation profile path.
+    pytest.importorskip("pydantic")
+    from ed_uav_mission.mission_config import load_mission_bundle
+
+    # When/Then: the stability mission loads for simulation without altitude violations.
+    bundle = load_mission_bundle(PROFILE_PATH, STABILITY_CONFIG, allow_blocked_profile=True)
+    assert bundle.mission.mission_type.value == "stability_test"
+    assert bundle.mission.stability_params is not None
 
 
 def test_competition_tree_declares_two_immutable_2026_task_branches() -> None:
-    # Given: the competition mission's checked-in branch definitions.
+    # Given: the checked-in branch definitions including the stability test tree.
     branches = getattr(competition_tree, "D_TASK_BRANCHES", None)
 
-    # When/Then: synthetic navigation is replaced by exactly the two D-task branches.
+    # When/Then: the mission exposes three task branches.
     assert branches is not None
-    assert tuple(branches) == (1, 2)
+    assert tuple(branches) == (1, 2, 3)
     assert not hasattr(competition_tree.CompetitionStep, "NAVIGATE_FORWARD")
     assert not hasattr(competition_tree.CompetitionStep, "NAVIGATE_RETURN")
 
 
 def test_competition_tree_has_the_required_terminal_sequence() -> None:
-    # Given: both immutable 2026 competition branches.
-    branches = tuple(competition_tree.D_TASK_BRANCHES.values())
+    # Given: the two immutable competition branches that must return home.
+    payload_branch = competition_tree.D_TASK_BRANCHES[DTaskKind.PAYLOAD_DROP]
+    landing_branch = competition_tree.D_TASK_BRANCHES[DTaskKind.DYNAMIC_LANDING]
 
     # When/Then: both return to H, land there, and terminate successfully.
-    assert all(
-        branch.nominal_phases[-3:] == (
+    for branch in (payload_branch, landing_branch):
+        assert branch.nominal_phases[-3:] == (
             CompetitionStep.RETURNING_HOME,
             CompetitionStep.LANDING_HOME,
             CompetitionStep.SUCCEEDED,
         )
-        for branch in branches
-    )
 
 
 def test_forward_goal_uses_captured_start_yaw_and_finite_distance() -> None:

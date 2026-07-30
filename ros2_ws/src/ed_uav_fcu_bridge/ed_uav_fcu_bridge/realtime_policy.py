@@ -26,14 +26,17 @@ ZERO_CONTROL: Final = RealtimeControlFields(0, 0, 0, 0, 0, 0, 0)
 class RealtimeControlConfig:
     """Safety gates and tunables for the V7 realtime stream."""
 
+    # 硬件默认关闭；仅在显式验证后启用 0x41 实时控制
     enable_realtime_control: bool = False
-    # Matches the existing 20 ms poll as a starting point; tune without propellers.
-    # This is not claimed to be a protocol-mandated transmission rate.
+    # 以现有 20ms 轮询为起点，后续需无桨实测调参；不是协议规定频率
     stream_period_s: float = 0.02
+    # 停止帧数量，用于结束/中断后稳定输出归零
     stop_frame_count: int = 3
+    # 到达判定容差，避免过早判定目标到达
     position_tolerance_m: float = 0.05
+    # 速度比例增益，需无桨实测校准
     proportional_gain_cmps_per_m: float = 100.0
-    # Require distinct fresh arrivals to avoid completing on one transient sample.
+    # 连续新鲜到达帧阈值，防止单帧抖动误判到达
     arrival_confirmation_samples: int = 3
 
     def __post_init__(self) -> None:

@@ -1,21 +1,36 @@
-"""Extract versioned ring and cross correspondences from calibrated images."""
+"""Landing marker detector with feature-point based PnP correspondence.
 
+Marker geometry:
+  - Outer circle: 50cm diameter (25cm radius)
+  - Inner circle: 30cm diameter (15cm radius)
+  - Cross: 2cm wide lines extending from center to outer circle
+
+Feature points for PnP:
+  1. Center point (cross intersection) - MUST detect
+  2. 4 cross-circle intersections (where cross meets inner circle) - need 3+
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Sequence
 
 import cv2
 import numpy as np
 
 from ed_uav_perception.target_types import CorrespondenceSet, RejectReason
 
-TARGET_REVISION: Final = "d2026-circle-cross-v1"
-OUTER_RADIUS_M: Final = 0.25
-INNER_RADIUS_M: Final = 0.15
-EXPECTED_RADIUS_RATIO: Final = INNER_RADIUS_M / OUTER_RADIUS_M
-MIN_LINE_WIDTH_M: Final = 0.018
-MAX_LINE_WIDTH_M: Final = 0.022
+TARGET_REVISION = "d2026-circle-cross-v1"
+OUTER_RADIUS_M = 0.25
+INNER_RADIUS_M = 0.15
+
+# 3D model points for PnP (in marker coordinate frame, z=0)
+MODEL_CENTER = np.array([0.0, 0.0, 0.0])
+MODEL_CROSS_CIRCLE = np.array([
+    [INNER_RADIUS_M, 0.0, 0.0],   # right
+    [0.0, INNER_RADIUS_M, 0.0],   # top
+    [-INNER_RADIUS_M, 0.0, 0.0],  # left
+    [0.0, -INNER_RADIUS_M, 0.0],  # bottom
+])
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,161 +38,232 @@ class DetectionFailure:
     reason: RejectReason
 
 
-def _radial_samples(gray: np.ndarray, center: tuple[float, float], radius: int) -> np.ndarray:
-    angles = np.linspace(0.0, 2.0 * np.pi, 720, endpoint=False)
-    radii = np.arange(1, radius + 1, dtype=np.float64)
-    xs = center[0] + radii[:, None] * np.cos(angles)[None, :]
-    ys = center[1] + radii[:, None] * np.sin(angles)[None, :]
-    return cv2.remap(
-        gray,
-        xs.astype(np.float32),
-        ys.astype(np.float32),
-        cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=255,
-    )
-
-
-def _ring_centers(profile: np.ndarray) -> list[float]:
-    active = profile > max(60.0, float(profile.max()) * 0.45)
-    groups: list[np.ndarray] = []
-    start = 0
-    for index in range(1, active.size + 1):
-        if index < active.size and active[index] == active[start]:
-            continue
-        if active[start] and index - start >= 2:
-            groups.append(np.arange(start, index))
-        start = index
-    return [float(np.average(group + 1, weights=profile[group])) for group in groups]
-
-
-def _peak_width(profile: np.ndarray, center: int, threshold: float) -> int:
-    size = profile.size
-    width = 1
-    for direction in (-1, 1):
-        offset = 1
-        while offset < size // 8:
-            if profile[(center + direction * offset) % size] <= threshold:
-                break
-            width += 1
-            offset += 1
-    return width
-
-
-def _cross_geometry(
-    samples: np.ndarray, rings: tuple[float, float]
-) -> tuple[float, float] | None:
-    radial_mask = np.ones(samples.shape[0], dtype=bool)
-    for radius in rings:
-        radial_mask &= np.abs(np.arange(1, samples.shape[0] + 1) - radius) > 9.0
-    radial_mask[: max(3, int(samples.shape[0] * 0.12))] = False
-    angular = (255.0 - samples[radial_mask]).mean(axis=0)
-    if float(angular.max()) < 35.0:
+def _find_marker_region(gray: np.ndarray) -> tuple[np.ndarray, tuple[int, int, int, int]] | None:
+    """Find the marker region using Otsu threshold and connected components."""
+    _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    count, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
+    if count < 2:
         return None
-    size = angular.size
-    first = int(np.argmax(angular))
-    search = max(4, size // 60)
-    peaks: list[int] = []
-    for quarter in range(4):
-        expected = (first + quarter * size // 4) % size
-        indices = np.arange(expected - search, expected + search + 1) % size
-        peak = int(indices[int(np.argmax(angular[indices]))])
-        if float(angular[peak]) < 35.0:
-            return None
-        peaks.append(peak)
-    sample_radius = max(4, int(rings[1] * 0.45))
-    profile = 255.0 - samples[sample_radius - 1]
-    widths = [_peak_width(profile, peak, 180.0) for peak in peaks]
-    angular_width = float(np.median(widths)) * 2.0 * np.pi / size
-    line_width_m = angular_width * sample_radius / rings[1] * OUTER_RADIUS_M
-    return first * 2.0 * np.pi / size, line_width_m
+    
+    # Find largest component (should be the marker)
+    best_idx = 1
+    best_area = stats[1, cv2.CC_STAT_AREA]
+    for i in range(2, count):
+        area = stats[i, cv2.CC_STAT_AREA]
+        if area > best_area:
+            best_area = area
+            best_idx = i
+    
+    if best_area < 500:
+        return None
+    
+    x, y, w, h, _ = stats[best_idx]
+    aspect = max(w, h) / max(1, min(w, h))
+    if aspect > 2.0:
+        return None
+    
+    marker_mask = (labels == best_idx).astype(np.uint8) * 255
+    return marker_mask, (x, y, w, h)
 
 
-def _points(
-    center: tuple[float, float],
-    radii_px: tuple[float, float],
-    phase: float,
-    line_width_m: float,
-) -> CorrespondenceSet:
-    angles = phase + np.linspace(0.0, 2.0 * np.pi, 8, endpoint=False)
-    object_points = np.column_stack(
-        (
-            np.concatenate(
-                (
-                    OUTER_RADIUS_M * np.cos(angles - phase),
-                    INNER_RADIUS_M * np.cos(angles - phase),
-                )
-            ),
-            np.concatenate(
-                (
-                    OUTER_RADIUS_M * np.sin(angles - phase),
-                    INNER_RADIUS_M * np.sin(angles - phase),
-                )
-            ),
-            np.zeros(16),
-        )
+def _find_inner_circle_hough(gray: np.ndarray, marker_mask: np.ndarray, bbox: tuple[int, int, int, int]) -> tuple[tuple[int, int], int] | None:
+    """Find the inner circle using Hough Circle Transform on the original grayscale image."""
+    x, y, w, h = bbox
+    # Add margin around bbox for better circle detection
+    margin = 20
+    x1 = max(0, x - margin)
+    y1 = max(0, y - margin)
+    x2 = min(gray.shape[1], x + w + margin)
+    y2 = min(gray.shape[0], y + h + margin)
+    
+    roi = gray[y1:y2, x1:x2]
+    roi_mask = marker_mask[y1:y2, x1:x2]
+    
+    # Apply CLAHE for better contrast
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    roi_enhanced = clahe.apply(roi)
+    
+    # Estimate expected radius range from bbox
+    expected_radius = min(w, h) // 4
+    min_radius = max(15, int(expected_radius * 0.6))
+    max_radius = int(expected_radius * 1.4)
+    
+    # Hough circles with tuned parameters
+    circles = cv2.HoughCircles(
+        roi_enhanced,
+        cv2.HOUGH_GRADIENT,
+        dp=1.2,
+        minDist=min(w, h) // 3,
+        param1=100,
+        param2=25,
+        minRadius=min_radius,
+        maxRadius=max_radius,
     )
-    image_points = np.column_stack(
-        (
-            np.concatenate(
-                (
-                    center[0] + radii_px[0] * np.cos(angles),
-                    center[0] + radii_px[1] * np.cos(angles),
-                )
-            ),
-            np.concatenate(
-                (
-                    center[1] + radii_px[0] * np.sin(angles),
-                    center[1] + radii_px[1] * np.sin(angles),
-                )
-            ),
-        )
-    )
-    return CorrespondenceSet(
-        object_points.astype(np.float64),
-        image_points.astype(np.float64),
-        4,
-        line_width_m,
-    )
+    
+    if circles is None:
+        return None
+    
+    # Find the circle closest to center of bbox
+    cx_roi = (x + w // 2) - x1
+    cy_roi = (y + h // 2) - y1
+    best_circle = None
+    best_dist = float('inf')
+    
+    for circle in circles[0]:
+        cx, cy, r = circle
+        dist = np.sqrt((cx - cx_roi)**2 + (cy - cy_roi)**2)
+        if dist < best_dist:
+            best_dist = dist
+            best_circle = (int(cx) + x1, int(cy) + y1, int(r))
+    
+    if best_circle is None:
+        return None
+    
+    return (best_circle[0], best_circle[1]), best_circle[2]
+
+
+def _find_cross_center(marker_mask: np.ndarray, inner_center: tuple[int, int], inner_radius: int) -> tuple[int, int]:
+    """Find the center point as the intersection of the cross arms.
+    
+    Uses the binary mask to find the center of horizontal and vertical
+    white regions (cross arms) through the inner circle center.
+    This is stable because it uses the thresholded mask, not raw grayscale.
+    """
+    h, w = marker_mask.shape
+    cx, cy = inner_center
+    
+    # Scan horizontal line through center
+    h_line = marker_mask[cy, :]
+    h_white = np.where(h_line > 0)[0]
+    
+    # Scan vertical line through center
+    v_line = marker_mask[:, cx]
+    v_white = np.where(v_line > 0)[0]
+    
+    if len(h_white) > 0 and len(v_white) > 0:
+        # The center of the cross is the center of the white regions
+        # This is stable because we're using the binary mask
+        h_center = int(np.mean(h_white))
+        v_center = int(np.mean(v_white))
+        return (h_center, v_center)
+    
+    return inner_center
+
+
+def _find_cross_circle_intersections(
+    gray: np.ndarray,
+    marker_mask: np.ndarray,
+    inner_center: tuple[int, int],
+    inner_radius: int,
+) -> list[tuple[int, int]]:
+    """Find where the cross lines intersect the inner circle edge.
+    
+    Strategy: 
+    1. Use the grayscale image to find the inner circle edge (dark ring)
+    2. Scan along the 4 cardinal directions from center
+    3. Find the transition from dark cross arm to lighter gap to dark circle edge
+    """
+    h, w = gray.shape
+    cx, cy = inner_center
+    
+    intersections = []
+    
+    for angle_deg in [0, 90, 180, 270]:
+        angle_rad = np.radians(angle_deg)
+        dx, dy = np.cos(angle_rad), np.sin(angle_rad)
+        
+        # Scan outward from center
+        # We're looking for: dark cross arm -> lighter gap -> dark inner circle edge
+        profile = []
+        scan_start = max(0, inner_radius - 20)
+        scan_end = min(min(cx, w-cx, cy, h-cy), inner_radius + 20)
+        
+        for dist in range(scan_start, scan_end):
+            px = int(cx + dist * dx)
+            py = int(cy + dist * dy)
+            if 0 <= px < w and 0 <= py < h:
+                profile.append((dist, gray[py, px]))
+        
+        if len(profile) < 10:
+            continue
+        
+        # Find the inner circle edge: look for a dip in values (dark ring)
+        # The profile should show: lighter area -> dark circle edge -> lighter gap
+        values = [v for _, v in profile]
+        dists = [d for d, _ in profile]
+        
+        # Smooth the profile
+        kernel_size = 3
+        smoothed = np.convolve(values, np.ones(kernel_size)/kernel_size, mode='valid')
+        smoothed_dists = dists[kernel_size//2:-kernel_size//2+1] if kernel_size % 2 == 1 else dists[kernel_size//2:-kernel_size//2]
+        
+        if len(smoothed) < 5:
+            continue
+        
+        # Find the darkest point near the expected inner radius
+        expected_idx = len(smoothed) // 2
+        search_range = min(10, len(smoothed) // 4)
+        search_start = max(0, expected_idx - search_range)
+        search_end = min(len(smoothed), expected_idx + search_range)
+        
+        search_region = smoothed[search_start:search_end]
+        if len(search_region) == 0:
+            continue
+        
+        min_idx = np.argmin(search_region) + search_start
+        best_dist = int(smoothed_dists[min_idx])
+        
+        px = int(cx + best_dist * dx)
+        py = int(cy + best_dist * dy)
+        intersections.append((px, py))
+    
+    return intersections
 
 
 def detect_target(image: np.ndarray, revision: str) -> CorrespondenceSet | DetectionFailure:
-    """Detect the complete prescribed geometry or return a typed rejection."""
+    """Detect marker and return feature points for PnP.
+    
+    Returns CorrespondenceSet with:
+      - 1 center point (cross intersection)
+      - 4 cross-circle intersection points (where cross meets inner circle)
+    
+    Minimum 4 points required for PnP.
+    """
     if revision != TARGET_REVISION:
         return DetectionFailure(RejectReason.WRONG_REVISION)
     if image.ndim not in (2, 3) or min(image.shape[:2]) < 64:
         return DetectionFailure(RejectReason.INVALID_INPUT)
+    
     gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    count, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
-    if count < 2:
+    
+    # Step 1: Find marker region
+    result = _find_marker_region(gray)
+    if result is None:
         return DetectionFailure(RejectReason.PARTIAL_GEOMETRY)
-    component = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-    area = int(stats[component, cv2.CC_STAT_AREA])
-    if area < 300:
+    marker_mask, bbox = result
+    
+    # Step 2: Find inner circle using Hough transform
+    circle_result = _find_inner_circle_hough(gray, marker_mask, bbox)
+    if circle_result is None:
         return DetectionFailure(RejectReason.PARTIAL_GEOMETRY)
-    center = (float(centroids[component, 0]), float(centroids[component, 1]))
-    radius_limit = int(
-        min(center[0], center[1], gray.shape[1] - center[0] - 1, gray.shape[0] - center[1] - 1)
+    inner_center, inner_radius = circle_result
+    
+    # Step 3: Find center point from cross intersection
+    center_point = _find_cross_center(marker_mask, inner_center, inner_radius)
+    
+    # Step 4: Find cross-circle intersections
+    cross_circle_points = _find_cross_circle_intersections(gray, marker_mask, inner_center, inner_radius)
+    
+    # Need at least center + 3 cross-circle intersections
+    if len(cross_circle_points) < 3:
+        return DetectionFailure(RejectReason.PARTIAL_GEOMETRY)
+    
+    # Build correspondence set
+    image_points = [center_point] + cross_circle_points
+    object_points = [MODEL_CENTER] + list(MODEL_CROSS_CIRCLE[:len(cross_circle_points)])
+    
+    return CorrespondenceSet(
+        object_points=np.array(object_points, dtype=np.float64),
+        image_points=np.array(image_points, dtype=np.float64),
+        symmetry_order=4,
     )
-    if radius_limit < 20:
-        return DetectionFailure(RejectReason.PARTIAL_GEOMETRY)
-    samples = _radial_samples(gray, center, radius_limit)
-    darkness = (255.0 - samples).mean(axis=1)
-    centers = _ring_centers(darkness)
-    if len(centers) < 2:
-        return DetectionFailure(RejectReason.PARTIAL_GEOMETRY)
-    outer = centers[-1]
-    inner = min(centers[:-1], key=lambda value: abs(value / outer - EXPECTED_RADIUS_RATIO))
-    ratio = inner / outer
-    if ratio < 0.30 or ratio > 0.80:
-        return DetectionFailure(RejectReason.PARTIAL_GEOMETRY)
-    if abs(ratio - EXPECTED_RADIUS_RATIO) > 0.09:
-        return DetectionFailure(RejectReason.WRONG_REVISION)
-    cross = _cross_geometry(samples, (inner, outer))
-    if cross is None:
-        return DetectionFailure(RejectReason.INCOMPLETE_CROSS)
-    phase, line_width_m = cross
-    if not MIN_LINE_WIDTH_M <= line_width_m <= MAX_LINE_WIDTH_M:
-        return DetectionFailure(RejectReason.LINE_WIDTH_OUT_OF_RANGE)
-    return _points(center, (outer, inner), phase, line_width_m)

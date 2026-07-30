@@ -56,7 +56,6 @@ class CorrespondenceSet:
     object_points: np.ndarray
     image_points: np.ndarray
     symmetry_order: int
-    line_width_m: float = 0.02
 
 
 @dataclass(frozen=True, slots=True)

@@ -7,6 +7,7 @@ for every built-in mission plugin.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
@@ -31,6 +32,7 @@ class MissionType(str, Enum):
     TARGET_VISIT = "target_visit"
     PAYLOAD = "payload"
     COMPETITION = "competition"
+    STABILITY_TEST = "stability_test"
 
 
 class Waypoint(BaseModel):
@@ -103,7 +105,9 @@ class CompetitionParams(BaseModel):
     mission_profile_id: Identifier
     deployment_preset_id: Identifier
     target_revision: Literal["d2026-circle-cross-v1"]
+    mission_variant: Literal["competition", "stability"] = "competition"
     altitude_m: FiniteFloat = Field(default=1.5, gt=0.0)
+    stability_params: StabilityParams | None = None
     forward_distance_m: FiniteFloat = Field(default=2.0, gt=0.0, le=50.0)
     stable_sec: FiniteFloat = Field(default=3.0, ge=3.0, le=3.0)
     start_deadline_s: FiniteFloat = Field(default=15.0, gt=0.0, le=15.0)
@@ -113,6 +117,29 @@ class CompetitionParams(BaseModel):
     target_freshness_s: FiniteFloat = Field(default=0.2, gt=0.0, le=0.2)
     maximum_relative_error_m: FiniteFloat = Field(default=2.0, gt=0.0, le=5.0)
     planner_timeout_sec: FiniteFloat = Field(default=5.0, gt=0.0, le=30.0)
+
+
+class StabilityParams(BaseModel):
+    """Geometry and timing for the stability-test mission."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    # 飞行高度
+    altitude_m: FiniteFloat = Field(default=1.5, gt=0.0, le=10.0)
+    # 起飞后悬停
+    pre_hover_sec: FiniteFloat = Field(default=5.0, gt=0.0, le=20.0)
+    # 降落前悬停
+    post_hover_sec: FiniteFloat = Field(default=5.0, gt=0.0, le=20.0)
+    # 正方形边长
+    square_side_m: FiniteFloat = Field(default=2.0, gt=0.0, le=20.0)
+    # 正方形细分距离
+    square_segment_m: FiniteFloat = Field(default=0.5, gt=0.05, le=5.0)
+    # 圆形直径
+    circle_diameter_m: FiniteFloat = Field(default=2.0, gt=0.0, le=20.0)
+    # 圆形细分距离
+    circle_segment_m: FiniteFloat = Field(default=0.5, gt=0.05, le=5.0)
+    # 航向锁定公差
+    heading_hold_tolerance_rad: FiniteFloat = Field(default=0.05, gt=0.0, le=0.5)
 
 
 class TerminalLandingParams(BaseModel):
@@ -141,6 +168,7 @@ class MissionConfig(BaseModel):
     target_visit: TargetVisitParams | None = None
     payload: PayloadParams | None = None
     competition: CompetitionParams | None = None
+    stability_params: StabilityParams | None = None
     terminal_landing: TerminalLandingParams | None = None
 
     @model_validator(mode="after")
@@ -204,6 +232,24 @@ def validate_mission_against_field(
         waypoints.append(mission.target_visit.target)
     if mission.coverage is not None:
         pass
+    if mission.stability_params is not None:
+        from ed_uav_mission.competition_tree import MapPose
+
+        start = MapPose(
+            x_m=field_profile.takeoff.origin.x_m,
+            y_m=field_profile.takeoff.origin.y_m,
+            yaw_rad=field_profile.takeoff.commanded_heading_rad,
+        )
+        waypoints.append(
+            Waypoint(
+                x_m=start.x_m,
+                y_m=start.y_m,
+                altitude_m=mission.stability_params.altitude_m,
+                heading_rad=start.yaw_rad,
+                label="stability_takeoff",
+            )
+        )
+
     if mission.competition is not None:
         from ed_uav_mission.competition_tree import MapPose, forward_goal
 

@@ -12,11 +12,11 @@ from .actions import (
     PendingCommand,
     WireWriter,
 )
+from .command_arbiter import CommandArbiter, SerializedWireWriter
 from .realtime_control import (
     RealtimeControlConfig,
     RealtimeController,
     RealtimeDependencies,
-    SerializedWireWriter,
 )
 from .telemetry import FreshnessPolicy, TelemetryCache, TelemetrySnapshot
 from .v7_codec import V7StreamDecoder
@@ -42,7 +42,8 @@ class NativeV7Bridge:
         self.decoder = V7StreamDecoder()
         self.telemetry = TelemetryCache(resolved_config.freshness)
         serialized_writer = SerializedWireWriter(writer)
-        self.actions = FlightActionController(serialized_writer)
+        command_arbiter = CommandArbiter()
+        self.actions = FlightActionController(serialized_writer, command_arbiter)
         self.realtime = RealtimeController(
             RealtimeDependencies(
                 serialized_writer,
@@ -51,6 +52,7 @@ class NativeV7Bridge:
                 time.sleep,
             ),
             resolved_config.realtime_control,
+            command_arbiter,
         )
 
     def feed(self, chunk: bytes, steady_now: float, source_stamp_ns: int | None = None) -> tuple[CommandResult, ...]:

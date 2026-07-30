@@ -15,14 +15,25 @@ class CommandArbiter:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._active = False
+
+    @property
+    def active(self) -> bool:
+        return self._active
 
     def try_acquire(self) -> bool:
         """Acquire command ownership without waiting for another operation."""
-        return self._lock.acquire(blocking=False)
+        acquired = self._lock.acquire(blocking=False)
+        if acquired:
+            self._active = True
+        return acquired
 
     def release(self) -> None:
         """Release ownership after ACK or realtime terminal stop frames."""
-        self._lock.release()
+        try:
+            self._lock.release()
+        finally:
+            self._active = False
 
 
 class SerializedWireWriter:

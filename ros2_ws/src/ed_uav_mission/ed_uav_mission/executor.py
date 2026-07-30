@@ -36,6 +36,7 @@ from ed_uav_mission.competition_runtime import (
     CompetitionRuntime,
     DTaskEffectError,
 )
+from ed_uav_mission.stability_runtime import StabilityCallbacks
 from ed_uav_mission.d_task_capability import evaluate_d_task_capability
 from ed_uav_mission.d_task_events import TargetSnapshot, VehicleSnapshot
 from ed_uav_mission.d_task_model import (
@@ -233,22 +234,34 @@ class MissionExecutorNode(Node):
                 lambda: self._fsm.state == MissionState.IDLE,
                 self._localization_is_valid,
             )
-            self._competition_runtime = CompetitionRuntime(
-                CompetitionCallbacks(
-                    execute_takeoff=self._execute_takeoff,
-                    send_hover=self._send_hover,
-                    track_target=self._track_d_task_target,
-                    release_payload=self._release_d_task_payload,
-                    descend_to_vehicle=self._descend_to_vehicle,
-                    return_home=self._return_d_task_home,
-                    land_home=self._land_d_task_home,
-                    capture_home=self._competition_planner.capture_home,
-                    next_event=self._next_d_task_event,
-                    publish_transition=self._publish_d_task_transition,
-                    now_s=steady_now_sec,
-                ),
-                self._payload_config,
-            )
+        self._competition_runtime = CompetitionRuntime(
+            CompetitionCallbacks(
+                execute_takeoff=self._execute_takeoff,
+                send_hover=self._send_hover,
+                track_target=self._track_d_task_target,
+                release_payload=self._release_d_task_payload,
+                descend_to_vehicle=self._descend_to_vehicle,
+                return_home=self._return_d_task_home,
+                land_home=self._land_d_task_home,
+                capture_home=self._competition_planner.capture_home,
+                next_event=self._next_d_task_event,
+                publish_transition=self._publish_d_task_transition,
+                now_s=steady_now_sec,
+            ),
+            self._payload_config,
+            stability_callbacks=StabilityCallbacks(
+                execute_takeoff=self._execute_takeoff,
+                send_hover=self._send_hover,
+                capture_home=self._competition_planner.capture_home,
+                send_move=self._send_stability_move,
+                land_home=self._land_d_task_home,
+                next_event=self._next_d_task_event,
+                publish_transition=self._publish_d_task_transition,
+                now_s=steady_now_sec,
+                capture_pose=self._capture_stability_pose,
+            ),
+        )
+
         self._fcu_sub = self.create_subscription(FcuState, "/fcu/state", self._on_fcu_state, 10)
         self._loc_sub = self.create_subscription(
             LocalizationStatus, "/localization/status", self._on_localization_status, 10
@@ -340,7 +353,7 @@ class MissionExecutorNode(Node):
             self._raise_if_cancelled()
             if config is None:
                 raise RuntimeError("mission config not loaded")
-            if config.mission_type == MissionType.COMPETITION:
+            if config.mission_type in (MissionType.COMPETITION, MissionType.STABILITY_TEST):
                 if self._d_task_boundary is None or self._d_task_boundary.selection is None:
                     raise RuntimeError("committed D-task selection unavailable")
                 if self._competition_runtime is None:
@@ -349,6 +362,7 @@ class MissionExecutorNode(Node):
                     config.competition,
                     self._d_task_boundary.selection,
                     feedback,
+                    stability_params=config.stability_params,
                 )
             else:
                 self._fsm.transition(MissionState.TAKEOFF, "preflight passed")
@@ -551,6 +565,8 @@ class MissionExecutorNode(Node):
                 return []
             case MissionType.COMPETITION:
                 return []
+            case MissionType.STABILITY_TEST:
+                return []
             case _:
                 raise ValueError(f"unknown mission type: {config.mission_type}")
 
@@ -592,6 +608,26 @@ class MissionExecutorNode(Node):
             respect_mission_deadline=not recovery,
             respect_cancellation=not recovery,
         )
+
+    async def _send_stability_move(self, x_m: float, y_m: float, altitude_m: float) -> None:
+        """Send one stability-track waypoint with constant orientation."""
+
+        goal = FlightCommand.Goal()
+        goal.command = FlightCommand.Goal.COMMAND_MOVE
+        goal.target_pose.header.frame_id = "map"
+        goal.target_pose.pose.position.x = x_m
+        goal.target_pose.pose.position.y = y_m
+        goal.target_pose.pose.position.z = altitude_m
+        goal.target_pose.pose.orientation.w = 1.0
+        goal.timeout_sec = 30.0
+        goal.correlation_id = "stability_waypoint"
+        await self._send_and_wait(goal)
+
+    def _capture_stability_pose(self) -> tuple[float, float, float]:
+        if self._competition_planner is None:
+            raise RuntimeError("competition planner unavailable")
+        pose = self._competition_planner._capture_map_pose()
+        return pose.x_m, pose.y_m, pose.yaw_rad
 
     async def _send_land(self, *, recovery: bool = False) -> None:
         goal = FlightCommand.Goal()

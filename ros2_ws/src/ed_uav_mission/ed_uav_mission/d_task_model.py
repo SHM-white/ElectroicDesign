@@ -32,6 +32,10 @@ class DTaskPhase(str, Enum):
     SAFE_HOVER = "safe_hover"
     SAFE_RETURN = "safe_return"
     SAFE_LAND = "safe_land"
+    STABILITY_PRE_HOVER = "stability_pre_hover"
+    STABILITY_SQUARE = "stability_square"
+    STABILITY_CIRCLE = "stability_circle"
+    STABILITY_POST_HOVER = "stability_post_hover"
     SUCCEEDED = "succeeded"
     ABORTED = "aborted"
 
@@ -44,6 +48,8 @@ class DTaskEffect(str, Enum):
     DESCEND_TO_VEHICLE = "descend_to_vehicle"
     RETURN_HOME = "return_home"
     LAND_HOME = "land_home"
+    STABILITY_HOVER = "stability_hover"
+    STABILITY_WAYPOINT = "stability_waypoint"
 
 
 class DTaskFault(str, Enum):

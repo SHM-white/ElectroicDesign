@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ed_uav_interfaces.action import ExecuteMission
 from typing_extensions import assert_never
@@ -26,10 +27,11 @@ from ed_uav_mission.d_task_model import (
     DTaskFault,
     DTaskPhase,
     DTaskSelection,
+    DTaskState,
     DTaskTransition,
 )
 from ed_uav_mission.d_task_reducer import DTaskRuntime
-from ed_uav_mission.mission_model import CompetitionParams
+from ed_uav_mission.mission_model import CompetitionParams, StabilityParams
 from ed_uav_mission.payload_config import PayloadBoundaryConfig
 
 
@@ -56,6 +58,9 @@ class CompetitionCallbacks:
     now_s: Callable[[], float]
 
 
+from ed_uav_mission.stability_runner import StabilityCallbacks, StabilityRunner
+
+
 class CompetitionRuntime:
     """Drive both D-task branches through one reducer and callback surface."""
 
@@ -63,9 +68,11 @@ class CompetitionRuntime:
         self,
         callbacks: CompetitionCallbacks,
         payload_config: PayloadBoundaryConfig,
+        stability_callbacks: StabilityCallbacks | None = None,
     ) -> None:
         self._callbacks = callbacks
         self._payload_config = payload_config
+        self._stability_callbacks = stability_callbacks
 
     def cancel_active(self) -> None:
         """Planner and FlightCommand cancellation remain executor-owned."""
@@ -75,7 +82,18 @@ class CompetitionRuntime:
         params: CompetitionParams | None,
         selection: DTaskSelection,
         feedback: ExecuteMission.Feedback,
+        stability_params: StabilityParams | None = None,
     ) -> None:
+        if stability_params is not None:
+            if params is None:
+                raise RuntimeError("competition params not loaded")
+            if params.mission_variant != "stability":
+                raise RuntimeError("stability_params require mission_variant=stability")
+            if self._stability_callbacks is None:
+                raise RuntimeError("stability callbacks are not configured")
+            runner = StabilityRunner(self._stability_callbacks, stability_params)
+            await runner.run(selection, feedback)
+            return
         if params is None:
             raise RuntimeError("competition params not loaded")
         config = DTaskRuntimeConfig(
@@ -176,6 +194,12 @@ class CompetitionRuntime:
                 await self._callbacks.return_home()
             case DTaskEffect.LAND_HOME:
                 await self._callbacks.land_home(feedback)
+            case DTaskEffect.STABILITY_HOVER:
+                # 稳定性任务中，HOVER 由 StabilityRunner 直接调用真实回调完成
+                pass
+            case DTaskEffect.STABILITY_WAYPOINT:
+                # 稳定性任务中，航点移动由 StabilityRunner 直接调度
+                pass
             case unreachable:
                 assert_never(unreachable)
 
