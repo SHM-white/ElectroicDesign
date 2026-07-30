@@ -60,17 +60,38 @@ detect_iface() {
     if [[ ${#wifi_ifaces[@]} -ge 2 ]]; then
         # 多个无线接口：已连接的做 STA（互联网），另一个做 AP（热点）
         ok "检测到 ${#wifi_ifaces[@]} 个无线接口: ${wifi_ifaces[*]}"
+        local default_route_dev
+        default_route_dev=$(ip route 2>/dev/null | awk '/^default/{print $5; exit}')
         for iface in "${wifi_ifaces[@]}"; do
             local state
             state=$(nmcli -t -f DEVICE,STATE device status 2>/dev/null | grep "^${iface}:" | cut -d: -f2)
             if [[ "$state" == "已连接" || "$state" == "connected" ]]; then
-                STA_IFACE="$iface"
-                ok "  $iface → STA (互联网)"
+                # 有默认路由的接口优先做 STA（互联网出口）
+                if [[ "$iface" == "$default_route_dev" ]]; then
+                    STA_IFACE="$iface"
+                    ok "  $iface → STA (互联网，默认路由)"
+                elif [[ -z "$STA_IFACE" ]]; then
+                    STA_IFACE="$iface"
+                    ok "  $iface → STA (互联网)"
+                else
+                    IFACE="$iface"
+                    ok "  $iface → AP (热点)"
+                fi
             else
                 IFACE="$iface"
                 ok "  $iface → AP (热点)"
             fi
         done
+        # 兜底：所有接口都已连接且仍未确定 AP，取最后一个非 STA 接口
+        if [[ -z "$IFACE" && -n "$STA_IFACE" ]]; then
+            for iface in "${wifi_ifaces[@]}"; do
+                if [[ "$iface" != "$STA_IFACE" ]]; then
+                    IFACE="$iface"
+                    ok "  $iface → AP (热点，兜底选择)"
+                    break
+                fi
+            done
+        fi
         [[ -n "$IFACE" ]] || die "无法确定 AP 接口"
     else
         IFACE="${wifi_ifaces[0]}"

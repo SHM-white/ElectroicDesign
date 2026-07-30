@@ -30,6 +30,10 @@ DNSMASQ_CONF="/etc/NetworkManager/dnsmasq-shared.d/ed-hotspot.conf"
 STATE_DIR="/var/lib/ed-uav"
 CONFIG_FILE="${STATE_DIR}/boot.conf"
 
+# 无线接口（由 detect_iface 设置）
+IFACE="${ED_HOTSPOT_IFACE:-}"
+STA_IFACE=""
+
 # systemd 服务名
 SVC_HOTSPOT_WAIT="ed-hotspot-wait.service"
 SVC_VEHICLE_BRIDGE="ed-vehicle-bridge.service"
@@ -48,9 +52,68 @@ info() { echo -e "${C}── $* ──${N}"; }
 check_root() { [[ $EUID -eq 0 ]] || die "需要 root 权限: sudo $0 $*"; }
 
 detect_iface() {
-    IFACE=$(nmcli -t -f DEVICE,TYPE device status 2>/dev/null | grep ':wifi$' | head -1 | cut -d: -f1)
-    [[ -n "$IFACE" ]] || die "未检测到无线网卡"
-    ok "无线接口: $IFACE"
+    # 如果已通过环境变量指定接口，直接使用
+    if [[ -n "${ED_HOTSPOT_IFACE:-}" ]]; then
+        IFACE="$ED_HOTSPOT_IFACE"
+        ok "使用指定接口: $IFACE"
+        return
+    fi
+
+    # 如果已由调用方设置 IFACE，跳过自动检测
+    if [[ -n "$IFACE" ]]; then
+        ok "AP 接口: $IFACE"
+        return
+    fi
+
+    local -a wifi_ifaces
+    mapfile -t wifi_ifaces < <(nmcli -t -f DEVICE,TYPE device status 2>/dev/null | grep ':wifi$' | cut -d: -f1)
+
+    if [[ ${#wifi_ifaces[@]} -eq 0 ]]; then
+        die "未检测到无线接口。请插入 USB 无线网卡或设置 ED_HOTSPOT_IFACE 手动指定。"
+    fi
+
+    STA_IFACE=""
+    if [[ ${#wifi_ifaces[@]} -ge 2 ]]; then
+        # 多个无线接口：已连接的做 STA（互联网），另一个做 AP（热点）
+        ok "检测到 ${#wifi_ifaces[@]} 个无线接口: ${wifi_ifaces[*]}"
+        local default_route_dev
+        default_route_dev=$(ip route 2>/dev/null | awk '/^default/{print $5; exit}')
+        for iface in "${wifi_ifaces[@]}"; do
+            local state
+            state=$(nmcli -t -f DEVICE,STATE device status 2>/dev/null | grep "^${iface}:" | cut -d: -f2)
+            if [[ "$state" == "已连接" || "$state" == "connected" ]]; then
+                # 有默认路由的接口优先做 STA（互联网出口）
+                if [[ "$iface" == "$default_route_dev" ]]; then
+                    STA_IFACE="$iface"
+                    ok "  $iface → STA (互联网，默认路由)"
+                elif [[ -z "$STA_IFACE" ]]; then
+                    STA_IFACE="$iface"
+                    ok "  $iface → STA (互联网)"
+                else
+                    IFACE="$iface"
+                    ok "  $iface → AP (热点)"
+                fi
+            else
+                IFACE="$iface"
+                ok "  $iface → AP (热点)"
+            fi
+        done
+        # 兜底：所有接口都已连接且仍未确定 AP，取最后一个非 STA 接口
+        if [[ -z "$IFACE" && -n "$STA_IFACE" ]]; then
+            for iface in "${wifi_ifaces[@]}"; do
+                if [[ "$iface" != "$STA_IFACE" ]]; then
+                    IFACE="$iface"
+                    ok "  $iface → AP (热点，兜底选择)"
+                    break
+                fi
+            done
+        fi
+        [[ -n "$IFACE" ]] || die "无法确定 AP 接口"
+    else
+        IFACE="${wifi_ifaces[0]}"
+        warn "仅检测到 1 个无线接口 ($IFACE)，热点会断开当前 Wi-Fi。建议插入 USB 无线网卡以保持互联网连接。"
+    fi
+    ok "AP 接口: $IFACE"
 }
 
 detect_ros() {
@@ -70,6 +133,7 @@ save_config() {
 # ED UAV 开机自启配置（由 install_boot.sh 生成）
 # $(date '+%Y-%m-%d %H:%M:%S')
 IFACE=${IFACE}
+STA_IFACE=${STA_IFACE:-}
 SSID=${SSID:-ED-UAV}
 PASSWORD=${PASSWORD:-}
 CHANNEL=${CHANNEL:-6}
@@ -213,17 +277,17 @@ Wants=NetworkManager.service
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/bin/bash -c '\
-  IFACE=\$(nmcli -t -f DEVICE,TYPE device status 2>/dev/null | grep ":wifi\$" | head -1 | cut -d: -f1); \
+  IFACE="${IFACE}"; \
   for i in \$(seq 1 30); do \
     ip addr show "\$IFACE" 2>/dev/null | grep -q "${NUC_IP}" && exit 0; \
     sleep 1; \
   done; \
-  echo "热点接口超时"; exit 1'
+  echo "热点接口 \$IFACE 超时"; exit 1'
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    ok "热点等待服务: ${SVC_HOTSPOT_WAIT}"
+    ok "热点等待服务: ${SVC_HOTSPOT_WAIT} (接口: ${IFACE})"
 }
 
 install_vehicle_bridge() {
@@ -428,6 +492,9 @@ do_uninstall() {
 
 # ─── 状态 ───────────────────────────────────────────────────────────────────
 do_status() {
+    # 加载已保存的配置以获取 IFACE/STA_IFACE
+    load_config 2>/dev/null || true
+
     echo ""
     echo -e "${B}${C}┌── ED UAV 开机自启状态 ────────────────────────────────┐${N}"
 
@@ -439,12 +506,19 @@ do_status() {
     fi
 
     # 接口
-    local iface
-    iface=$(nmcli -t -f DEVICE,TYPE device status 2>/dev/null | grep ':wifi$' | head -1 | cut -d: -f1)
+    local iface="${IFACE:-}"
+    if [[ -z "$iface" ]]; then
+        iface=$(nmcli -t -f DEVICE,TYPE device status 2>/dev/null | grep ':wifi$' | head -1 | cut -d: -f1)
+    fi
     if ip addr show "$iface" 2>/dev/null | grep -q "$NUC_IP"; then
-        echo -e "  接口:      ${G}${iface}${N} = ${NUC_IP}"
+        echo -e "  AP 接口:   ${G}${iface}${N} = ${NUC_IP}"
     else
-        echo -e "  接口:      ${Y}${iface:-?}${N} (无 IP)"
+        echo -e "  AP 接口:   ${Y}${iface:-?}${N} (无 IP)"
+    fi
+    if [[ -n "${STA_IFACE:-}" ]]; then
+        local sta_ip
+        sta_ip=$(ip -4 addr show "$STA_IFACE" 2>/dev/null | grep 'inet ' | awk '{print $2}' | head -1)
+        echo -e "  STA 接口:  ${G}${STA_IFACE}${N} = ${sta_ip:-无IP} (互联网)"
     fi
 
     echo ""
