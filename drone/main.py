@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 """
-main.py — 无人机自主任务控制器入口
-G_植保飞行器项目 | x86迷你主机 + 凌霄飞控 + 工业相机/OpenMV
-(兼容树莓派4B + 硬件UART)
+main.py — [已弃用] 早期无人机任务控制器
 
-用法:
-    python3 drone/main.py [选项]
-    python3 -m drone.main [选项]
+⚠️  此程序已不再使用。当前架构请使用:
+    sudo ./tools/run_competition_sim.sh
 
-选项:
-    --profile {debug,tuning,competition}  速度配置档位 (默认: debug)
-    --dry-run                             模拟模式, 不实际飞行
-    --verbose                             输出日志到控制台
-    --no-save-logs                        不保存日志文件
-    --serial-port PORT                    串口设备路径 (默认: /dev/ttyUSB0)
-    -h, --help                            显示帮助信息
+详见 drone/DEPRECATED.md
 """
+
+import sys
+print("""
+╔══════════════════════════════════════════════════════════════╗
+║  ⚠️  drone/ 目录已弃用，此程序不再使用                        ║
+║                                                              ║
+║  当前比赛流程请使用:                                          ║
+║    sudo ./tools/run_competition_sim.sh --auto-task 1         ║
+║                                                              ║
+║  详见 drone/DEPRECATED.md                                    ║
+╚══════════════════════════════════════════════════════════════╝
+""", file=sys.stderr)
+sys.exit(1)
 
 import argparse
 import signal
