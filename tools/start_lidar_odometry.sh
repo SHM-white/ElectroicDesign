@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────
 # start_lidar_odometry.sh
-# 一键启动: MID-360 雷达驱动 → FAST-LIO → 定位融合 → 位移实时显示
+# 一键启动: MID-360 雷达驱动 → FAST-LIO → 定位融合 → 位移实时显示 → RViz 可视化
 # 用法: ./tools/start_lidar_odometry.sh
 #
 # 启动链路:
@@ -10,6 +10,7 @@
 #   3. lio_adapter        (坐标变换适配)
 #   4. source_supervisor  (定位融合输出 /localization/odom)
 #   5. displacement_monitor (终端实时显示位移)
+#   6. rviz2              (可视化地图和雷达位置)
 # ──────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -181,33 +182,39 @@ printf ' 雷达: %s @ %s (host: %s)\n' "$FIELD_SERIAL_NUMBER" "$FIELD_LIDAR_IP" 
 printf '═══════════════════════════════════════════════════════\n\n'
 
 # Step 1: 雷达驱动
-printf '[1/5] 启动 Livox MID-360 驱动 ...\n'
+printf '[1/6] 启动 Livox MID-360 驱动 ...\n'
 spawn lidar "export MID360_HOST_IP='$FIELD_HOST_IP'; ros2 launch ed_uav_lidar lidar.launch.py lidar_enabled:=true transport:=mid360 serial_number:='$FIELD_SERIAL_NUMBER' sensor_ip:='$FIELD_LIDAR_IP' firmware_version:='$FIELD_FIRMWARE' driver_config_path:='$FIELD_DRIVER_JSON' time_authority:=host"
 
 wait_for_topic /livox/lidar 20
 
 # Step 2: FAST-LIO
-printf '[2/5] 启动 FAST-LIO ...\n'
+printf '[2/6] 启动 FAST-LIO ...\n'
 spawn fast_lio "ros2 launch $FIELD_FAST_LIO_LAUNCH"
 
 wait_for_topic /fast_lio/odometry 20
 
 # Step 3: LIO 适配器
-printf '[3/5] 启动 LIO 适配器 ...\n'
+printf '[3/6] 启动 LIO 适配器 ...\n'
 spawn lio_adapter "ros2 run ed_uav_localization lio_adapter --ros-args -p calibration_file:='$FIELD_EXTRINSICS_PATH'"
 
 # Step 4: 定位融合
-printf '[4/5] 启动定位融合 ...\n'
+printf '[4/6] 启动定位融合 ...\n'
 spawn supervisor "ros2 run ed_uav_localization source_supervisor"
 
 wait_for_topic /localization/odom 10
 
 # Step 5: 位移监控
-printf '[5/5] 启动位移实时监控 ...\n\n'
+printf '[5/6] 启动位移实时监控 ...\n'
 spawn monitor "bash $repo_root/tools/run_lidar_displacement_monitor.sh /localization/odom"
+
+# Step 6: RViz 可视化
+printf '[6/6] 启动 RViz 可视化 ...\n'
+RVIZ_CONFIG="$workspace/src/ed_uav_lidar/config/fields/lidar_odometry.rviz"
+spawn rviz "ros2 run rviz2 rviz2 -d '$RVIZ_CONFIG'"
 
 printf '\n═══════════════════════════════════════════════════════\n'
 printf ' 所有组件已启动。在下方查看实时位移输出。\n'
+printf ' RViz 已启动，可查看地图和雷达位置。\n'
 printf ' 按 Ctrl+C 停止所有组件。\n'
 printf '═══════════════════════════════════════════════════════\n\n'
 
