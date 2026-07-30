@@ -4,102 +4,123 @@ import pytest
 
 from ed_uav_vehicle_bridge.errors import ProtocolError, ProtocolErrorCode
 from ed_uav_vehicle_bridge.models import (
-    AuthorityState,
-    BootEpoch,
+    BootId,
+    CarState,
     DTask,
+    FaultFlag,
+    MissionPhase,
     MissionSelectionValue,
+    MissionStatusFlag,
     MissionStatusValue,
-    MotionKind,
-    RouteStage,
-    SelectionAckValue,
+    QualityFlag,
+    RouteEvent,
     SelectionId,
-    Sequence,
     TurnClass,
     VehicleTelemetryValue,
 )
 from ed_uav_vehicle_bridge.payloads import (
-    decode_mission_selection,
+    decode_car_telemetry,
     decode_mission_status,
-    decode_selection_ack,
-    decode_vehicle_telemetry,
-    encode_mission_selection,
+    decode_task_selection,
+    encode_car_telemetry,
     encode_mission_status,
-    encode_selection_ack,
-    encode_vehicle_telemetry,
+    encode_task_selection,
 )
 
 
 TELEMETRY = VehicleTelemetryValue(
-    contract_version=1,
-    vehicle_id="car-1",
-    start_event=True,
-    heartbeat_alive=True,
-    motion_kind=MotionKind.DISPLACEMENT,
-    displacement_m=-1.25,
-    wheel_speed_m_s=0.75,
-    heading_rad=0.5,
-    yaw_rate_rad_s=0.25,
-    turn_class=TurnClass.SMALL,
-    route_stage=RouteStage.START,
-    lap_complete=False,
-    frame_id="vehicle_start",
+    state=CarState.RUNNING,
+    turn=TurnClass.SMALL,
+    event=RouteEvent.B,
+    event_id=7,
+    quality_flags=QualityFlag.LINE_VALID | QualityFlag.ENCODER_VALID,
+    displacement_mm=-1234,
+    velocity_mm_s=321,
+    line_error_milli=-125,
+    fault_flags=FaultFlag.NONE,
 )
 SELECTION = MissionSelectionValue(
-    contract_version=1,
-    selection_id=SelectionId(44),
-    car_boot_epoch=BootEpoch(99),
-    mission_id="d-task-run-44",
-    mission_profile_id="d2026-payload-drop",
-    deployment_preset_id="field-a",
-    target_revision="circle-cross-v1",
+    selection_id=SelectionId(42),
+    car_boot_id=BootId(0x12345678),
     task=DTask.PAYLOAD_DROP,
+)
+STATUS = MissionStatusValue(
+    selection_id=SelectionId(99),
+    car_boot_id=BootId(0xAABBCCDD),
+    hmi_boot_id=BootId(0x11223344),
+    phase=MissionPhase.ARMED_READY,
+    selected_task=2,
+    reason_flags=0,
+    status_flags=MissionStatusFlag.DRONE_LINK_OK | MissionStatusFlag.VISION_VALID,
 )
 
 
-def test_payloads_round_trip_into_typed_values_once() -> None:
-    # Given: values for every UDP payload exposed by the bridge.
-    ack = SelectionAckValue(1, SelectionId(44), BootEpoch(99), True, AuthorityState.SELECTED, "ACK")
-    status = MissionStatusValue(1, Sequence(7), "d-task-run-44", 3, RouteStage.B, False, "tracking")
+def test_payloads_round_trip_into_fixed_width_values() -> None:
+    # Given: one value for each delegated payload schema.
+    encoded = (
+        encode_car_telemetry(TELEMETRY),
+        encode_task_selection(SELECTION),
+        encode_mission_status(STATUS),
+    )
 
-    # When: each value crosses its explicit binary codec.
+    # When: each fixed-width value is decoded.
     decoded = (
-        decode_vehicle_telemetry(encode_vehicle_telemetry(TELEMETRY)),
-        decode_mission_selection(encode_mission_selection(SELECTION)),
-        decode_selection_ack(encode_selection_ack(ack)),
-        decode_mission_status(encode_mission_status(status)),
+        decode_car_telemetry(encoded[0]),
+        decode_task_selection(encoded[1]),
+        decode_mission_status(encoded[2]),
     )
 
-    # Then: downstream code receives only typed values.
-    assert decoded == (TELEMETRY, SELECTION, ack, status)
+    # Then: the values retain their typed fields and exact widths.
+    assert tuple(map(len, encoded)) == (17, 9, 18)
+    assert decoded == (TELEMETRY, SELECTION, STATUS)
 
 
-def test_payload_rejects_unknown_enum_and_trailing_bytes() -> None:
-    # Given: valid telemetry plus one byte that cannot belong to its schema.
-    payload = encode_vehicle_telemetry(TELEMETRY)
+def test_car_telemetry_matches_delegated_little_endian_layout() -> None:
+    # Given: the C++ reference telemetry value.
+    # When: it is encoded by the Python bridge.
+    encoded = encode_car_telemetry(TELEMETRY)
 
-    # When/Then: unknown variant and trailing data reject at the boundary.
-    with pytest.raises(ProtocolError) as enum_error:
-        decode_vehicle_telemetry(payload[:3] + b"\xff" + payload[4:])
-    with pytest.raises(ProtocolError) as trailing_error:
-        decode_vehicle_telemetry(payload + b"\x00")
-    assert enum_error.value.code is ProtocolErrorCode.BAD_PAYLOAD
-    assert trailing_error.value.code is ProtocolErrorCode.BAD_PAYLOAD
+    # Then: all multi-byte fields are little-endian in the fixed payload.
+    assert encoded.hex() == "010102070003002efbffff410183ff0000"
 
 
-def test_payload_rejects_inconsistent_turn_and_yaw_rate() -> None:
-    # Given
-    invalid = replace(
-        TELEMETRY, turn_class=TurnClass.STRAIGHT, yaw_rate_rad_s=0.25
-    )
-
-    # When / Then
+@pytest.mark.parametrize(
+    ("decoder", "payload"),
+    [
+        (decode_car_telemetry, b"\x00" * 16),
+        (decode_task_selection, b"\x00" * 10),
+        (decode_mission_status, b"\x00" * 17),
+    ],
+)
+def test_payload_decoders_require_fixed_width(decoder, payload: bytes) -> None:
+    # Given: a payload with one byte missing or appended.
+    # When/Then: decoding stops at the schema boundary.
     with pytest.raises(ProtocolError) as raised:
-        encode_vehicle_telemetry(invalid)
+        decoder(payload)
     assert raised.value.code is ProtocolErrorCode.BAD_PAYLOAD
 
 
-def test_ros_contract_string_bounds_are_enforced_before_encoding() -> None:
-    oversized = replace(SELECTION, target_revision="x" * 33)
+def test_payload_rejects_unknown_enum_and_status_flags() -> None:
+    # Given: valid payloads with unknown delegated enum or flag bits.
+    telemetry = bytearray(encode_car_telemetry(TELEMETRY))
+    telemetry[0] = 0xFF
+    status = bytearray(encode_mission_status(STATUS))
+    status[-1] |= 0x80
+
+    # When/Then: unknown values reject at the payload boundary.
+    with pytest.raises(ProtocolError) as telemetry_error:
+        decode_car_telemetry(bytes(telemetry))
+    with pytest.raises(ProtocolError) as status_error:
+        decode_mission_status(bytes(status))
+    assert telemetry_error.value.code is ProtocolErrorCode.BAD_PAYLOAD
+    assert status_error.value.code is ProtocolErrorCode.BAD_PAYLOAD
+
+
+def test_payload_encoder_rejects_invalid_task() -> None:
+    # Given: a task selection with a value outside the delegated 1..2 range.
+    invalid = replace(SELECTION, task=3)
+
+    # When/Then: serialization rejects the invalid task.
     with pytest.raises(ProtocolError) as raised:
-        encode_mission_selection(oversized)
+        encode_task_selection(invalid)
     assert raised.value.code is ProtocolErrorCode.BAD_PAYLOAD

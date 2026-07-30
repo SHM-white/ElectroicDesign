@@ -1,8 +1,0 @@
-build/
-managed_components/
-dependencies.lock
-sdkconfig
-sdkconfig.old
-.vscode/
-.idea/
-compile_commands.json

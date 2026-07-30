@@ -5,10 +5,11 @@ import secrets
 import time
 
 from .models import (
-    BootEpoch,
+    BootId,
     Endpoint,
     MessageType,
     OutboundFrame,
+    SenderId,
     Sequence,
     SourceMillis,
 )
@@ -20,7 +21,7 @@ from .udp_socket import BoundUdpSocket
 class HmiSenderConfig:
     socket: BoundUdpSocket
     destination: Endpoint
-    sender_id: str
+    sender_id: SenderId
     key: bytes
 
 
@@ -29,14 +30,14 @@ class HmiSender:
 
     def __init__(self, config: HmiSenderConfig) -> None:
         self._config = config
-        self._boot_epoch = BootEpoch(secrets.randbits(64) or 1)
+        self._boot_epoch = BootId(secrets.randbits(32) or 1)
         self._sequence = 0
 
     def send(self, message_type: MessageType, payload: bytes) -> None:
         frame = OutboundFrame(
             message_type=message_type,
             sender_id=self._config.sender_id,
-            boot_epoch=self._boot_epoch,
+            boot_id=self._boot_epoch,
             sequence=Sequence(self._sequence),
             source_millis=SourceMillis(int(time.monotonic() * 1000) & 0xFFFFFFFF),
             payload=payload,

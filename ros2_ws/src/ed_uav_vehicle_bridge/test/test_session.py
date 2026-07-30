@@ -5,14 +5,17 @@ import pytest
 from ed_uav_vehicle_bridge.errors import ProtocolError, ProtocolErrorCode
 from ed_uav_vehicle_bridge.models import (
     AuthenticatedDatagram,
-    BootEpoch,
+    BootId,
+    CarState,
     Endpoint,
+    FaultFlag,
     MessageType,
-    MotionKind,
     OutboundFrame,
+    QualityFlag,
     ReceiptSeconds,
-    RouteStage,
+    RouteEvent,
     Sequence,
+    SenderId,
     SourceMillis,
     TurnClass,
     VehicleTelemetryValue,
@@ -21,30 +24,26 @@ from ed_uav_vehicle_bridge.session import PeerPolicy, RouteTracker, SessionTrack
 
 
 SOURCE = Endpoint("127.0.0.1", 41001)
-POLICY = PeerPolicy("CAR-01", SOURCE, frozenset({MessageType.CAR_TELEMETRY}))
+POLICY = PeerPolicy(SenderId(0x43415231), SOURCE, frozenset({MessageType.CAR_TELEMETRY}))
 FRAME = OutboundFrame(
     MessageType.CAR_TELEMETRY,
-    "CAR-01",
-    BootEpoch(100),
+    SenderId(0x43415231),
+    BootId(100),
     Sequence(10),
     SourceMillis(1000),
     b"payload",
 )
 DATAGRAM = AuthenticatedDatagram(FRAME, 0x1234)
 TELEMETRY = VehicleTelemetryValue(
-    1,
-    "car-1",
-    False,
-    True,
-    MotionKind.DISPLACEMENT,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    TurnClass.STRAIGHT,
-    RouteStage.START,
-    False,
-    "vehicle_start",
+    state=CarState.RUNNING,
+    turn=TurnClass.STRAIGHT,
+    event=RouteEvent.START,
+    event_id=1,
+    quality_flags=QualityFlag.LINE_VALID,
+    displacement_mm=0,
+    velocity_mm_s=0,
+    line_error_milli=0,
+    fault_flags=FaultFlag.NONE,
 )
 
 
@@ -61,7 +60,7 @@ def test_source_session_sequence_wrap_and_reboot_are_bounded() -> None:
         ReceiptSeconds(1.1),
     )
     rebooted = tracker.accept(
-        AuthenticatedDatagram(replace(FRAME, boot_epoch=BootEpoch(200), sequence=Sequence(0)), 3),
+        AuthenticatedDatagram(replace(FRAME, boot_id=BootId(200), sequence=Sequence(0)), 3),
         SOURCE,
         ReceiptSeconds(1.2),
     )
@@ -78,10 +77,9 @@ def test_source_session_sequence_wrap_and_reboot_are_bounded() -> None:
         (DATAGRAM, Endpoint("127.0.0.1", 41002), ProtocolErrorCode.SOURCE_MISMATCH),
         (DATAGRAM, SOURCE, ProtocolErrorCode.REPLAY),
         (AuthenticatedDatagram(replace(FRAME, sequence=Sequence(9)), 1), SOURCE, ProtocolErrorCode.REORDERED),
-        (AuthenticatedDatagram(replace(FRAME, sequence=Sequence(5000)), 1), SOURCE, ProtocolErrorCode.SEQUENCE_GAP),
     ],
 )
-def test_source_replay_reorder_and_gap_are_rejected(candidate, source, expected) -> None:
+def test_source_replay_reorder_are_rejected(candidate, source, expected) -> None:
     # Given: an established authenticated session.
     tracker = SessionTracker(POLICY)
     tracker.accept(DATAGRAM, SOURCE, ReceiptSeconds(1.0))
@@ -94,11 +92,11 @@ def test_source_replay_reorder_and_gap_are_rejected(candidate, source, expected)
     assert raised.value.code is expected
 
 
-def test_retired_boot_epoch_cannot_replay_start_after_reboot() -> None:
+def test_retired_boot_id_cannot_replay_start_after_reboot() -> None:
     tracker = SessionTracker(POLICY)
     tracker.accept(DATAGRAM, SOURCE, ReceiptSeconds(1.0))
     tracker.accept(
-        AuthenticatedDatagram(replace(FRAME, boot_epoch=BootEpoch(200), sequence=Sequence(0)), 1),
+        AuthenticatedDatagram(replace(FRAME, boot_id=BootId(200), sequence=Sequence(0)), 1),
         SOURCE,
         ReceiptSeconds(1.1),
     )
@@ -120,11 +118,11 @@ def test_freshness_uses_local_steady_receipt_time_once() -> None:
 
 def test_route_tracker_rejects_d_before_b_and_repeated_start() -> None:
     tracker = RouteTracker()
-    tracker.accept(replace(TELEMETRY, start_event=True))
+    tracker.accept(TELEMETRY)
 
     with pytest.raises(ProtocolError) as order_error:
-        tracker.accept(replace(TELEMETRY, route_stage=RouteStage.D))
+        tracker.accept(replace(TELEMETRY, event=RouteEvent.D, event_id=2))
     with pytest.raises(ProtocolError) as start_error:
-        tracker.accept(replace(TELEMETRY, start_event=True))
+        tracker.accept(replace(TELEMETRY, event_id=2))
     assert order_error.value.code is ProtocolErrorCode.INVALID_ROUTE_ORDER
     assert start_error.value.code is ProtocolErrorCode.START_EVENT_REPEATED

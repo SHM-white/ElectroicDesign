@@ -3,25 +3,17 @@ from concurrent.futures import ThreadPoolExecutor
 from ed_uav_vehicle_bridge.authority import BridgeAuthority
 from ed_uav_vehicle_bridge.models import (
     AuthorityState,
-    BootEpoch,
+    BootId,
     DTask,
     MissionSelectionValue,
+    MissionStatusValue,
     RejectCode,
     SelectionId,
 )
 
 
-EPOCH = BootEpoch(100)
-SELECTION = MissionSelectionValue(
-    1,
-    SelectionId(44),
-    EPOCH,
-    "d-task-run-44",
-    "d2026-payload-drop",
-    "field-a",
-    "circle-cross-v1",
-    DTask.PAYLOAD_DROP,
-)
+EPOCH = BootId(100)
+SELECTION = MissionSelectionValue(SelectionId(44), EPOCH, DTask.PAYLOAD_DROP)
 
 
 def test_happy_select_ack_arm_start_dispatches_exactly_once() -> None:
@@ -40,12 +32,13 @@ def test_happy_select_ack_arm_start_dispatches_exactly_once() -> None:
     assert prestart.state is AuthorityState.PRESTART
     assert pending.select_command is not None
     assert acknowledged.acknowledgement is not None
+    assert isinstance(acknowledged.acknowledgement, MissionStatusValue)
     assert acknowledged.acknowledgement.selection_id == SelectionId(44)
-    assert acknowledged.acknowledgement.car_boot_epoch == EPOCH
+    assert acknowledged.acknowledgement.car_boot_id == EPOCH
     assert armed.state is AuthorityState.ARMED_READY
     assert started.execute_command is not None
-    assert started.execute_command.mission_id == "d-task-run-44"
-    assert started.execute_command.field_profile_id == "field-a"
+    assert started.execute_command.mission_id == "d-task-payload_drop"
+    assert started.execute_command.field_profile_id == "d-task-payload_drop"
     assert replayed.reason == RejectCode.START_ALREADY_CONSUMED
 
 
@@ -81,8 +74,8 @@ def test_reboot_invalidates_selection_and_requires_fresh_confirmation() -> None:
     authority.request_selection(SELECTION, fcu_armed=False)
     authority.commit_selection(SelectionId(44), True, "approved", False)
 
-    reboot = authority.observe_car_epoch(BootEpoch(200), fcu_armed=False)
-    stale_start = authority.observe_car_start(BootEpoch(200))
+    reboot = authority.observe_car_epoch(BootId(200), fcu_armed=False)
+    stale_start = authority.observe_car_start(BootId(200))
 
     assert reboot.state is AuthorityState.PRESTART
     assert stale_start.reason == RejectCode.NO_COMMITTED_SELECTION
@@ -96,16 +89,7 @@ def test_hmi_reconnect_can_reconfirm_identical_unarmed_selection_only() -> None:
 
     reconfirmed = authority.request_selection(SELECTION, fcu_armed=False)
     mutated = authority.request_selection(
-        MissionSelectionValue(
-            1,
-            SelectionId(45),
-            EPOCH,
-            "d-task-run-45",
-            "d2026-dynamic-landing",
-            "field-a",
-            "circle-cross-v1",
-            DTask.DYNAMIC_LANDING,
-        ),
+        MissionSelectionValue(SelectionId(45), EPOCH, DTask.DYNAMIC_LANDING),
         fcu_armed=False,
     )
 

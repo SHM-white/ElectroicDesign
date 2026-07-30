@@ -65,16 +65,24 @@ def test_mission_surfaces_remain_mission_owned() -> None:
     assert "The server must reject requests after arming" in selection
 
 
-def test_bridge_docs_describe_current_d_task_telemetry() -> None:
+def test_bridge_protocol_uses_current_d_task_wire_contract() -> None:
     # Given
-    protocol = (BRIDGE_ROOT / "PROTOCOL.md").read_text(encoding="utf-8")
-    mapping = (BRIDGE_ROOT / "ed_uav_vehicle_bridge" / "ros_mapping.py").read_text(
+    protocol = (BRIDGE_ROOT / "ed_uav_vehicle_bridge" / "protocol.py").read_text(
+        encoding="utf-8"
+    )
+    payloads = (BRIDGE_ROOT / "ed_uav_vehicle_bridge" / "payloads.py").read_text(
+        encoding="utf-8"
+    )
+    models = (BRIDGE_ROOT / "ed_uav_vehicle_bridge" / "models.py").read_text(
         encoding="utf-8"
     )
 
     # When / Then
-    assert "`>HBBffffBB`" in protocol
-    assert "heading_rad" in protocol
-    assert "yaw_rate_rad_s" in protocol
-    assert "Todo 1" not in protocol
-    assert "Todo 1" not in mapping
+    assert "MAGIC: Final = 0x4454" in protocol
+    assert 'HEADER: Final = struct.Struct("<HBBHIIII")' in protocol
+    assert "MAX_PAYLOAD_BYTES: Final = 64" in protocol
+    assert "HMAC_TAG_BYTES: Final = 8" in protocol
+    assert 'CAR_TELEMETRY: Final = struct.Struct("<BBBHHihhH")' in payloads
+    assert 'TASK_SELECTION: Final = struct.Struct("<IIB")' in payloads
+    assert 'MISSION_STATUS: Final = struct.Struct("<IIIBBHH")' in payloads
+    assert "SelectionAckValue" not in models

@@ -1,19 +1,34 @@
-"""Single typed mapping between UDP domain values and D-task ROS contracts."""
+"""Map delegated UDP values to the existing D-task ROS contracts."""
 
 from builtin_interfaces.msg import Time
 from ed_uav_interfaces.action import ExecuteMission
 from ed_uav_interfaces.msg import MissionStatus, VehicleTelemetry
 from ed_uav_interfaces.srv import SelectDTaskMission
+from typing import assert_never
 
 from .models import (
     AuthenticatedDatagram,
+    CarState,
     ExecuteMissionCommand,
+    MissionPhase,
     MissionSelectionValue,
+    MissionStatusFlag,
     MissionStatusValue,
-    RouteStage,
+    RouteEvent,
     Sequence,
     VehicleTelemetryValue,
 )
+from .payloads import encode_mission_status
+
+
+_ROUTE_STAGES: dict[RouteEvent, int] = {
+    RouteEvent.NONE: 0,
+    RouteEvent.START: 0,
+    RouteEvent.B: 1,
+    RouteEvent.D: 2,
+    RouteEvent.A: 3,
+    RouteEvent.COMPLETE: 4,
+}
 
 
 def to_vehicle_message(
@@ -23,23 +38,23 @@ def to_vehicle_message(
     start_stamp: Time,
 ) -> VehicleTelemetry:
     message = VehicleTelemetry()
-    message.contract_version = value.contract_version
+    message.contract_version = VehicleTelemetry.CONTRACT_VERSION
     message.start_stamp = start_stamp
     message.acquisition_stamp = acquisition_stamp
     message.source_sequence = datagram.frame.sequence
     message.checksum_crc16 = datagram.checksum_crc16
-    message.vehicle_id = value.vehicle_id
-    message.start_event = value.start_event
-    message.heartbeat_alive = value.heartbeat_alive
-    message.motion_kind = int(value.motion_kind)
-    message.displacement_m = value.displacement_m
-    message.wheel_speed_m_s = value.wheel_speed_m_s
-    message.heading_rad = value.heading_rad
-    message.yaw_rate_rad_s = value.yaw_rate_rad_s
-    message.turn_class = int(value.turn_class)
-    message.route_stage = int(value.route_stage)
-    message.lap_complete = value.lap_complete
-    message.frame_id = value.frame_id
+    message.vehicle_id = str(datagram.frame.sender_id)
+    message.start_event = value.event is RouteEvent.START
+    message.heartbeat_alive = True
+    message.motion_kind = VehicleTelemetry.MOTION_DISPLACEMENT
+    message.displacement_m = value.displacement_mm / 1000.0
+    message.wheel_speed_m_s = value.velocity_mm_s / 1000.0
+    message.heading_rad = 0.0
+    message.yaw_rate_rad_s = 0.0
+    message.turn_class = int(value.turn)
+    message.route_stage = _ROUTE_STAGES[value.event]
+    message.lap_complete = value.event is RouteEvent.COMPLETE or value.state is CarState.COMPLETE
+    message.frame_id = "vehicle_start"
     return message
 
 
@@ -50,33 +65,29 @@ def to_stale_vehicle_message(
     start_stamp: Time,
 ) -> VehicleTelemetry:
     message = VehicleTelemetry()
-    message.contract_version = value.contract_version
+    message.contract_version = VehicleTelemetry.CONTRACT_VERSION
     message.start_stamp = start_stamp
     message.acquisition_stamp = acquisition_stamp
     message.source_sequence = source_sequence
     message.checksum_crc16 = 0
-    message.vehicle_id = value.vehicle_id
+    message.vehicle_id = ""
     message.start_event = False
     message.heartbeat_alive = False
-    message.motion_kind = int(value.motion_kind)
-    message.displacement_m = value.displacement_m
-    message.wheel_speed_m_s = value.wheel_speed_m_s
-    message.heading_rad = value.heading_rad
-    message.yaw_rate_rad_s = value.yaw_rate_rad_s
-    message.turn_class = int(value.turn_class)
-    message.route_stage = int(value.route_stage)
-    message.lap_complete = value.lap_complete
-    message.frame_id = value.frame_id
+    message.motion_kind = VehicleTelemetry.MOTION_DISPLACEMENT
+    message.displacement_m = value.displacement_mm / 1000.0
+    message.wheel_speed_m_s = value.velocity_mm_s / 1000.0
+    message.heading_rad = 0.0
+    message.yaw_rate_rad_s = 0.0
+    message.turn_class = int(value.turn)
+    message.route_stage = _ROUTE_STAGES[value.event]
+    message.lap_complete = False
+    message.frame_id = "vehicle_start"
     return message
 
 
 def to_selection_request(value: MissionSelectionValue) -> SelectDTaskMission.Request:
     request = SelectDTaskMission.Request()
-    request.contract_version = value.contract_version
-    request.mission_id = value.mission_id
-    request.mission_profile_id = value.mission_profile_id
-    request.deployment_preset_id = value.deployment_preset_id
-    request.target_revision = value.target_revision
+    request.contract_version = SelectDTaskMission.Request.CONTRACT_VERSION
     request.task = int(value.task)
     return request
 
@@ -89,13 +100,27 @@ def to_execute_goal(command: ExecuteMissionCommand) -> ExecuteMission.Goal:
     return goal
 
 
-def from_mission_status(message: MissionStatus) -> MissionStatusValue:
-    return MissionStatusValue(
-        contract_version=message.contract_version,
-        source_sequence=Sequence(message.source_sequence),
-        mission_id=message.mission_id,
-        state=message.state,
-        route_stage=RouteStage(message.route_stage),
-        complete=message.complete,
-        reason=message.reason,
-    )
+def encode_mission_status_for_hmi(message: MissionStatus | MissionStatusValue) -> bytes:
+    match message:
+        case MissionStatusValue():
+            return encode_mission_status(message)
+        case MissionStatus():
+            if message.complete:
+                phase = MissionPhase.COMPLETE
+            else:
+                phase = {
+                    MissionStatus.STATE_PRE_ARM: MissionPhase.PRESTART,
+                    MissionStatus.STATE_ABORTED: MissionPhase.FAULT,
+                }.get(message.state, MissionPhase.CAR_RUNNING)
+            value = MissionStatusValue(
+                selection_id=0,
+                car_boot_id=0,
+                hmi_boot_id=0,
+                phase=phase,
+                selected_task=0,
+                reason_flags=0,
+                status_flags=MissionStatusFlag(0),
+            )
+            return encode_mission_status(value)
+        case unreachable:
+            assert_never(unreachable)

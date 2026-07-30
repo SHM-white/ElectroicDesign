@@ -45,6 +45,11 @@ def test_node_graph_is_typed_and_has_no_fcu_command_authority() -> None:
         assert graph_name in source
     assert "MutuallyExclusiveCallbackGroup()" in source
     assert "SimpleQueue" in source
+    assert "MessageType.TASK_SELECTION" in source
+    assert "MessageType.MISSION_STATUS" in source
+    assert "decode_task_selection" in source
+    assert "encode_mission_status_for_hmi" in source
+    assert "SELECTION_ACK" not in source
     assert all(getattr(call.func, "attr", "") != "create_service" for call in calls)
     assert "/fcu/" + "flight_command" not in source
     assert "Flight" + "Command" not in source

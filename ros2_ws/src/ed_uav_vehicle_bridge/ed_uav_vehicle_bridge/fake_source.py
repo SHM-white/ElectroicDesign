@@ -8,7 +8,7 @@ from rclpy.node import Node
 from .config import load_hmac_key_file
 from .errors import BridgeConfigError
 from .fake import FakeVehicleConfig, build_fake_vehicle_datagrams
-from .models import BootEpoch, Endpoint
+from .models import BootId, Endpoint, SenderId
 from .udp_socket import BoundUdpSocket
 
 
@@ -22,8 +22,8 @@ class FakeVehicleSourceNode(Node):
             "destination_port": 0,
             "source_host": "",
             "source_port": 0,
-            "sender_id": "",
-            "boot_epoch": 0,
+            "sender_id": 0,
+            "boot_id": 0,
             "frame_count": 5,
             "hmac_key_file": "",
         }
@@ -38,8 +38,8 @@ class FakeVehicleSourceNode(Node):
                 str(value("destination_host")), int(value("destination_port"))
             ),
             source=Endpoint(str(value("source_host")), int(value("source_port"))),
-            sender_id=str(value("sender_id")),
-            boot_epoch=BootEpoch(int(value("boot_epoch"))),
+            sender_id=SenderId(int(value("sender_id"))),
+            boot_id=BootId(int(value("boot_id"))),
             frame_count=int(value("frame_count")),
         )
         if config.destination.port <= 0 or config.source.port <= 0:

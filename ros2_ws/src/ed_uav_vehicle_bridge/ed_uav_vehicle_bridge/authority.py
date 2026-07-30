@@ -8,12 +8,14 @@ from typing_extensions import assert_never
 from .models import (
     AuthorityDecision,
     AuthorityState,
-    BootEpoch,
+    BootId,
     ExecuteMissionCommand,
     MissionSelectionValue,
+    MissionPhase,
+    MissionStatusFlag,
+    MissionStatusValue,
     RejectCode,
     SelectMissionCommand,
-    SelectionAckValue,
     SelectionId,
 )
 
@@ -21,21 +23,24 @@ from .models import (
 class BridgeAuthority:
     """Mutable synchronized authority state for one vehicle run."""
 
-    def __init__(self, mission_timeout_seconds: float = 90.0) -> None:
+    def __init__(
+        self, mission_timeout_seconds: float = 90.0, *, hmi_boot_id: BootId = BootId(0)
+    ) -> None:
         if mission_timeout_seconds <= 0.0:
             raise ValueError("mission timeout must be positive")
         self._lock = RLock()
         self._state = AuthorityState.BOOT_LOCKED
-        self._car_epoch: BootEpoch | None = None
+        self._car_boot_id: BootId | None = None
+        self._hmi_boot_id = hmi_boot_id
         self._pending: MissionSelectionValue | None = None
         self._committed: MissionSelectionValue | None = None
         self._mission_timeout_seconds = mission_timeout_seconds
 
-    def observe_car_epoch(self, epoch: BootEpoch, fcu_armed: bool) -> AuthorityDecision:
+    def observe_car_epoch(self, boot_id: BootId, fcu_armed: bool) -> AuthorityDecision:
         with self._lock:
-            if self._car_epoch == epoch:
+            if self._car_boot_id == boot_id:
                 return self._result(True, "CAR_SESSION_CURRENT")
-            self._car_epoch = epoch
+            self._car_boot_id = boot_id
             self._pending = None
             self._committed = None
             self._state = AuthorityState.FAULT if fcu_armed else AuthorityState.PRESTART
@@ -46,26 +51,23 @@ class BridgeAuthority:
         self, selection: MissionSelectionValue, fcu_armed: bool
     ) -> AuthorityDecision:
         with self._lock:
-            if self._car_epoch is None:
+            if self._car_boot_id is None:
                 return self._result(False, RejectCode.NO_CAR_SESSION)
             if self._state is AuthorityState.CAR_RUNNING:
                 return self._result(False, RejectCode.READ_ONLY_AFTER_START)
             if fcu_armed:
                 return self._result(False, RejectCode.FCU_ALREADY_ARMED)
-            if selection.car_boot_epoch != self._car_epoch:
+            if selection.car_boot_id != self._car_boot_id:
                 return self._result(False, RejectCode.CAR_EPOCH_MISMATCH)
             if self._state is AuthorityState.SELECTED and selection == self._committed:
-                acknowledgement = SelectionAckValue(
-                    contract_version=1,
+                acknowledgement = self._mission_status(
                     selection_id=selection.selection_id,
-                    car_boot_epoch=selection.car_boot_epoch,
-                    accepted=True,
-                    state=self._state,
-                    reason="RECONFIRMED",
+                    car_boot_id=selection.car_boot_id,
+                    task=int(selection.task),
                 )
                 return self._result(
                     True,
-                    acknowledgement.reason,
+                    "RECONFIRMED",
                     acknowledgement=acknowledgement,
                 )
             if self._state is not AuthorityState.PRESTART:
@@ -103,15 +105,12 @@ class BridgeAuthority:
             self._pending = None
             self._committed = pending
             self._state = AuthorityState.SELECTED
-            acknowledgement = SelectionAckValue(
-                contract_version=1,
+            acknowledgement = self._mission_status(
                 selection_id=pending.selection_id,
-                car_boot_epoch=pending.car_boot_epoch,
-                accepted=True,
-                state=self._state,
-                reason=reason or "ACK",
+                car_boot_id=pending.car_boot_id,
+                task=int(pending.task),
             )
-            return self._result(True, acknowledgement.reason, acknowledgement=acknowledgement)
+            return self._result(True, reason or "ACK", acknowledgement=acknowledgement)
 
     def observe_arm(self, armed: bool) -> AuthorityDecision:
         with self._lock:
@@ -134,9 +133,9 @@ class BridgeAuthority:
                 case unreachable:
                     assert_never(unreachable)
 
-    def observe_car_start(self, epoch: BootEpoch) -> AuthorityDecision:
+    def observe_car_start(self, boot_id: BootId) -> AuthorityDecision:
         with self._lock:
-            if self._car_epoch != epoch:
+            if self._car_boot_id != boot_id:
                 return self._result(False, RejectCode.CAR_EPOCH_MISMATCH)
             match self._state:
                 case AuthorityState.BOOT_LOCKED | AuthorityState.PRESTART | AuthorityState.SELECT_PENDING:
@@ -148,9 +147,10 @@ class BridgeAuthority:
                         return self._result(False, RejectCode.NO_COMMITTED_SELECTION)
                     selection = self._committed
                     self._state = AuthorityState.CAR_RUNNING
+                    task_name = selection.task.name.lower()
                     command = ExecuteMissionCommand(
-                        mission_id=selection.mission_id,
-                        field_profile_id=selection.deployment_preset_id,
+                        mission_id=f"d-task-{task_name}",
+                        field_profile_id=f"d-task-{task_name}",
                         timeout_seconds=self._mission_timeout_seconds,
                     )
                     return self._result(True, "MISSION_DISPATCH", execute_command=command)
@@ -172,7 +172,7 @@ class BridgeAuthority:
         reason: str,
         *,
         select_command: SelectMissionCommand | None = None,
-        acknowledgement: SelectionAckValue | None = None,
+        acknowledgement: MissionStatusValue | None = None,
         execute_command: ExecuteMissionCommand | None = None,
     ) -> AuthorityDecision:
         return AuthorityDecision(
@@ -182,4 +182,17 @@ class BridgeAuthority:
             select_command=select_command,
             acknowledgement=acknowledgement,
             execute_command=execute_command,
+        )
+
+    def _mission_status(
+        self, *, selection_id: SelectionId, car_boot_id: BootId, task: int
+    ) -> MissionStatusValue:
+        return MissionStatusValue(
+            selection_id=selection_id,
+            car_boot_id=car_boot_id,
+            hmi_boot_id=self._hmi_boot_id,
+            phase=MissionPhase.SELECTION_ACKED,
+            selected_task=task,
+            reason_flags=0,
+            status_flags=MissionStatusFlag.ROS_READY,
         )

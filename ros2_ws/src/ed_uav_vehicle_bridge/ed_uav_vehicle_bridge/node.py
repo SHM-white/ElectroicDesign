@@ -1,9 +1,10 @@
-"""ROS 2 adapter for the authenticated vehicle/HMI UDP boundary."""
+"""ROS 2 adapter for the authenticated vehicle/HMI UDP boundary."""  # noqa: SIZE_OK
 
 from __future__ import annotations
 
 import time
 from queue import Empty, SimpleQueue
+from typing import assert_never
 
 from builtin_interfaces.msg import Time
 from ed_uav_interfaces.action import ExecuteMission
@@ -21,25 +22,25 @@ from .errors import ProtocolError, ProtocolErrorCode
 from .models import (
     AuthenticatedDatagram,
     AuthorityDecision,
-    AuthorityState,
     BootEpoch,
     MessageType,
     MissionSelectionValue,
+    MissionPhase,
+    MissionStatusFlag,
+    MissionStatusValue,
     ReceiptSeconds,
-    SelectionAckValue,
+    RouteEvent,
     SelectionId,
     Sequence,
     VehicleTelemetryValue,
 )
 from .payloads import (
-    decode_mission_selection,
-    decode_vehicle_telemetry,
-    encode_mission_status,
-    encode_selection_ack,
+    decode_car_telemetry,
+    decode_task_selection,
 )
 from .protocol import decode_datagram
 from .ros_mapping import (
-    from_mission_status,
+    encode_mission_status_for_hmi,
     to_execute_goal,
     to_selection_request,
     to_stale_vehicle_message,
@@ -47,7 +48,7 @@ from .ros_mapping import (
 )
 from .ros_config import declare_bridge_provisioning
 from .hmi_sender import HmiSender, HmiSenderConfig
-from .session import PeerPolicy, RouteTracker, SessionTracker
+from .session import PeerPolicy, SessionTracker
 from .udp_socket import BoundUdpSocket, ReceivedDatagram
 
 
@@ -69,14 +70,13 @@ class VehicleBridgeNode(Node):
             )
         )
         self._authority = BridgeAuthority(provision.mission_timeout_seconds)
-        self._route = RouteTracker()
         self._car_session = SessionTracker(
             PeerPolicy(provision.car_sender_id, provision.car_peer, frozenset({MessageType.CAR_TELEMETRY}))
         )
         self._hmi_session = SessionTracker(
-            PeerPolicy(provision.hmi_sender_id, provision.hmi_peer, frozenset({MessageType.HMI_SELECTION}))
+            PeerPolicy(provision.hmi_sender_id, provision.hmi_peer, frozenset({MessageType.TASK_SELECTION}))
         )
-        self._stale_seconds = provision.telemetry_stale_seconds
+        self._stale_seconds = 0.75
         self._fcu_armed = False
         self._mission_idle = False
         self._car_epoch = BootEpoch(0)
@@ -135,36 +135,38 @@ class VehicleBridgeNode(Node):
         receipt = ReceiptSeconds(time.monotonic())
         match frame.message_type:
             case MessageType.CAR_TELEMETRY:
-                telemetry = decode_vehicle_telemetry(frame.payload)
+                telemetry = decode_car_telemetry(frame.payload)
                 accepted = self._car_session.accept(datagram, packet.source, receipt)
                 if accepted.session_changed:
-                    self._route.reset()
-                    self._car_epoch = frame.boot_epoch
-                    self._authority.observe_car_epoch(frame.boot_epoch, self._fcu_armed)
-                self._route.accept(telemetry)
+                    self._car_epoch = frame.boot_id
+                    self._authority.observe_car_epoch(frame.boot_id, self._fcu_armed)
                 self._publish_telemetry(telemetry, datagram)
-                if telemetry.start_event:
-                    self._apply_start(self._authority.observe_car_start(frame.boot_epoch))
-            case MessageType.HMI_SELECTION:
-                selection = decode_mission_selection(frame.payload)
+                if telemetry.event is RouteEvent.START:
+                    self._apply_start(self._authority.observe_car_start(frame.boot_id))
+            case MessageType.TASK_SELECTION:
+                selection = decode_task_selection(frame.payload)
                 self._hmi_session.accept(datagram, packet.source, receipt)
                 self._apply_selection(selection)
-            case MessageType.SELECTION_ACK | MessageType.MISSION_STATUS:
+            case MessageType.HEARTBEAT | MessageType.DIAGNOSTIC:
+                return
+            case MessageType.MISSION_STATUS:
                 raise ProtocolError(
                     ProtocolErrorCode.MESSAGE_TYPE_FORBIDDEN,
                     "bridge does not accept ROS-to-HMI message types",
                 )
+            case unreachable:
+                assert_never(unreachable)
 
     def _apply_selection(self, selection: MissionSelectionValue) -> None:
         if not self._mission_idle:
-            self._send_rejection(selection.selection_id, selection.car_boot_epoch, "MISSION_NOT_IDLE")
+            self._send_rejection(selection.selection_id, selection.car_boot_id, "MISSION_NOT_IDLE")
             return
         decision = self._authority.request_selection(selection, self._fcu_armed)
         if decision.acknowledgement is not None:
-            self._send_ack(decision.acknowledgement)
+            self._send_mission_status(decision.acknowledgement)
             return
         if decision.select_command is None:
-            self._send_rejection(selection.selection_id, selection.car_boot_epoch, decision.reason)
+            self._send_rejection(selection.selection_id, selection.car_boot_id, decision.reason)
             return
         if not self._selection_client.service_is_ready():
             self._authority.commit_selection(
@@ -173,7 +175,7 @@ class VehicleBridgeNode(Node):
                 "SELECTION_SERVICE_UNAVAILABLE",
                 self._fcu_armed,
             )
-            self._send_rejection(selection.selection_id, selection.car_boot_epoch, "SELECTION_SERVICE_UNAVAILABLE")
+            self._send_rejection(selection.selection_id, selection.car_boot_id, "SELECTION_SERVICE_UNAVAILABLE")
             return
         future = self._selection_client.call_async(to_selection_request(selection))
         future.add_done_callback(
@@ -195,9 +197,9 @@ class VehicleBridgeNode(Node):
                 self._fcu_armed,
             )
         if decision.acknowledgement is not None:
-            self._send_ack(decision.acknowledgement)
+            self._send_mission_status(decision.acknowledgement)
         else:
-            self._send_rejection(selection.selection_id, selection.car_boot_epoch, decision.reason)
+            self._send_rejection(selection.selection_id, selection.car_boot_id, decision.reason)
 
     def _apply_start(self, decision: AuthorityDecision) -> None:
         if decision.execute_command is None:
@@ -246,7 +248,7 @@ class VehicleBridgeNode(Node):
         self._mission_idle = message.state == MissionStatus.STATE_PRE_ARM and not message.complete
         self._hmi_sender.send(
             MessageType.MISSION_STATUS,
-            encode_mission_status(from_mission_status(message)),
+            encode_mission_status_for_hmi(message),
         )
 
     def _send_rejection(
@@ -255,12 +257,22 @@ class VehicleBridgeNode(Node):
         car_epoch: BootEpoch,
         reason: str,
     ) -> None:
-        self._send_ack(SelectionAckValue(1, selection_id, car_epoch, False, AuthorityState.FAULT, reason))
+        self._send_mission_status(
+            MissionStatusValue(
+                selection_id=selection_id,
+                car_boot_id=car_epoch,
+                hmi_boot_id=0,
+                phase=MissionPhase.FAULT,
+                selected_task=0,
+                reason_flags=0,
+                status_flags=MissionStatusFlag(0),
+            )
+        )
 
-    def _send_ack(self, acknowledgement: SelectionAckValue) -> None:
+    def _send_mission_status(self, status: MissionStatusValue) -> None:
         self._hmi_sender.send(
-            MessageType.SELECTION_ACK,
-            encode_selection_ack(acknowledgement),
+            MessageType.MISSION_STATUS,
+            encode_mission_status_for_hmi(status),
         )
 
     def destroy_node(self) -> None:

@@ -4,7 +4,7 @@ import pytest
 
 from ed_uav_vehicle_bridge.config import BridgeProvisioning, load_bridge_config
 from ed_uav_vehicle_bridge.errors import BridgeConfigError
-from ed_uav_vehicle_bridge.models import Endpoint
+from ed_uav_vehicle_bridge.models import Endpoint, SenderId
 
 
 def _provisioning(key_file: Path) -> BridgeProvisioning:
@@ -12,9 +12,9 @@ def _provisioning(key_file: Path) -> BridgeProvisioning:
         bind=Endpoint("0.0.0.0", 40100),
         car_peer=Endpoint("127.0.0.1", 40101),
         hmi_peer=Endpoint("127.0.0.1", 40102),
-        car_sender_id="CAR-01",
-        hmi_sender_id="HMI-01",
-        bridge_sender_id="ROS-01",
+        car_sender_id=SenderId(0x43415231),
+        hmi_sender_id=SenderId(0x484D4931),
+        bridge_sender_id=SenderId(0x524F5331),
         hmac_key_file=key_file,
         mission_timeout_seconds=90.0,
         telemetry_stale_seconds=0.75,

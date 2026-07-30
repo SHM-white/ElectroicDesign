@@ -7,7 +7,7 @@ import ipaddress
 from pathlib import Path
 
 from .errors import BridgeConfigError
-from .models import Endpoint
+from .models import Endpoint, SenderId
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,9 +15,9 @@ class BridgeProvisioning:
     bind: Endpoint
     car_peer: Endpoint
     hmi_peer: Endpoint
-    car_sender_id: str
-    hmi_sender_id: str
-    bridge_sender_id: str
+    car_sender_id: SenderId
+    hmi_sender_id: SenderId
+    bridge_sender_id: SenderId
     hmac_key_file: Path
     mission_timeout_seconds: float
     telemetry_stale_seconds: float
@@ -77,10 +77,6 @@ def _validate_endpoint(
         raise BridgeConfigError("endpoint", f"port must be in range {minimum_port}-65535")
 
 
-def _validate_sender(field: str, sender_id: str) -> None:
-    try:
-        encoded = sender_id.encode("ascii")
-    except UnicodeEncodeError as error:
-        raise BridgeConfigError(field, "must be ASCII") from error
-    if not 1 <= len(encoded) <= 8 or b"\x00" in encoded:
-        raise BridgeConfigError(field, "must contain 1-8 non-NUL bytes")
+def _validate_sender(field: str, sender_id: SenderId) -> None:
+    if not isinstance(sender_id, int) or not 1 <= sender_id <= 0xFFFFFFFF:
+        raise BridgeConfigError(field, "must be a nonzero uint32")

@@ -17,31 +17,36 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 
 from ed_uav_vehicle_bridge.models import (
-    AuthorityState,
-    BootEpoch,
+    BootId,
+    CarState,
     DTask,
+    FaultFlag,
     MessageType,
     MissionSelectionValue,
-    MotionKind,
+    MissionPhase,
     OutboundFrame,
-    RouteStage,
+    QualityFlag,
+    RouteEvent,
     SelectionId,
     Sequence,
+    SenderId,
     SourceMillis,
     TurnClass,
     VehicleTelemetryValue,
 )
 from ed_uav_vehicle_bridge.node import VehicleBridgeNode
 from ed_uav_vehicle_bridge.payloads import (
-    decode_selection_ack,
-    encode_mission_selection,
-    encode_vehicle_telemetry,
+    decode_mission_status,
+    encode_car_telemetry,
+    encode_task_selection,
 )
 from ed_uav_vehicle_bridge.protocol import decode_datagram, encode_datagram
 
 
 KEY = bytes(range(32))
-CAR_EPOCH = BootEpoch(0x12345678)
+CAR_BOOT_ID = BootId(0x12345678)
+CAR_SENDER_ID = SenderId(0x43415231)
+HMI_SENDER_ID = SenderId(0x484D4931)
 
 
 class FakeMissionNode(Node):
@@ -99,7 +104,6 @@ class FakeMissionNode(Node):
         status.source_sequence = self.telemetry_count
         status.mission_id = "mission-44"
         status.state = MissionStatus.STATE_PRE_ARM
-        status.route_stage = RouteStage.START
         status.complete = False
         status.reason = "idle"
         self._status.publish(status)
@@ -129,7 +133,7 @@ class ObservedBridge(VehicleBridgeNode):
 
 def _frame(
     message_type: MessageType,
-    sender_id: str,
+    sender_id: SenderId,
     sequence: int,
     payload: bytes,
 ) -> bytes:
@@ -137,7 +141,7 @@ def _frame(
         OutboundFrame(
             message_type,
             sender_id,
-            CAR_EPOCH,
+            CAR_BOOT_ID,
             Sequence(sequence),
             SourceMillis(sequence * 50),
             payload,
@@ -147,21 +151,17 @@ def _frame(
 
 
 def _telemetry(start: bool) -> bytes:
-    return encode_vehicle_telemetry(
+    return encode_car_telemetry(
         VehicleTelemetryValue(
-            1,
-            "car-1",
-            start,
-            True,
-            MotionKind.DISPLACEMENT,
-            0.1,
-            0.2,
-            0.0,
-            0.0,
-            TurnClass.STRAIGHT,
-            RouteStage.START,
-            False,
-            "vehicle_start",
+            state=CarState.RUNNING,
+            turn=TurnClass.STRAIGHT,
+            event=RouteEvent.START if start else RouteEvent.NONE,
+            event_id=2 if start else 1,
+            quality_flags=QualityFlag.LINE_VALID | QualityFlag.ENCODER_VALID,
+            displacement_mm=100,
+            velocity_mm_s=200,
+            line_error_milli=0,
+            fault_flags=FaultFlag.NONE,
         )
     )
 
@@ -174,8 +174,10 @@ def _receive_ack(hmi: socket.socket):
         except socket.timeout:
             continue
         datagram = decode_datagram(raw, KEY)
-        if datagram.frame.message_type is MessageType.SELECTION_ACK:
-            return decode_selection_ack(datagram.frame.payload)
+        if datagram.frame.message_type is MessageType.MISSION_STATUS:
+            status = decode_mission_status(datagram.frame.payload)
+            if status.phase is MissionPhase.SELECTION_ACKED:
+                return status
     raise AssertionError("authenticated selection ACK not received before deadline")
 
 
@@ -197,9 +199,9 @@ def test_real_udp_ros_select_arm_start_replay_stale_and_cleanup(tmp_path: Path) 
             Parameter("car_peer_port", value=car_port),
             Parameter("hmi_peer_host", value="127.0.0.1"),
             Parameter("hmi_peer_port", value=hmi_port),
-            Parameter("car_sender_id", value="CAR-01"),
-            Parameter("hmi_sender_id", value="HMI-01"),
-            Parameter("bridge_sender_id", value="ROS-01"),
+            Parameter("car_sender_id", value=int(CAR_SENDER_ID)),
+            Parameter("hmi_sender_id", value=int(HMI_SENDER_ID)),
+            Parameter("bridge_sender_id", value=0x524F5331),
             Parameter("hmac_key_file", value=str(key_file)),
             Parameter("telemetry_stale_seconds", value=0.1),
         ]
@@ -221,29 +223,22 @@ def test_real_udp_ros_select_arm_start_replay_stale_and_cleanup(tmp_path: Path) 
 
             malformed = b"bad"
             car.sendto(malformed, bridge_endpoint)
-            car.sendto(_frame(MessageType.CAR_TELEMETRY, "CAR-01", 0, _telemetry(False)), bridge_endpoint)
+            car.sendto(_frame(MessageType.CAR_TELEMETRY, CAR_SENDER_ID, 0, _telemetry(False)), bridge_endpoint)
 
             selection = MissionSelectionValue(
-                1,
-                SelectionId(44),
-                CAR_EPOCH,
-                "mission-44",
-                "profile-44",
-                "field-44",
-                "target-v1",
-                DTask.PAYLOAD_DROP,
+                SelectionId(44), CAR_BOOT_ID, DTask.PAYLOAD_DROP
             )
             hmi.sendto(
-                _frame(MessageType.HMI_SELECTION, "HMI-01", 0, encode_mission_selection(selection)),
+                _frame(MessageType.TASK_SELECTION, HMI_SENDER_ID, 0, encode_task_selection(selection)),
                 bridge_endpoint,
             )
             ack = _receive_ack(hmi)
-            assert ack.accepted is True
-            assert ack.state is AuthorityState.SELECTED
+            assert ack.phase is MissionPhase.SELECTION_ACKED
+            assert ack.selected_task == int(DTask.PAYLOAD_DROP)
 
             fake.armed = True
             assert bridge.arm_event.wait(2.0)
-            start_packet = _frame(MessageType.CAR_TELEMETRY, "CAR-01", 1, _telemetry(True))
+            start_packet = _frame(MessageType.CAR_TELEMETRY, CAR_SENDER_ID, 1, _telemetry(True))
             car.sendto(start_packet, bridge_endpoint)
             assert fake.goal_event.wait(2.0)
             assert fake.goal_count == 1

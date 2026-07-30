@@ -8,24 +8,24 @@ from .errors import ProtocolError, ProtocolErrorCode
 from .models import (
     AcceptedPacket,
     AuthenticatedDatagram,
-    BootEpoch,
+    BootId,
     Endpoint,
     MessageType,
     ReceiptSeconds,
     RejectCode,
-    RouteStage,
+    RouteEvent,
+    SenderId,
     TelemetryFault,
     VehicleTelemetryValue,
 )
 
 
-MAX_FORWARD_SEQUENCE_GAP: Final = 1024
 RETIRED_EPOCH_LIMIT: Final = 32
 
 
 @dataclass(frozen=True, slots=True)
 class PeerPolicy:
-    sender_id: str
+    sender_id: SenderId
     endpoint: Endpoint
     allowed_types: frozenset[MessageType]
 
@@ -35,9 +35,9 @@ class SessionTracker:
 
     def __init__(self, policy: PeerPolicy) -> None:
         self._policy = policy
-        self._epoch: int | None = None
+        self._boot_id: BootId | None = None
         self._last_sequence: int | None = None
-        self._retired_epochs: deque[int] = deque(maxlen=RETIRED_EPOCH_LIMIT)
+        self._retired_boot_ids: deque[BootId] = deque(maxlen=RETIRED_EPOCH_LIMIT)
         self._last_receipt: float | None = None
         self._stale_reported = False
 
@@ -59,16 +59,16 @@ class SessionTracker:
                 "message type is not allowed for peer",
             )
 
-        session_changed = self._epoch != frame.boot_epoch
+        session_changed = self._boot_id != frame.boot_id
         if session_changed:
-            if frame.boot_epoch in self._retired_epochs:
+            if frame.boot_id in self._retired_boot_ids:
                 raise ProtocolError(
                     ProtocolErrorCode.RETIRED_BOOT_EPOCH,
                     "boot epoch was already retired",
                 )
-            if self._epoch is not None:
-                self._retired_epochs.append(self._epoch)
-            self._epoch = frame.boot_epoch
+            if self._boot_id is not None:
+                self._retired_boot_ids.append(self._boot_id)
+            self._boot_id = frame.boot_id
             self._last_sequence = None
 
         if self._last_sequence is not None:
@@ -80,12 +80,6 @@ class SessionTracker:
                     ProtocolErrorCode.REORDERED,
                     "sequence is older than accepted head",
                 )
-            if delta > MAX_FORWARD_SEQUENCE_GAP:
-                raise ProtocolError(
-                    ProtocolErrorCode.SEQUENCE_GAP,
-                    "forward sequence gap exceeds window",
-                )
-
         self._last_sequence = frame.sequence
         self._last_receipt = receipt_time
         self._stale_reported = False
@@ -94,7 +88,7 @@ class SessionTracker:
     def telemetry_fault_if_stale(
         self, now: ReceiptSeconds, stale_after_seconds: float
     ) -> TelemetryFault | None:
-        if self._last_receipt is None or self._epoch is None or self._stale_reported:
+        if self._last_receipt is None or self._boot_id is None or self._stale_reported:
             return None
         age = now - self._last_receipt
         if age <= stale_after_seconds:
@@ -103,7 +97,7 @@ class SessionTracker:
         return TelemetryFault(
             code=RejectCode.TELEMETRY_STALE,
             age_seconds=age,
-            car_boot_epoch=BootEpoch(self._epoch),
+            car_boot_epoch=BootId(self._boot_id),
         )
 
 
@@ -111,45 +105,45 @@ class RouteTracker:
     """Mutable one-run route order and start-event guard."""
 
     def __init__(self) -> None:
-        self._stage: RouteStage | None = None
-        self._started = False
+        self._event: RouteEvent | None = None
+        self._event_id: int | None = None
 
     def accept(self, telemetry: VehicleTelemetryValue) -> None:
-        if telemetry.start_event:
-            if self._started:
+        event = telemetry.event
+        if event is RouteEvent.NONE:
+            return
+
+        if self._event is None:
+            if event is not RouteEvent.START:
+                raise ProtocolError(
+                    ProtocolErrorCode.INVALID_ROUTE_ORDER,
+                    "first route event must be START",
+                )
+            self._event = event
+            self._event_id = telemetry.event_id
+            return
+
+        if event is self._event:
+            if telemetry.event_id == self._event_id:
+                return
+            if event is RouteEvent.START:
                 raise ProtocolError(
                     ProtocolErrorCode.START_EVENT_REPEATED,
                     "start event is one-shot",
                 )
-            if telemetry.route_stage is not RouteStage.START:
-                raise ProtocolError(
-                    ProtocolErrorCode.INVALID_ROUTE_ORDER,
-                    "start event must use START stage",
-                )
-            self._started = True
-
-        if telemetry.lap_complete != (telemetry.route_stage is RouteStage.COMPLETE):
             raise ProtocolError(
                 ProtocolErrorCode.INVALID_ROUTE_ORDER,
-                "completion flag and stage disagree",
+                "route event ID changed without advancing the route",
             )
-        if self._stage is None:
-            if telemetry.route_stage is not RouteStage.START:
-                raise ProtocolError(
-                    ProtocolErrorCode.INVALID_ROUTE_ORDER,
-                    "first route stage must be START",
-                )
-            self._stage = RouteStage.START
-            return
-        if telemetry.route_stage is self._stage:
-            return
-        if not self._started or int(telemetry.route_stage) != int(self._stage) + 1:
+
+        if telemetry.event_id == self._event_id or int(event) != int(self._event) + 1:
             raise ProtocolError(
                 ProtocolErrorCode.INVALID_ROUTE_ORDER,
                 "route must advance START-B-D-A-COMPLETE",
             )
-        self._stage = telemetry.route_stage
+        self._event = event
+        self._event_id = telemetry.event_id
 
     def reset(self) -> None:
-        self._stage = None
-        self._started = False
+        self._event = None
+        self._event_id = None

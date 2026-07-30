@@ -10,21 +10,22 @@ from typing import Final
 from .errors import ProtocolError, ProtocolErrorCode
 from .models import (
     AuthenticatedDatagram,
-    BootEpoch,
+    BootId,
     MessageType,
     OutboundFrame,
+    SenderId,
     Sequence,
     SourceMillis,
 )
 
 
-MAGIC: Final = b"EDU1"
+MAGIC: Final = 0x4454
 VERSION: Final = 1
-MAX_PAYLOAD_BYTES: Final = 256
-HMAC_TAG_BYTES: Final = 16
+MAX_PAYLOAD_BYTES: Final = 64
+HMAC_TAG_BYTES: Final = 8
 MINIMUM_KEY_BYTES: Final = 32
-HEADER: Final = struct.Struct(">4sBBH8sQII")
-CRC: Final = struct.Struct(">H")
+HEADER: Final = struct.Struct("<HBBHIIII")
+CRC: Final = struct.Struct("<H")
 MINIMUM_DATAGRAM_BYTES: Final = HEADER.size + CRC.size + HMAC_TAG_BYTES
 MAXIMUM_DATAGRAM_BYTES: Final = MINIMUM_DATAGRAM_BYTES + MAX_PAYLOAD_BYTES
 
@@ -45,26 +46,20 @@ def crc16_ccitt(data: bytes) -> int:
 
 def encode_datagram(frame: OutboundFrame, key: bytes) -> bytes:
     _require_key(key)
-    try:
-        sender = frame.sender_id.encode("ascii")
-    except UnicodeEncodeError as error:
-        raise ProtocolError(ProtocolErrorCode.BAD_SENDER_ID, "sender ID must be ASCII") from error
-    if not 1 <= len(sender) <= 8 or b"\x00" in sender:
-        raise ProtocolError(ProtocolErrorCode.BAD_SENDER_ID, "sender ID must contain 1-8 non-NUL bytes")
-    if not 1 <= frame.boot_epoch <= 0xFFFFFFFFFFFFFFFF:
-        raise ProtocolError(ProtocolErrorCode.BAD_BOOT_EPOCH, "boot epoch must be a nonzero uint64")
+    _require_uint32(frame.sender_id, ProtocolErrorCode.BAD_SENDER_ID, "sender ID")
+    _require_uint32(frame.boot_id, ProtocolErrorCode.BAD_BOOT_EPOCH, "boot ID")
     if len(frame.payload) > MAX_PAYLOAD_BYTES:
-        raise ProtocolError(ProtocolErrorCode.DATAGRAM_TOO_LARGE, "payload exceeds 256 bytes")
-    if not 0 <= frame.sequence <= 0xFFFFFFFF or not 0 <= frame.source_millis <= 0xFFFFFFFF:
-        raise ProtocolError(ProtocolErrorCode.BAD_PAYLOAD, "sequence and source millis must be uint32")
+        raise ProtocolError(ProtocolErrorCode.DATAGRAM_TOO_LARGE, "payload exceeds 64 bytes")
+    _require_uint32(frame.sequence, ProtocolErrorCode.BAD_PAYLOAD, "sequence")
+    _require_uint32(frame.source_millis, ProtocolErrorCode.BAD_PAYLOAD, "source millis")
 
     header = HEADER.pack(
         MAGIC,
         VERSION,
         int(frame.message_type),
         len(frame.payload),
-        sender.ljust(8, b"\x00"),
-        frame.boot_epoch,
+        frame.sender_id,
+        frame.boot_id,
         frame.sequence,
         frame.source_millis,
     )
@@ -80,7 +75,7 @@ def decode_datagram(data: bytes, key: bytes) -> AuthenticatedDatagram:
     if len(data) > MAXIMUM_DATAGRAM_BYTES:
         raise ProtocolError(ProtocolErrorCode.DATAGRAM_TOO_LARGE, "datagram exceeds v1 bound")
 
-    magic, version, raw_type, payload_length, raw_sender, epoch, sequence, source_millis = HEADER.unpack_from(data)
+    magic, version, raw_type, payload_length, sender_id, boot_id, sequence, source_millis = HEADER.unpack_from(data)
     if magic != MAGIC:
         raise ProtocolError(ProtocolErrorCode.BAD_MAGIC, "unexpected UDP magic")
     if version != VERSION:
@@ -92,9 +87,6 @@ def decode_datagram(data: bytes, key: bytes) -> AuthenticatedDatagram:
     expected_length = MINIMUM_DATAGRAM_BYTES + payload_length
     if payload_length > MAX_PAYLOAD_BYTES or len(data) != expected_length:
         raise ProtocolError(ProtocolErrorCode.BAD_LENGTH, "payload length does not match datagram")
-    sender = _decode_sender(raw_sender)
-    if epoch == 0:
-        raise ProtocolError(ProtocolErrorCode.BAD_BOOT_EPOCH, "boot epoch must be nonzero")
 
     authenticated_body = data[:-HMAC_TAG_BYTES]
     expected_tag = hmac.new(key, authenticated_body, hashlib.sha256).digest()[:HMAC_TAG_BYTES]
@@ -108,8 +100,8 @@ def decode_datagram(data: bytes, key: bytes) -> AuthenticatedDatagram:
 
     frame = OutboundFrame(
         message_type=message_type,
-        sender_id=sender,
-        boot_epoch=BootEpoch(epoch),
+        sender_id=SenderId(sender_id),
+        boot_id=BootId(boot_id),
         sequence=Sequence(sequence),
         source_millis=SourceMillis(source_millis),
         payload=data[HEADER.size:payload_end],
@@ -122,11 +114,6 @@ def _require_key(key: bytes) -> None:
         raise ProtocolError(ProtocolErrorCode.KEY_TOO_SHORT, "HMAC key must be at least 32 bytes")
 
 
-def _decode_sender(raw_sender: bytes) -> str:
-    sender_bytes, separator, padding = raw_sender.partition(b"\x00")
-    if not sender_bytes or (separator and any(padding)):
-        raise ProtocolError(ProtocolErrorCode.BAD_SENDER_ID, "invalid sender padding")
-    try:
-        return sender_bytes.decode("ascii")
-    except UnicodeDecodeError as error:
-        raise ProtocolError(ProtocolErrorCode.BAD_SENDER_ID, "sender ID must be ASCII") from error
+def _require_uint32(value: int, code: ProtocolErrorCode, field: str) -> None:
+    if not 0 <= value <= 0xFFFFFFFF:
+        raise ProtocolError(code, f"{field} must be uint32")

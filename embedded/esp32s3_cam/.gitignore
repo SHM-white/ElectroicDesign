@@ -1,8 +1,0 @@
-.pio/
-.cache/
-cmake-build-*/
-config/board_local.h
-*.bin
-*.elf
-*.map
-*.part
