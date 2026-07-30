@@ -17,7 +17,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # ─── 配置 ───────────────────────────────────────────────────────────────────
 CON_NAME="ed-hotspot"
 SSID="${ED_HOTSPOT_SSID:-ED-UAV}"
-PASSWORD="${ED_HOTSPOT_PASSWORD:-5RQqDVzbg5GxZpLz}"
+PASSWORD="${ED_HOTSPOT_PASSWORD:-}"
 CHANNEL="${ED_HOTSPOT_CHANNEL:-6}"
 BAND="${ED_HOTSPOT_BAND:-bg}"
 IFACE="${ED_HOTSPOT_IFACE:-}"
@@ -260,7 +260,7 @@ hotspot_test() {
         || echo -e "  [${R}FAIL${N}] IP 转发未启用"
 
     echo ""
-    info "探测客户端 ..."
+    echo -e "  ${C}探测客户端 ...${N}"
     ping -c 1 -b -W 1 "$SUBNET" >/dev/null 2>&1 || true
     sleep 1
 

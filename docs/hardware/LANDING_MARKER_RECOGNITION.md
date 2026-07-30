@@ -2,7 +2,7 @@
 
 ## Overview
 
-The landing marker recognition system now uses **AprilTag 36h11** as the primary detection method.
+The landing marker recognition system now uses **AprilTag 36h11** as the primary detection method with **visual servo precision landing**.
 
 ### Detection Methods
 
@@ -25,19 +25,56 @@ ros2_ws/src/ed_uav_perception/ed_uav_perception/
 ├── target_detector.py      # Main detector (dispatches to AprilTag or circle-cross)
 ├── target_pipeline.py      # Freshness and calibration boundary
 ├── target_pose.py          # PnP pose estimation
+├── visual_servo.py         # Visual servo controller for precision landing
+├── visual_servo_node.py    # ROS 2 node for visual servo
 └── target_observation_node.py  # ROS 2 node (default: d2026-apriltag-v1)
 ```
 
-### Test Scripts
-```bash
-# WSL with camera forwarded
-cd /home/shm-white/ed
-source .venv/bin/activate
-python3 tmp/test_apriltag.py
+## Visual Servo Precision Landing
 
-# OpenCV ArUco version (no extra dependencies)
-python3 tmp/test_apriltag_opencv.py
+### Overview
+The visual servo controller uses the detected marker pose to compute velocity corrections for precise landing. It implements a PD controller with phase-dependent gains.
+
+### Landing Phases
+
+| Phase | Distance | Description | Gains |
+|-------|----------|-------------|-------|
+| APPROACH | > 2m | Coarse positioning | Low gains, high max velocity |
+| DESCENT | 0.5-2m | Medium precision | Medium gains |
+| FINAL | 0.1-0.5m | High precision | High gains, low max velocity |
+| TOUCHDOWN | < 0.1m | Minimal corrections | Very high gains, very low velocity |
+
+### Launch
+```bash
+# Standalone visual servo node
+ros2 launch ed_uav_perception visual_servo.launch.py
+
+# With landing marker recognition (includes visual servo)
+./tools/run_landing_marker_recognition.sh --use-visual-servo true
 ```
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `target_topic` | `/d_task/target_observation` | Target observation topic |
+| `velocity_topic` | `/cmd_vel_stamped` | Velocity command output topic |
+| `approach_kp_xy` | 0.3 | XY proportional gain for approach phase |
+| `descent_kp_xy` | 0.5 | XY proportional gain for descent phase |
+| `final_kp_xy` | 0.8 | XY proportional gain for final phase |
+| `touchdown_kp_xy` | 1.0 | XY proportional gain for touchdown phase |
+| `position_tolerance_m` | 0.02 | Position tolerance for convergence (m) |
+| `stable_time_sec` | 0.5 | Time to remain stable before declaring landed |
+| `enabled` | true | Enable visual servo on startup |
+
+### Integration with Mission Executor
+
+The mission executor (`executor.py`) automatically uses the visual servo controller for precision landing when available:
+
+1. **Detection**: Target observation published to `/d_task/target_observation`
+2. **Tracking**: Mission system tracks target using `track_target()` 
+3. **Precision Landing**: Final descent uses visual servo for precise positioning
+4. **Convergence**: System waits for stable position before sending land command
 
 ## ROS Launch
 
@@ -46,6 +83,16 @@ From the repository root, launch the physical cameras, observer, and RViz:
 ```bash
 ./tools/run_landing_marker_recognition.sh --camera-plan config/cameras/landing_marker_camera_plan.local.json
 ```
+
+### Launch Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `camera_plan` | (required) | Camera configuration file |
+| `target_revision` | `d2026-apriltag-v1` | Detection method |
+| `use_rviz` | `true` | Launch RViz visualization |
+| `use_visual_servo` | `true` | Launch visual servo node |
+| `velocity_topic` | `/cmd_vel_stamped` | Velocity command topic |
 
 The documented root-level colcon build must already have produced a readable
 `install/setup.bash`; the runner fails clearly before ROS launch when that

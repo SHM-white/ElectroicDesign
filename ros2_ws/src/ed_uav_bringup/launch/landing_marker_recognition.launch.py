@@ -21,6 +21,7 @@ def _requested(value: str) -> bool:
 def _build_actions(context: LaunchContext) -> list[Action]:
     """Build the camera, perception, and optional visualization actions."""
     use_rviz = _requested(LaunchConfiguration("use_rviz").perform(context))
+    use_visual_servo = _requested(LaunchConfiguration("use_visual_servo").perform(context))
     if use_rviz and shutil.which("rviz2") is None:
         raise RuntimeError("use_rviz=true requested but rviz2 is unavailable")
 
@@ -49,6 +50,19 @@ def _build_actions(context: LaunchContext) -> list[Action]:
             }.items(),
         ),
     ]
+    if use_visual_servo:
+        actions.append(
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    str(perception_share / "launch" / "visual_servo.launch.py")
+                ),
+                launch_arguments={
+                    "target_topic": "/d_task/target_observation",
+                    "velocity_topic": LaunchConfiguration("velocity_topic"),
+                    "enabled": "true",
+                }.items(),
+            )
+        )
     if use_rviz:
         actions.append(
             Node(
@@ -77,12 +91,16 @@ def generate_launch_description() -> LaunchDescription:
                 "vehicle_topic", default_value="/d_task/vehicle/telemetry"
             ),
             DeclareLaunchArgument(
-                "target_revision", default_value="d2026-circle-cross-v1"
+                "target_revision", default_value="d2026-apriltag-v1"
             ),
             DeclareLaunchArgument(
                 "max_reprojection_rms_px", default_value="2.0"
             ),
             DeclareLaunchArgument("use_rviz", default_value="true"),
+            DeclareLaunchArgument("use_visual_servo", default_value="true"),
+            DeclareLaunchArgument(
+                "velocity_topic", default_value="/cmd_vel_stamped"
+            ),
             DeclareLaunchArgument(
                 "rviz_config",
                 default_value=str(

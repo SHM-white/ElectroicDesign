@@ -106,7 +106,7 @@ setup_hotspot() {
         read -rp "  热点名称 [${SSID}]: " input; SSID="${input:-$SSID}"
         read -rp "  WPA2 密码 (留空=开放网络): " input; PASSWORD="${input:-$PASSWORD}"
         read -rp "  信道 [${CHANNEL}]: " input; CHANNEL="${input:-$CHANNEL}"
-        read -rp "  频段 (bg=2.4G/a=5G) [${BAND}]: " input; BAND="${input:-BAND}"
+        read -rp "  频段 (bg=2.4G/a=5G) [${BAND}]: " input; BAND="${input:-$BAND}"
         read -rp "  小车 MAC (留空跳过): " input; CAR_MAC="${input:-}"
         read -rp "  地面站 MAC (留空跳过): " input; HMI_MAC="${input:-}"
     fi
@@ -127,6 +127,7 @@ setup_hotspot() {
         ipv6.method disabled
         connection.autoconnect yes
         connection.autoconnect-priority 100
+        connection.zone trusted
     )
 
     if [[ -n "${PASSWORD:-}" ]]; then
@@ -139,6 +140,13 @@ setup_hotspot() {
 
     nmcli "${args[@]}" >/dev/null || die "创建热点连接失败"
     ok "热点连接已创建: $SSID"
+
+    # WPA2 明确参数（ESP32 兼容）
+    if [[ -n "${PASSWORD:-}" ]]; then
+        nmcli connection modify "$CON_NAME" 802-11-wireless-security.proto rsn 2>/dev/null || true
+        nmcli connection modify "$CON_NAME" 802-11-wireless-security.pairwise ccmp 2>/dev/null || true
+        nmcli connection modify "$CON_NAME" 802-11-wireless-security.group ccmp 2>/dev/null || true
+    fi
 
     # IP 转发
     cat > /etc/sysctl.d/99-ed-hotspot.conf <<< "net.ipv4.ip_forward = 1"
@@ -154,6 +162,13 @@ setup_hotspot() {
     fi
     iptables -C FORWARD -i "$IFACE" -o "$IFACE" -j ACCEPT 2>/dev/null \
         || iptables -A FORWARD -i "$IFACE" -o "$IFACE" -j ACCEPT
+
+    # 允许热点子网的 UDP/TCP 入站（ESP32 通讯需要）
+    iptables -C INPUT -i "$IFACE" -p udp -s "$SUBNET" -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT 1 -i "$IFACE" -p udp -s "$SUBNET" -j ACCEPT
+    iptables -C INPUT -i "$IFACE" -p tcp -s "$SUBNET" -j ACCEPT 2>/dev/null \
+        || iptables -I INPUT 2 -i "$IFACE" -p tcp -s "$SUBNET" -j ACCEPT
+
     # 持久化
     if command -v iptables-save >/dev/null; then
         mkdir -p /etc/iptables
@@ -214,8 +229,8 @@ EOF
 install_vehicle_bridge() {
     [[ -n "${ROS_SETUP:-}" ]] || { warn "跳过 vehicle bridge（ROS 未构建）"; return; }
 
-    local key_arg=""
-    [[ -n "${HMAC_KEY_FILE:-}" ]] && key_arg="--key-file ${HMAC_KEY_FILE}"
+    local key_param=""
+    [[ -n "${HMAC_KEY_FILE:-}" ]] && key_param="-p hmac_key_file:=${HMAC_KEY_FILE}"
 
     cat > "/etc/systemd/system/${SVC_VEHICLE_BRIDGE}" <<EOF
 [Unit]
@@ -235,7 +250,7 @@ ExecStart=/bin/bash -c '\
     -p hmi_peer_host:=${HMI_IP} -p hmi_peer_port:=42002 \
     -p car_sender_id:=1128419121 -p hmi_sender_id:=1212563761 \
     -p bridge_sender_id:=1381122353 \
-    ${key_arg:+-p hmac_key_file:=${HMAC_KEY_FILE}} \
+    ${key_param} \
     -p telemetry_stale_seconds:=0.75 \
     -p mission_timeout_seconds:=90.0'
 Restart=on-failure

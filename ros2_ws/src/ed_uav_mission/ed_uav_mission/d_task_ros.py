@@ -85,7 +85,7 @@ class DTaskRosBoundary:
         )
         self._target_sub = node.create_subscription(
             TargetObservation,
-            "/target/observation",
+            "/d_task/target_observation",
             self._on_target,
             20,
             callback_group=group,

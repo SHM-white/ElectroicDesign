@@ -12,8 +12,7 @@ from nav2_msgs.action import ComputePathToPose
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.time import Time
-from tf2_ros import Buffer, TransformListener
-from tf2_ros.buffer_interface import TransformException
+from tf2_ros import Buffer, TransformException, TransformListener
 
 from ed_uav_mission.action_lifecycle import (
     MissionCancelled,
@@ -91,6 +90,60 @@ class CompetitionPlanner:
             label="d2026_target_track",
         )
         await self._send_move(waypoint)
+    
+    async def precision_land_on_target(
+        self,
+        target: TargetSnapshot,
+        vehicle: VehicleSnapshot,
+        visual_servo_controller,
+    ) -> bool:
+        """Precision landing using visual servo controller.
+        
+        Uses the visual servo controller to compute velocity corrections
+        for precise landing on the target marker.
+        
+        Args:
+            target: Target observation snapshot
+            vehicle: Vehicle telemetry snapshot
+            visual_servo_controller: VisualServoController instance
+            
+        Returns:
+            True if landing is complete and stable
+        """
+        import time
+        
+        # Get current position
+        current = self._capture_map_pose()
+        
+        # Use visual servo controller for final approach
+        # The controller expects camera-frame coordinates
+        # Target observation is already in camera frame
+        command = visual_servo_controller.compute_command(
+            target_x_m=target.relative_x_m,
+            target_y_m=target.relative_y_m,
+            target_z_m=target.relative_z_m,
+            current_timestamp_sec=time.monotonic(),
+        )
+        
+        # Convert body-frame velocity to map-frame waypoint
+        # For simplicity, we'll use the velocity to compute a small offset
+        # In a real implementation, this would use proper frame transforms
+        dt = 0.1  # 100ms prediction horizon
+        offset_x = command.vx_m_s * dt
+        offset_y = command.vy_m_s * dt
+        
+        # Compute waypoint with velocity-based offset
+        waypoint = Waypoint(
+            x_m=current.x_m + offset_x,
+            y_m=current.y_m + offset_y,
+            altitude_m=current.x_m + command.vz_m_s * dt,  # Use current altitude + correction
+            heading_rad=current.yaw_rad + command.yaw_rate_rad_s * dt,
+            label="d2026_precision_land",
+        )
+        
+        await self._send_move(waypoint)
+        
+        return command.converged
 
     async def descend_to_vehicle(
         self,

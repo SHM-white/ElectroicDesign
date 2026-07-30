@@ -27,6 +27,7 @@ setup(
         "console_scripts": [
             "detector_node = ed_uav_perception.detector_node:main",
             "target_observation_node = ed_uav_perception.target_observation_node:main",
+            "visual_servo_node = ed_uav_perception.visual_servo_node:main",
         ],
     },
 )

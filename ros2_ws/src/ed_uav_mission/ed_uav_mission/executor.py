@@ -6,6 +6,7 @@ This module never imports serial, GPIO, or camera APIs.
 
 from __future__ import annotations
 
+import asyncio
 import math
 import os
 from dataclasses import dataclass
@@ -217,6 +218,7 @@ class MissionExecutorNode(Node):
         self._competition_planner = None
         self._competition_runtime = None
         self._d_task_boundary = None
+        self._visual_servo_controller = None
         if self._mission_config.mission_type in (MissionType.COMPETITION, MissionType.STABILITY_TEST):
             from ed_uav_mission.competition_planner import CompetitionPlanner
 
@@ -226,6 +228,14 @@ class MissionExecutorNode(Node):
                 self._deadline_for_timeout,
                 self._raise_if_cancelled,
             )
+            # Initialize visual servo controller for precision landing
+            try:
+                from ed_uav_perception.visual_servo import VisualServoConfig, VisualServoController
+                self._visual_servo_controller = VisualServoController()
+                self.get_logger().info("Visual servo controller initialized for precision landing")
+            except ImportError:
+                self.get_logger().warn("Visual servo module not available, precision landing disabled")
+            
             if self._mission_config.mission_type == MissionType.COMPETITION:
                 assert self._mission_config.competition is not None
                 self._d_task_boundary = DTaskRosBoundary(
@@ -532,7 +542,27 @@ class MissionExecutorNode(Node):
     ) -> None:
         if self._competition_planner is None:
             raise RuntimeError("competition planner unavailable")
-        await self._competition_planner.descend_to_vehicle(target, vehicle)
+        
+        # Use visual servo for precision landing if available
+        if hasattr(self, '_visual_servo_controller') and self._visual_servo_controller is not None:
+            self.get_logger().info("Using visual servo for precision landing")
+            max_attempts = 50  # 5 seconds at 10Hz
+            for attempt in range(max_attempts):
+                landed = await self._competition_planner.precision_land_on_target(
+                    target, vehicle, self._visual_servo_controller
+                )
+                if landed:
+                    self.get_logger().info(f"Visual servo converged after {attempt + 1} iterations")
+                    break
+                # Small delay between iterations
+                await asyncio.sleep(0.1)
+            else:
+                self.get_logger().warn("Visual servo did not converge, proceeding with land")
+        else:
+            # Fallback to simple track and land
+            self.get_logger().info("Using simple track and land (no visual servo)")
+            await self._competition_planner.descend_to_vehicle(target, vehicle)
+        
         await self._send_land()
 
     async def _return_d_task_home(self) -> None:
