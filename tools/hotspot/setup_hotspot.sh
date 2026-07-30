@@ -20,6 +20,7 @@ set -euo pipefail
 # ---- 可配置参数 ----
 CON_NAME="ed-hotspot"
 IFACE="${ED_HOTSPOT_IFACE:-}"           # 留空则自动检测第一个 wlan 接口
+STA_IFACE=""                            # 保存原始 STA 接口名（AP+STA 共存时使用）
 SSID="${ED_HOTSPOT_SSID:-ED-UAV}"
 PASSWORD="${ED_HOTSPOT_PASSWORD:-}"     # 留空则开放网络（推荐测试时使用）
 CHANNEL="${ED_HOTSPOT_CHANNEL:-6}"
@@ -54,24 +55,62 @@ check_root() {
 
 check_nm() {
     command -v nmcli >/dev/null 2>&1 || fatal "需要 NetworkManager (nmcli)。Ubuntu 桌面版默认已安装。"
-    nmcli general status | grep -q "connected\|disconnected" || fatal "NetworkManager 未运行"
+    # 使用 -t 避免 locale 问题，检查 NM 是否活跃
+    local state
+    state=$(nmcli -t general status 2>/dev/null | head -1 | cut -d: -f1)
+    [[ -n "$state" ]] || fatal "NetworkManager 未运行"
 }
 
 detect_iface() {
-    if [[ -n "$IFACE" ]]; then
-        ip link show "$IFACE" >/dev/null 2>&1 || fatal "接口 $IFACE 不存在"
-        info "使用指定接口: $IFACE"
-        return
+    # 检测所有无线接口
+    local -a wifi_ifaces
+    mapfile -t wifi_ifaces < <(nmcli -t -f DEVICE,TYPE device status | grep ':wifi$' | cut -d: -f1)
+
+    if [[ ${#wifi_ifaces[@]} -eq 0 ]]; then
+        fatal "未检测到无线接口。请插入 USB 无线网卡或用 ED_HOTSPOT_IFACE 指定。"
     fi
-    IFACE=$(nmcli -t -f DEVICE,TYPE device status | grep ':wifi$' | head -1 | cut -d: -f1)
-    [[ -n "$IFACE" ]] || fatal "未检测到无线接口。请用 ED_HOTSPOT_IFACE=wlan0 指定。"
-    info "自动检测到无线接口: $IFACE"
+
+    if [[ ${#wifi_ifaces[@]} -ge 2 ]]; then
+        # 多个无线接口：找到已连接的那个（STA），另一个做 AP
+        info "检测到 ${#wifi_ifaces[@]} 个无线接口: ${wifi_ifaces[*]}"
+        for iface in "${wifi_ifaces[@]}"; do
+            local state
+            state=$(nmcli -t -f DEVICE,STATE device status | grep "^${iface}:" | cut -d: -f2)
+            if [[ "$state" == "已连接" || "$state" == "connected" ]]; then
+                STA_IFACE="$iface"
+                info "  $iface → STA (已连接互联网)"
+            else
+                IFACE="$iface"
+                info "  $iface → AP (将用于热点)"
+            fi
+        done
+        if [[ -z "$STA_IFACE" ]]; then
+            # 没有已连接的接口，用第一个做 AP
+            IFACE="${wifi_ifaces[0]}"
+            warn "没有已连接的无线接口，使用 $IFACE 做 AP"
+        fi
+        if [[ -z "$IFACE" ]]; then
+            fatal "无法确定 AP 接口。请用 ED_HOTSPOT_IFACE 指定。"
+        fi
+    else
+        # 单个无线接口
+        IFACE="${wifi_ifaces[0]}"
+        STA_IFACE=""
+        info "检测到单个无线接口: $IFACE"
+        local state
+        state=$(nmcli -t -f DEVICE,STATE device status | grep "^${IFACE}:" | cut -d: -f2)
+        if [[ "$state" == "已连接" || "$state" == "connected" ]]; then
+            warn "$IFACE 当前已连接互联网。热点创建将断开此连接。"
+            warn "建议插入 USB 无线网卡以保持互联网连接。"
+        fi
+    fi
 }
 
 get_active_wifi() {
-    # 返回当前占用无线接口的连接名（如有）
+    # 返回指定接口上当前活跃的无线连接名
+    local iface="${1:-$IFACE}"
     nmcli -t -f NAME,DEVICE,TYPE connection show --active 2>/dev/null \
-        | grep ":${IFACE}:802-11-wireless" | head -1 | cut -d: -f1 || true
+        | grep ":${iface}:802-11-wireless" | head -1 | cut -d: -f1 || true
 }
 
 # ---- 核心功能 ----
@@ -85,11 +124,11 @@ do_create() {
         nmcli connection delete "$CON_NAME" 2>/dev/null || true
     fi
 
-    # 2) 断开当前无线连接
+    # 2) 如果 AP 接口上有活跃连接，断开它
     local active_con
-    active_con=$(get_active_wifi)
+    active_con=$(get_active_wifi "$IFACE")
     if [[ -n "$active_con" ]]; then
-        info "断开当前无线连接: $active_con"
+        info "断开 $IFACE 上的连接: $active_con"
         nmcli connection down "$active_con" 2>/dev/null || true
         sleep 1
     fi
@@ -124,7 +163,7 @@ do_create() {
     fi
 
     nmcli "${ap_args[@]}" || fatal "创建连接失败"
-    info "连接配置已创建"
+    info "连接配置已创建 (接口: $IFACE)"
 
     # 4) IP 转发 + NAT
     setup_forwarding
@@ -139,6 +178,14 @@ do_create() {
     do_start
 
     info "热点创建完成"
+    if [[ -n "$STA_IFACE" ]]; then
+        echo ""
+        info "══════════════════════════════════════════"
+        info "  双网卡模式：互联网 + 热点同时可用"
+        info "  STA 接口: $STA_IFACE (连接互联网)"
+        info "  AP  接口: $IFACE  (ED-UAV 热点)"
+        info "══════════════════════════════════════════"
+    fi
     echo ""
     print_summary
 }
@@ -287,10 +334,21 @@ do_status() {
     fi
 
     # IP 地址
-    if ip addr show "$IFACE" 2>/dev/null | grep -q "$NUC_IP"; then
-        echo -e "  接口:    ${GREEN}${IFACE}${NC} = ${NUC_IP}"
+    local display_iface="${IFACE}"
+    if [[ -n "$STA_IFACE" ]] && [[ "$IFACE" != "$STA_IFACE" ]]; then
+        # AP+STA 共存模式，显示两个接口
+        local sta_ip
+        sta_ip=$(ip -4 addr show "$STA_IFACE" 2>/dev/null | grep 'inet ' | awk '{print $2}' | head -1)
+        if [[ -n "$sta_ip" ]]; then
+            echo -e "  STA接口:  ${GREEN}${STA_IFACE}${NC} = ${sta_ip} (互联网)"
+        else
+            echo -e "  STA接口:  ${YELLOW}${STA_IFACE}${NC} (未获取IP)"
+        fi
+    fi
+    if ip addr show "$display_iface" 2>/dev/null | grep -q "$NUC_IP"; then
+        echo -e "  AP接口:   ${GREEN}${display_iface}${NC} = ${NUC_IP}"
     else
-        echo -e "  接口:    ${YELLOW}${IFACE}${NC} (未分配 IP)"
+        echo -e "  AP接口:   ${YELLOW}${display_iface}${NC} (未分配 IP)"
     fi
 
     # IP 转发
