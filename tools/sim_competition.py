@@ -202,6 +202,7 @@ class CompetitionScenario:
         self.car_boot = secrets.randbits(32) or 1
         self.ros_boot = secrets.randbits(32) or 1
         self.hmi_boot = 0           # 从 HMI 的 TASK_SELECTION 包中获取
+        self.real_car_boot = 0      # 从真实 CAR 遥测中学习
 
         # 状态
         self.phase = PHASE_PRESTART
@@ -393,7 +394,7 @@ def print_status(scenario: CompetitionScenario, elapsed: float):
     # 预测 HMI 应显示的状态
     if s.hmi_boot == 0:
         lines.append(f"  {Y}BOOT_WAITING{N}  (等待 HMI 心跳获取 hmi_boot)")
-    elif real_car_boot == 0:
+    elif s.real_car_boot == 0:
         lines.append(f"  {Y}BOOT_WAITING{N}  (等待真实 CAR 遥测获取 car_boot)")
     elif s.phase == PHASE_PRESTART:
         lines.append(f"  {G}PRESTART{N}  可选题: task 1 / task 2 / test")
@@ -441,9 +442,6 @@ def run_competition(key: bytes, task: int, duration: float):
     last_status_time = 0.0
     last_display_time = 0.0
 
-    # 真实 CAR 的 boot_id（从 CAR 遥测中学习，用于 MISSION_STATUS 回执）
-    real_car_boot = 0
-
     try:
         while running:
             now = time.monotonic()
@@ -482,8 +480,8 @@ def run_competition(key: bytes, task: int, duration: float):
                     scenario.hmi_rx += 1
                 elif msg_type == MSG_CAR_TELEMETRY and sender == SENDER_CAR:
                     # 从真实 CAR 学习 boot_id（CAR 也发到 42000）
-                    if real_car_boot != boot_id:
-                        real_car_boot = boot_id
+                    if scenario.real_car_boot != boot_id:
+                        scenario.real_car_boot = boot_id
                         scenario.car_boot = boot_id
                         sys.stderr.write(
                             f"\n  {C}[CAR 上线]{N} boot=0x{boot_id:08X}\n"
@@ -492,14 +490,14 @@ def run_competition(key: bytes, task: int, duration: float):
             # ── 推进比赛状态 ──
             scenario.update(elapsed)
             # 真实 CAR boot 已知时，让场景也使用它
-            if real_car_boot > 0:
-                scenario.car_boot = real_car_boot
+            if scenario.real_car_boot > 0:
+                scenario.car_boot = scenario.real_car_boot
 
             # ── 20Hz CAR 遥测 → HMI (port 42002) + 诊断 (port 42000) ──
             # 注意：HMI 按源 IP 过滤 CAR 包（必须来自 192.168.20.2:42001），
             # 从 NUC 发出的模拟 CAR 包源 IP 是 192.168.20.1，HMI 会拒绝。
             # 如果真实 CAR 已在线（real_car_boot > 0），跳过模拟 CAR 遥测。
-            if real_car_boot == 0 and now - last_telem_time >= 0.05:
+            if scenario.real_car_boot == 0 and now - last_telem_time >= 0.05:
                 now_ms = int(now * 1000) & 0xFFFFFFFF
                 payload = pack_car_telemetry(
                     scenario.car_state, scenario.car_turn,
@@ -535,7 +533,7 @@ def run_competition(key: bytes, task: int, duration: float):
 
             # ── 2Hz MISSION_STATUS → CAR + HMI ──
             # 必须同时知道 hmi_boot 和 real_car_boot，否则 HMI 会因 boot_id 不匹配拒绝
-            if now - last_status_time >= 0.5 and scenario.hmi_boot > 0 and real_car_boot > 0:
+            if now - last_status_time >= 0.5 and scenario.hmi_boot > 0 and scenario.real_car_boot > 0:
                 now_ms = int(now * 1000) & 0xFFFFFFFF
                 status_payload = scenario.mission_status_payload()
                 pkt = encode_packet(MSG_MISSION_STATUS, SENDER_ROS, ros_boot,
