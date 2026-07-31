@@ -267,6 +267,31 @@ class CompetitionScenario:
         self.ros_tx = 0
         self.hmi_rx = 0
 
+    def reset(self, elapsed: float):
+        """重置任务状态回到 PRESTART，保留 boot ID 和网络状态"""
+        self.phase = PHASE_PRESTART
+        self.selection_id = 0
+        self.committed_task = 0
+        self.selection_pending = False
+        # 重置模拟小车状态
+        self.car_state = CAR_READY
+        self.car_turn = TURN_STRAIGHT
+        self.car_event = EVT_NONE
+        self.car_event_id = 0
+        self.car_quality = Q_LINE_VALID | Q_ENCODER_VALID | Q_WIFI_CONNECTED
+        self.car_disp_mm = 0
+        self.car_vel_mm = 0
+        self.car_line_err = 0
+        self.car_faults = 0
+        # 重置时间线
+        self.start_time = elapsed
+        self.select_time = 0.0
+        self.arm_time = 0.0
+        self.run_time = 0.0
+        self.complete_time = 0.0
+        # 生成新的 boot ID（地面站检测到新 boot 会自动解锁按钮、重置状态机）
+        self.car_boot = secrets.randbits(32) or 1
+
     def update(self, elapsed: float):
         """按时间推进比赛状态"""
 
@@ -275,8 +300,8 @@ class CompetitionScenario:
             self.car_state = CAR_READY
             self.car_vel_mm = 0
             self.car_quality = Q_LINE_VALID | Q_ENCODER_VALID | Q_WIFI_CONNECTED
-            # 如果指定了任务且已收到 HMI boot，自动推进
-            if self.task > 0 and self.hmi_boot > 0 and elapsed > 2.0:
+            # 如果指定了任务且已收到 HMI boot，自动推进（延迟相对本轮起始）
+            if self.task > 0 and self.hmi_boot > 0 and elapsed - self.start_time > 2.0:
                 self.selection_id = 1
                 self.committed_task = self.task
                 self.selection_pending = True
@@ -351,9 +376,13 @@ class CompetitionScenario:
                 self.phase = PHASE_COMPLETE
                 self.complete_time = elapsed
 
-        # ── 阶段 4: COMPLETE ──
+        # ── 阶段 4: COMPLETE → 停留 5 秒后自动回到 PRESTART ──
         elif self.phase == PHASE_COMPLETE:
-            pass
+            if elapsed - self.complete_time > 5.0:
+                self.reset(elapsed)
+                sys.stderr.write(
+                    f"\n  {G}[自动重置]{N} 任务完成，回到 PRESTART 等待下一次选题\n"
+                )
 
     def handle_selection(self, sel_id, car_boot, task, hmi_boot, elapsed: float = 0.0):
         """处理来自 HMI 的 TASK_SELECTION"""
@@ -432,8 +461,9 @@ def print_status(scenario: CompetitionScenario, elapsed: float):
         lines.append(f"  {Y}BOOT_WAITING{N}  (等待真实 CAR 遥测获取 car_boot)")
     elif s.real_car_boot == 0 and s.virtual_car:
         lines.append(f"  {C}虚拟 CAR{N}  boot=0x{s.car_boot:08X}  模拟遥测+回执已启用")
-        if s.phase == PHASE_PRESTART:
-            lines.append(f"  {G}PRESTART{N}  可选题: task 1 / task 2 / test")
+
+    if s.phase == PHASE_PRESTART:
+        lines.append(f"  {G}PRESTART{N}  可选题: task 1 / task 2 / test")
     elif s.phase == PHASE_SELECT_ACK:
         lines.append(f"  {C}SELECTED{N}  已选: {TASK_NAMES.get(s.committed_task, '?')}")
     elif s.phase == PHASE_ARMED:
@@ -442,7 +472,9 @@ def print_status(scenario: CompetitionScenario, elapsed: float):
         lines.append(f"  {G}CAR_RUNNING{N}  {TASK_NAMES.get(s.committed_task, '?')}")
         lines.append(f"  遥测: state={state_name} event={event_name} vel={s.car_vel_mm/1000:.2f}m/s")
     elif s.phase == PHASE_COMPLETE:
-        lines.append(f"  {G}{B}COMPLETE{N}  {TASK_NAMES.get(s.committed_task, '?')} ✓")
+        remaining = max(0, 5.0 - (elapsed - s.complete_time))
+        lines.append(f"  {G}{B}COMPLETE{N}  {TASK_NAMES.get(s.committed_task, '?')} ✓  "
+                     f"({remaining:.0f}s 后自动重置)")
 
     lines.append("")
     sys.stderr.write(f"\033[5;0H\033[J")
@@ -453,7 +485,6 @@ def print_status(scenario: CompetitionScenario, elapsed: float):
 # ─── 主循环 ─────────────────────────────────────────────────────────────────
 def run_competition(key: bytes, task: int, duration: float, virtual_car: bool = True):
     scenario = CompetitionScenario(task=task)
-    car_boot = scenario.car_boot
     ros_boot = scenario.ros_boot
 
     # 绑定三个端口：ROS(42000), CAR(42001), 接收 HMI 选题(42000)
@@ -557,7 +588,7 @@ def run_competition(key: bytes, task: int, duration: float, virtual_car: bool = 
                     scenario.car_vel_mm, scenario.car_line_err,
                     scenario.car_faults,
                 )
-                pkt = encode_packet(MSG_CAR_TELEMETRY, SENDER_CAR, car_boot,
+                pkt = encode_packet(MSG_CAR_TELEMETRY, SENDER_CAR, scenario.car_boot,
                                     car_seq, now_ms, payload, key)
                 try:
                     if virtual_car_sock is not None:
