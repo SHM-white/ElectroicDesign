@@ -32,6 +32,7 @@ HMAC_KEY_FILE=""
 MID360_DRIVER_CONFIG=""
 FAST_LIO_LAUNCH=""
 TASK3_IDENTITY=""
+ENABLE_DISPLAY="false"
 ROS_SECURITY_KEYSTORE="${ROS_SECURITY_KEYSTORE:-}"
 
 # ─── Argument parsing ───────────────────────────────────────────────────────
@@ -57,6 +58,7 @@ Environment:
 
 Flags:
   --dry-run                    Validate inputs and print launch command only
+  --enable-display             Enable mission display window (auto-detects headless)
   -h, --help                   Show this help
 EOF
     exit 0
@@ -74,6 +76,7 @@ while [[ $# -gt 0 ]]; do
         --mid360-driver-config) MID360_DRIVER_CONFIG="$2"; shift 2 ;;
         --fast-lio-launch)      FAST_LIO_LAUNCH="$2"; shift 2 ;;
         --task3-identity)       TASK3_IDENTITY="$2"; shift 2 ;;
+        --enable-display)       ENABLE_DISPLAY="true"; shift ;;
         -h|--help)              usage ;;
         *)                      die "Unknown argument: $1" ;;
     esac
@@ -136,6 +139,7 @@ LAUNCH_CMD=(
     "enable_flight_commands:=true"
     "enable_realtime_control:=true"
     "enable_programmable_commands:=false"
+    "enable_display:=$ENABLE_DISPLAY"
 )
 
 # ─── Dry-run mode ───────────────────────────────────────────────────────────

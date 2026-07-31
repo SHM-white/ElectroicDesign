@@ -26,6 +26,7 @@ setup(
     entry_points={
         "console_scripts": [
             "mission_executor = ed_uav_mission.executor:main",
+            "mission_display = ed_uav_mission.mission_display_node:main",
         ],
     },
 )

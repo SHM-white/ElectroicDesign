@@ -96,6 +96,9 @@ class _CameraState:
     prior: PosePrior | None = None
 
 
+from ed_uav_perception.kalman_tracker import KalmanTracker
+
+
 class _DualCameraFusion:
     """Fuse narrow (primary) and wide (fallback) camera observations.
 
@@ -108,14 +111,23 @@ class _DualCameraFusion:
     3. Rotation: always use the primary camera's rotation vector (the yaw
        component is what matters for landing; both cameras see the same
        physical marker).
-    4. An exponential moving average (EMA) filter smooths the output across
-       consecutive frames when the result stream is continuous.
+    4. A constant-velocity Kalman filter smooths the output, estimates
+       velocity, and **predicts** the target position during frame drops.
     """
 
-    def __init__(self, ema_alpha: float = 0.6) -> None:
-        self._ema_alpha = ema_alpha
-        self._fused_translation: np.ndarray | None = None
-        self._last_fused_sec: float = 0.0
+    def __init__(
+        self,
+        process_noise_pos: float = 0.05,
+        process_noise_vel: float = 0.3,
+        max_predict_age_sec: float = 0.5,
+    ) -> None:
+        self._tracker = KalmanTracker(
+            process_noise_pos=process_noise_pos,
+            process_noise_vel=process_noise_vel,
+            max_predict_age_sec=max_predict_age_sec,
+        )
+        self._last_obs: AcceptedObservation | None = None
+        self._last_frame_id: str = ""
 
     def fuse(
         self,
@@ -123,75 +135,111 @@ class _DualCameraFusion:
         wide: AcceptedObservation | None,
         now_sec: float,
     ) -> AcceptedObservation | None:
-        """Return the best fused observation, or *None* when nothing detected."""
+        """Return the best fused observation, or *None* when nothing detected
+        and the tracker is too stale to predict.
+        """
         if narrow is not None and wide is None:
-            return self._apply_ema(narrow, now_sec)
+            return self._update(narrow, now_sec)
         if wide is not None and narrow is None:
-            return self._apply_ema(wide, now_sec)
-        if narrow is None and wide is None:
-            return None
+            return self._update(wide, now_sec)
+        if narrow is not None and wide is not None:
+            # Quality-weighted fusion in body frame.
+            t_n = _rotate_yaw(narrow.pose.translation_m, _NARROW_YAW_OFFSET)
+            t_w = _rotate_yaw(wide.pose.translation_m, _WIDE_YAW_OFFSET)
 
-        # Both cameras detected — quality-weighted fusion in body frame.
-        t_n = _rotate_yaw(narrow.pose.translation_m, _NARROW_YAW_OFFSET)
-        t_w = _rotate_yaw(wide.pose.translation_m, _WIDE_YAW_OFFSET)
+            q_n = max(narrow.quality, 1e-6)
+            q_w = max(wide.quality, 1e-6)
+            w_n = q_n / (q_n + q_w)
 
-        q_n = max(narrow.quality, 1e-6)
-        q_w = max(wide.quality, 1e-6)
-        w_n = q_n / (q_n + q_w)
+            t_fused_body = w_n * t_n + (1.0 - w_n) * t_w
+            t_fused_primary = _rotate_yaw(t_fused_body, -_NARROW_YAW_OFFSET)
 
-        t_fused_body = w_n * t_n + (1.0 - w_n) * t_w
-        t_fused_primary = _rotate_yaw(t_fused_body, -_NARROW_YAW_OFFSET)
-
-        fused = AcceptedObservation(
-            acquisition_sec=narrow.acquisition_sec,
-            source_sequence=narrow.source_sequence,
-            frame_id=narrow.frame_id,
-            target_revision=narrow.target_revision,
-            pose=PoseEstimate(
-                rotation_vector=narrow.pose.rotation_vector,
-                translation_m=t_fused_primary,
-                reprojection_rms_px=min(
-                    narrow.pose.reprojection_rms_px,
-                    wide.pose.reprojection_rms_px,
+            fused = AcceptedObservation(
+                acquisition_sec=narrow.acquisition_sec,
+                source_sequence=narrow.source_sequence,
+                frame_id=narrow.frame_id,
+                target_revision=narrow.target_revision,
+                pose=PoseEstimate(
+                    rotation_vector=narrow.pose.rotation_vector,
+                    translation_m=t_fused_primary,
+                    reprojection_rms_px=min(
+                        narrow.pose.reprojection_rms_px,
+                        wide.pose.reprojection_rms_px,
+                    ),
+                    covariance=narrow.pose.covariance,
                 ),
-                covariance=narrow.pose.covariance,
-            ),
-            candidate_count=narrow.candidate_count + wide.candidate_count,
-            quality=w_n * narrow.quality + (1.0 - w_n) * wide.quality,
-            line_width_m=narrow.line_width_m,
-        )
-        return self._apply_ema(fused, now_sec)
+                candidate_count=narrow.candidate_count + wide.candidate_count,
+                quality=w_n * narrow.quality + (1.0 - w_n) * wide.quality,
+                line_width_m=narrow.line_width_m,
+            )
+            return self._update(fused, now_sec)
 
-    def _apply_ema(
+        # Neither camera detected — try Kalman prediction.
+        return self._predict(now_sec)
+
+    # ── internals ───────────────────────────────────────────────────────
+
+    def _update(
         self, obs: AcceptedObservation, now_sec: float
     ) -> AcceptedObservation:
-        """Exponential moving average smoothing on translation only."""
-        alpha = self._ema_alpha
-        if self._fused_translation is None or (now_sec - self._last_fused_sec) > 0.5:
-            smoothed = obs.pose.translation_m.copy()
-        else:
-            smoothed = (
-                alpha * obs.pose.translation_m
-                + (1.0 - alpha) * self._fused_translation
-            )
+        """Feed a measurement into the Kalman filter and return the result."""
+        self._last_frame_id = obs.frame_id
+        rms = obs.pose.reprojection_rms_px if math.isfinite(obs.pose.reprojection_rms_px) else 2.0
 
-        self._fused_translation = smoothed
-        self._last_fused_sec = now_sec
+        filtered_pos = self._tracker.update(
+            measurement=obs.pose.translation_m,
+            measurement_noise_px=rms,
+            now_sec=now_sec,
+        )
 
-        return AcceptedObservation(
+        result = AcceptedObservation(
             acquisition_sec=obs.acquisition_sec,
             source_sequence=obs.source_sequence,
             frame_id=obs.frame_id,
             target_revision=obs.target_revision,
             pose=PoseEstimate(
                 rotation_vector=obs.pose.rotation_vector,
-                translation_m=smoothed,
+                translation_m=filtered_pos,
                 reprojection_rms_px=obs.pose.reprojection_rms_px,
                 covariance=obs.pose.covariance,
             ),
             candidate_count=obs.candidate_count,
             quality=obs.quality,
             line_width_m=obs.line_width_m,
+        )
+        self._last_obs = result
+        return result
+
+    def _predict(self, now_sec: float) -> AcceptedObservation | None:
+        """Extrapolate the target position from the Kalman filter state.
+
+        Returns ``None`` when the tracker has never been initialised or
+        the prediction is too stale to trust.
+        """
+        if not self._tracker.is_fresh:
+            return None
+
+        predicted_pos = self._tracker.predict(now_sec)
+        velocity = self._tracker.velocity
+
+        src = self._last_obs
+        if src is None:
+            return None
+
+        return AcceptedObservation(
+            acquisition_sec=now_sec,
+            source_sequence=src.source_sequence,
+            frame_id=self._last_frame_id or src.frame_id,
+            target_revision=src.target_revision,
+            pose=PoseEstimate(
+                rotation_vector=src.pose.rotation_vector,
+                translation_m=predicted_pos,
+                reprojection_rms_px=src.pose.reprojection_rms_px,
+                covariance=src.pose.covariance,
+            ),
+            candidate_count=0,  # prediction, not a fresh detection
+            quality=max(src.quality * 0.5, 0.1),  # degraded quality
+            line_width_m=src.line_width_m,
         )
 
 
@@ -205,6 +253,9 @@ class TargetObservationNode(Node):
         self.declare_parameter("target_revision", "d2026-apriltag-v1")
         self.declare_parameter("max_reprojection_rms_px", 2.0)
         self.declare_parameter("fusion_ema_alpha", 0.6)
+        self.declare_parameter("kalman_process_noise_pos", 0.05)
+        self.declare_parameter("kalman_process_noise_vel", 0.3)
+        self.declare_parameter("kalman_max_predict_age_sec", 0.5)
         self.declare_parameter("last_candidate_count", 0)
         self.declare_parameter("last_reprojection_rms_px", -1.0)
         self.declare_parameter("last_quality", 0.0)
@@ -229,9 +280,11 @@ class TargetObservationNode(Node):
         self._sequence = 0
         self._last_result: ObservationResult | None = None
 
-        # Dual-camera fusion engine
+        # Dual-camera fusion engine with Kalman filter
         self._fusion = _DualCameraFusion(
-            ema_alpha=float(self.get_parameter("fusion_ema_alpha").value),
+            process_noise_pos=float(self.get_parameter("kalman_process_noise_pos").value),
+            process_noise_vel=float(self.get_parameter("kalman_process_noise_vel").value),
+            max_predict_age_sec=float(self.get_parameter("kalman_max_predict_age_sec").value),
         )
 
         # ── Subscriptions ───────────────────────────────────────────────
@@ -479,7 +532,12 @@ class TargetObservationNode(Node):
 
         # Record diagnostics
         import rclpy.parameter
-        source = "dual" if (narrow_acc and wide_acc) else role
+        if fused.candidate_count == 0:
+            source = "predicted"
+        elif narrow_acc and wide_acc:
+            source = "dual"
+        else:
+            source = role
         self.set_parameters([
             rclpy.parameter.Parameter(
                 "last_candidate_count",

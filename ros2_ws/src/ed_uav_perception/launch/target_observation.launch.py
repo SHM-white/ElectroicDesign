@@ -1,4 +1,4 @@
-"""Launch the prescribed target observer with dual-camera fusion."""
+"""Launch the prescribed target observer with dual-camera Kalman fusion."""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -12,6 +12,9 @@ def generate_launch_description() -> LaunchDescription:
     rms = LaunchConfiguration("max_reprojection_rms_px")
     revision = LaunchConfiguration("target_revision")
     ema = LaunchConfiguration("fusion_ema_alpha")
+    kn_pos = LaunchConfiguration("kalman_process_noise_pos")
+    kn_vel = LaunchConfiguration("kalman_process_noise_vel")
+    kn_age = LaunchConfiguration("kalman_max_predict_age_sec")
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -25,6 +28,15 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "fusion_ema_alpha", default_value="0.6"
+            ),
+            DeclareLaunchArgument(
+                "kalman_process_noise_pos", default_value="0.05"
+            ),
+            DeclareLaunchArgument(
+                "kalman_process_noise_vel", default_value="0.3"
+            ),
+            DeclareLaunchArgument(
+                "kalman_max_predict_age_sec", default_value="0.5"
             ),
             Node(
                 package="ed_uav_perception",
@@ -41,6 +53,21 @@ def generate_launch_description() -> LaunchDescription:
                     {
                         "fusion_ema_alpha": ParameterValue(
                             ema, value_type=float
+                        )
+                    },
+                    {
+                        "kalman_process_noise_pos": ParameterValue(
+                            kn_pos, value_type=float
+                        )
+                    },
+                    {
+                        "kalman_process_noise_vel": ParameterValue(
+                            kn_vel, value_type=float
+                        )
+                    },
+                    {
+                        "kalman_max_predict_age_sec": ParameterValue(
+                            kn_age, value_type=float
                         )
                     },
                 ],

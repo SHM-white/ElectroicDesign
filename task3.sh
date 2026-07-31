@@ -26,6 +26,7 @@ MID360_DRIVER="${REPO_ROOT}/ros2_ws/src/ed_uav_lidar/config/fields/mid360_field_
 FAST_LIO="${REPO_ROOT}/ros2_ws/src/ed_uav_lidar/config/fields/fast_lio.launch.py"
 FCU_SERIAL="${FCU_SERIAL_PORT:-/dev/ttyUSB0}"
 TASK3_IDENTITY="task3-stability-2026"
+ENABLE_DISPLAY=""
 
 # ─── 参数解析 ───────────────────────────────────────────────────────────────
 DRY_RUN=""
@@ -38,6 +39,8 @@ while [[ $# -gt 0 ]]; do
         --calibration)    CALIBRATION="$2"; shift 2 ;;
         --camera-plan)    CAMERA_PLAN="$2"; shift 2 ;;
         --keystore)       ROS_SECURITY_KEYSTORE="$2"; shift 2 ;;
+        --enable-display) ENABLE_DISPLAY="--enable-display"; shift ;;
+        --no-display)     ENABLE_DISPLAY=""; shift ;;
         -h|--help)
             cat <<'EOF'
 Task3 一键启动脚本
@@ -52,6 +55,8 @@ Task3 一键启动脚本
   --calibration PATH  标定文件 JSON
   --camera-plan PATH  相机计划 JSON（首次需运行标定生成）
   --keystore PATH     SROS2 keystore 目录
+  --enable-display    强制启用任务画面输出
+  --no-display        禁用任务画面输出
   -h, --help          显示帮助
 
 首次使用:
@@ -67,6 +72,16 @@ EOF
 done
 
 # ─── 前置检查 ───────────────────────────────────────────────────────────────
+# Auto-detect display: if --enable-display/--no-display not explicitly set,
+# check if a graphical display is available and enable automatically.
+if [[ -z "$ENABLE_DISPLAY" ]]; then
+    if [[ -n "${DISPLAY:-}" ]] || [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+        ENABLE_DISPLAY="--enable-display"
+        echo "检测到显示设备，已自动启用任务画面输出"
+    else
+        echo "未检测到显示设备，画面输出将以日志形式记录"
+    fi
+fi
 if [[ ! -f "$CAMERA_PLAN" ]]; then
     echo "错误: 相机计划文件不存在: $CAMERA_PLAN"
     echo ""
@@ -89,4 +104,5 @@ exec "${REPO_ROOT}/tools/run_task3_flight_test.sh" \
     --hmac-key-file "$HMAC_KEY" \
     --mid360-driver-config "$MID360_DRIVER" \
     --fast-lio-launch "$FAST_LIO" \
-    --task3-identity "$TASK3_IDENTITY"
+    --task3-identity "$TASK3_IDENTITY" \
+    $ENABLE_DISPLAY

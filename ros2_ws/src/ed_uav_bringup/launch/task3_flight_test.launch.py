@@ -200,6 +200,28 @@ def _build_actions(context):
         )
     )
 
+    # 9. Mission display (optional — enabled by --enable-display flag)
+    enable_display = LaunchConfiguration("enable_display").perform(context)
+    if enable_display.lower() in ("true", "1", "yes"):
+        actions.append(
+            Node(
+                package="ed_uav_mission",
+                executable="mission_display",
+                name="mission_display",
+                output="screen",
+                arguments=["--ros-args", "--enclave", "/ed_uav_mission_display"],
+                parameters=[
+                    {
+                        "max_display_width": 960,
+                        "headless_log_interval_sec": 5.0,
+                    }
+                ],
+                remappings=[
+                    ("/mission/status", "/d_task/mission_status"),
+                ],
+            )
+        )
+
     return actions
 
 
@@ -219,6 +241,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("ros_security_enable", default_value="true"),
             DeclareLaunchArgument("ros_security_strategy", default_value="Enforce"),
             DeclareLaunchArgument("ros_security_keystore", description="SROS2 keystore directory"),
+            DeclareLaunchArgument("enable_display", default_value="false", description="Enable mission display window"),
             OpaqueFunction(function=_build_actions),
         ]
     )
