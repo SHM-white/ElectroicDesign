@@ -19,6 +19,10 @@ def state_message(snapshot: TelemetrySnapshot, stamp: Time) -> FcuState:
     message.communication_ok = snapshot.link.valid
     message.altitude_m = snapshot.altitude_m or 0.0
     message.battery_voltage_v = snapshot.battery_voltage_v or 0.0
+    message.aux1_us = snapshot.aux1_us
+    message.aux1_valid = snapshot.aux1_valid
+    message.task3_control_allowed = snapshot.task3_control_allowed
+    message.emergency_lock_active = snapshot.emergency_lock_active
     if snapshot.position is not None:
         message.source_sequence = snapshot.position.source_sequence
         message.optical_flow_position_m.x = snapshot.position.right_m

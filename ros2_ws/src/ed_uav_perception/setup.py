@@ -20,7 +20,7 @@ setup(
     zip_safe=True,
     maintainer="ED UAV maintainers",
     maintainer_email="maintainers@example.invalid",
-    description="Narrow-camera detection and prescribed target pose runtime.",
+    description="Dual-camera AprilTag detection, fusion, and prescribed target pose runtime.",
     license="Apache-2.0",
     tests_require=["pytest"],
     entry_points={

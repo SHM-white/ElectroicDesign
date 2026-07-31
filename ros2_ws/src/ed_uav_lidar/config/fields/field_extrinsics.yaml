@@ -25,24 +25,26 @@ transforms:
     - 0.0
     - 0.0
     - 0.0
+  # Narrow camera: mounted vertically down, image-top → drone right (-90° yaw about optical Z).
   camera_narrow_optical_frame:
     xyz_m:
     - 0.0
     - 0.0
     - 0.0
     rpy_rad:
+    - -3.14159265
     - 0.0
-    - 0.0
-    - 0.0
+    - -1.57079633
+  # Wide camera: mounted vertically down, image-top → drone left (+90° yaw about optical Z).
   camera_wide_optical_frame:
     xyz_m:
     - 0.0
     - 0.0
     - 0.0
     rpy_rad:
+    - 3.14159265
     - 0.0
-    - 0.0
-    - 0.0
+    - 1.57079633
   rangefinder_link:
     xyz_m:
     - 0.0

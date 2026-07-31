@@ -14,7 +14,7 @@ from ed_uav_perception.target_types import CorrespondenceSet, RejectReason
 
 # AprilTag configuration
 TAG_FAMILY = "tag36h11"
-TAG_SIZE_M = 0.153  # 15.3cm - update to your actual measured tag size
+TAG_SIZE_M = 0.15  # 15cm edge length
 
 # 3D object points for a square tag (in tag coordinate frame, z=0)
 def _tag_object_points(size_m: float) -> np.ndarray:

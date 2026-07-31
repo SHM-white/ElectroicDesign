@@ -277,7 +277,7 @@ class VehicleBridgeNode(Node):
                         communication_fresh=bool(message.communication_ok),
                         motors_armed=bool(message.motors_armed),
                         channel_5_task_permission=bool(
-                            message.channel_5_task_permission
+                            message.task3_control_allowed
                         ),
                     ),
                 )

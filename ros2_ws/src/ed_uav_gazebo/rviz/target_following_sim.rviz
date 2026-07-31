@@ -1,0 +1,185 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /TF1
+        - /Robot1
+        - /Grid1
+        - /Narrow Camera1
+        - /Wide Camera1
+        - /Annotated Image1
+      Splitter Ratio: 0.55
+    Tree Height: 760
+  - Class: rviz_common/Selection
+    Name: Selection
+  - Class: rviz_common/Tool Properties
+    Name: Tool Properties
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+      Alpha: 0.28
+      Cell Count: 40
+      Cell Size: 1
+      Color: 108; 114; 124
+      Line Style:
+        Line Width: 0.03
+        Value: Lines
+      Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Plane: XY
+      Reference Frame: map
+      Value: true
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+      Frame Timeout: 15
+      Frames:
+        All Enabled: true
+        map:
+          Value: true
+        odom:
+          Value: true
+        base_link:
+          Value: true
+        fcu_link:
+          Value: true
+        lidar_link:
+          Value: true
+        camera_narrow_optical_frame:
+          Value: true
+        camera_wide_optical_frame:
+          Value: true
+      Marker Scale: 0.45
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
+      Tree:
+        map:
+          odom:
+            base_link:
+              fcu_link: {}
+              lidar_link: {}
+              camera_narrow_optical_frame: {}
+              camera_wide_optical_frame: {}
+      Update Interval: 0
+      Value: true
+    - Class: rviz_default_plugins/RobotModel
+      Enabled: true
+      Name: Robot
+      Alpha: 0.8
+      Collision Enabled: false
+      Description File: ""
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /robot_description
+      TF Prefix: ""
+      Update Interval: 0
+      Value: true
+      Visual Enabled: true
+    - Class: rviz_default_plugins/Odometry
+      Enabled: true
+      Name: Ground Truth Odom
+      Alpha: 1
+      Angle Tolerance: 0.1
+      Keep: 40
+      Position Tolerance: 0.15
+      Shape:
+        Axes Length: 0.6
+        Axes Radius: 0.035
+        Color: 255; 255; 255
+        Head Length: 0.18
+        Head Radius: 0.09
+        Shaft Length: 0.55
+        Shaft Radius: 0.045
+        Value: Arrow
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /simulation/ground_truth/odom
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Narrow Camera
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /camera/narrow/image_raw
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Wide Camera
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /camera/wide/image_raw
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Annotated Image
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /d_task/target_observation/annotated_image
+      Value: true
+  Global Options:
+    Background Color: 30; 33; 38
+    Fixed Frame: map
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 12
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.06
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.3
+      Invert Z Axis: false
+      Name: Orbit
+      Near Clip Distance: 0.01
+      Pitch: 1.2
+      Target Frame: map
+      Value: Orbit
+      Yaw: 0.78
+Window Geometry:
+  Displays:
+    collapsed: false
+  Height: 1080
+  Width: 1600

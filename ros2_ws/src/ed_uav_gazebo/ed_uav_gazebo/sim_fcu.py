@@ -222,6 +222,10 @@ class SimulatorFcuNode(Node):
         state.motors_armed = self._state.motors_armed
         state.communication_ok = odometry is not None
         state.frame_id = "odom"
+        state.aux1_us = 1500
+        state.aux1_valid = True
+        state.task3_control_allowed = True
+        state.emergency_lock_active = False
         if odometry is not None:
             state.optical_flow_position_m.x = odometry.pose.pose.position.x
             state.optical_flow_position_m.y = odometry.pose.pose.position.y

@@ -89,6 +89,10 @@ class TelemetrySnapshot:
     altitude_m: float | None
     battery_voltage_v: float | None
     link: LinkSample
+    aux1_us: int = 0
+    aux1_valid: bool = False
+    task3_control_allowed: bool = False
+    emergency_lock_active: bool = False
 
 
 class TelemetryCache:
@@ -108,6 +112,7 @@ class TelemetryCache:
         self._diagnostic_sequence = 0
         self._link_sequence = 0
         self._last_link_steady_s: float | None = None
+        self._emergency_lock_active = False
 
     def ingest_raw(self, raw: bytes, steady_now: float, source_stamp_ns: int | None = None) -> bool:
         """Decode and cache one raw V7 frame, returning False for malformed input."""
@@ -195,14 +200,22 @@ class TelemetryCache:
 
     def snapshot(self, steady_now: float) -> TelemetrySnapshot:
         """Return source-separated state with validity derived from steady-clock age."""
+        aux = self._with_aux_age(steady_now)
+        aux1_us = aux.aux1_us if aux is not None else 0
+        aux1_valid = aux is not None and aux.valid
+        task3_control_allowed = aux1_valid and 1400 < aux1_us < 1600
         return TelemetrySnapshot(
             position=self._with_position_age(steady_now),
             status=self._with_status_age(steady_now),
-            aux=self._with_aux_age(steady_now),
+            aux=aux,
             flow_diagnostic=self._flow_diagnostic,
             altitude_m=self._altitude_m,
             battery_voltage_v=self._battery_voltage_v,
             link=self._link_snapshot(steady_now),
+            aux1_us=aux1_us,
+            aux1_valid=aux1_valid,
+            task3_control_allowed=task3_control_allowed,
+            emergency_lock_active=self._emergency_lock_active,
         )
 
     def _with_position_age(self, steady_now: float) -> PositionSample | None:

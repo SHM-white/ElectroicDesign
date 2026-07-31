@@ -1,4 +1,4 @@
-"""Launch the prescribed target observer with explicit context parameters."""
+"""Launch the prescribed target observer with dual-camera fusion."""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -8,27 +8,23 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description() -> LaunchDescription:
-    image_topic = LaunchConfiguration("image_topic")
-    camera_info_topic = LaunchConfiguration("camera_info_topic")
     vehicle_topic = LaunchConfiguration("vehicle_topic")
     rms = LaunchConfiguration("max_reprojection_rms_px")
     revision = LaunchConfiguration("target_revision")
+    ema = LaunchConfiguration("fusion_ema_alpha")
     return LaunchDescription(
         [
-            DeclareLaunchArgument(
-                "image_topic", default_value="/camera/narrow/image_raw"
-            ),
-            DeclareLaunchArgument(
-                "camera_info_topic", default_value="/camera/narrow/camera_info"
-            ),
             DeclareLaunchArgument(
                 "vehicle_topic", default_value="/d_task/vehicle/telemetry"
             ),
             DeclareLaunchArgument(
-                "target_revision", default_value="d2026-circle-cross-v1"
+                "target_revision", default_value="d2026-apriltag-v1"
             ),
             DeclareLaunchArgument(
                 "max_reprojection_rms_px", default_value="2.0"
+            ),
+            DeclareLaunchArgument(
+                "fusion_ema_alpha", default_value="0.6"
             ),
             Node(
                 package="ed_uav_perception",
@@ -42,10 +38,13 @@ def generate_launch_description() -> LaunchDescription:
                             rms, value_type=float
                         )
                     },
+                    {
+                        "fusion_ema_alpha": ParameterValue(
+                            ema, value_type=float
+                        )
+                    },
                 ],
                 remappings=[
-                    ("/camera/narrow/image_raw", image_topic),
-                    ("/camera/narrow/camera_info", camera_info_topic),
                     ("/d_task/vehicle/telemetry", vehicle_topic),
                 ],
             ),

@@ -325,7 +325,7 @@ class MissionExecutorNode(Node):
     def _on_fcu_state(self, msg: FcuState) -> None:
         self._latest_fcu = msg
         hard_lock_started = msg.emergency_lock_active and not self._hard_lock_active
-        self._aux_start_active = msg.channel5_valid and msg.channel5_permission
+        self._aux_start_active = msg.aux1_valid and msg.task3_control_allowed
         self._hard_lock_active = msg.emergency_lock_active
         if hard_lock_started:
             self._cancel_active_flight()

@@ -18,7 +18,7 @@
         <material><ambient>0.06 0.18 0.28 1</ambient><diffuse>0.08 0.35 0.55 1</diffuse></material>
       </visual>
       <sensor name="narrow_camera" type="camera">
-        <pose>0.22 0 -0.02 0 0 0</pose>
+        <pose>0.08 0 -0.08 0 -1.5708 0</pose>
         <always_on>true</always_on><update_rate>15</update_rate><visualize>true</visualize>
         <topic>/camera/narrow/image_raw</topic>
         <camera>
@@ -29,7 +29,7 @@
         </camera>
       </sensor>
       <sensor name="wide_camera" type="camera">
-        <pose>0 0 -0.01 0 0 0</pose>
+        <pose>-0.04 0 -0.08 0 -1.5708 0</pose>
         <always_on>true</always_on><update_rate>10</update_rate><visualize>true</visualize>
         <topic>/camera/wide/image_raw</topic>
         <camera>

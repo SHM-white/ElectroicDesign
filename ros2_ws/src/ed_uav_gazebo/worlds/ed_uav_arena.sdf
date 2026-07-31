@@ -24,6 +24,11 @@
     <model name="obstacle_cylinder"><static>true</static><pose>-2.2 -1.8 0.8 0 0 0</pose><link name="link"><collision name="collision"><geometry><cylinder><radius>0.75</radius><length>1.6</length></cylinder></geometry></collision><visual name="visual"><geometry><cylinder><radius>0.75</radius><length>1.6</length></cylinder></geometry><material><diffuse>0.18 0.65 0.34 1</diffuse></material></visual></link></model>
     <model name="marker_gate"><static>true</static><pose>-3.5 3.0 1.0 0 0 0</pose><link name="left"><visual name="visual"><geometry><cylinder><radius>0.08</radius><length>2</length></cylinder></geometry><material><diffuse>0.95 0.8 0.08 1</diffuse></material></visual></link><link name="right"><pose>2 0 0 0 0 0</pose><visual name="visual"><geometry><cylinder><radius>0.08</radius><length>2</length></cylinder></geometry><material><diffuse>0.95 0.8 0.08 1</diffuse></material></visual></link><link name="top"><pose>1 0 1 0 0 0</pose><visual name="visual"><geometry><box><size>2.1 0.12 0.12</size></box></geometry><material><diffuse>0.95 0.8 0.08 1</diffuse></material></visual></link></model>
 
+    <!-- AprilTag ground markers for target-following simulation -->
+    <include><uri>model://apriltag_marker</uri><name>tag_ground_0</name><pose>0 0 0 0 0 0</pose></include>
+    <include><uri>model://apriltag_marker</uri><name>tag_ground_1</name><pose>2.0 0 0 0 0 0</pose></include>
+    <include><uri>model://apriltag_marker</uri><name>tag_ground_2</name><pose>-1.5 2.0 0 0 0 0</pose></include>
+
     <include><uri>model://ed_quadrotor</uri><name>ed_quadrotor</name><pose>0 0 0.45 0 0 0</pose></include>
   </world>
 </sdf>

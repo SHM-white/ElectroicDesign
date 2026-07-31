@@ -119,5 +119,6 @@ class NativeV7Bridge:
             if self._emergency_lock.is_set():
                 return None
             self._emergency_lock.set()
+            self.telemetry._emergency_lock_active = True
             self._serialized_writer(cmd_lock())
             return self.actions.preempt_for_emergency_lock(steady_now)

@@ -1,0 +1,33 @@
+<?xml version="1.0" ?>
+<sdf version="1.8">
+  <model name="apriltag_marker">
+    <static>true</static>
+    <link name="link">
+      <!-- Thin plane sitting on the ground, just above z=0 to avoid z-fighting -->
+      <visual name="tag_visual">
+        <pose>0 0 0.001 0 0 0</pose>
+        <geometry>
+          <plane>
+            <normal>0 0 1</normal>
+            <size>0.24 0.24</size> <!-- 24cm square: 15cm tag + white border -->
+          </plane>
+        </geometry>
+        <material>
+          <ambient>1 1 1 1</ambient>
+          <diffuse>1 1 1 1</diffuse>
+          <pbr>
+            <albedo_map>materials/textures/tag36h11_0.png</albedo_map>
+          </pbr>
+        </material>
+      </visual>
+      <collision name="tag_collision">
+        <pose>0 0 0.001 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.24 0.24 0.002</size>
+          </box>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>

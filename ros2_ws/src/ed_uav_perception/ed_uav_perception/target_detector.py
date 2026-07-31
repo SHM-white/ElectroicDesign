@@ -24,7 +24,7 @@ REVISION_CIRCLE_CROSS = "d2026-circle-cross-v1"
 TARGET_REVISION = REVISION_APRILTAG
 
 # AprilTag configuration
-APRILTAG_SIZE_M = 0.153  # 15.3cm - update to your actual measured tag size
+APRILTAG_SIZE_M = 0.15  # 15cm edge length
 APRILTAG_FAMILY = "tag36h11"
 
 # Circle-cross configuration

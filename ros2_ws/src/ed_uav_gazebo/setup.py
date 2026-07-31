@@ -18,6 +18,8 @@ setup(
         (path.join("share", package_name, "rviz"), glob("rviz/*.rviz")),
         (path.join("share", package_name, "worlds"), glob("worlds/*.sdf")),
         (path.join("share", package_name, "models", "ed_quadrotor"), glob("models/ed_quadrotor/*")),
+        (path.join("share", package_name, "models", "apriltag_marker"), ["models/apriltag_marker/model.config", "models/apriltag_marker/model.sdf"]),
+        (path.join("share", package_name, "models", "apriltag_marker", "materials", "textures"), glob("models/apriltag_marker/materials/textures/*")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -30,6 +32,7 @@ setup(
         "console_scripts": [
             "sim_fcu = ed_uav_gazebo.sim_fcu:main",
             "sim_localization = ed_uav_gazebo.sim_localization:main",
+            "sim_vehicle_telemetry = ed_uav_gazebo.sim_vehicle_telemetry:main",
             "gazebo_pointcloud_normalizer = ed_uav_gazebo.gazebo_pointcloud_normalizer:main",
         ],
     },

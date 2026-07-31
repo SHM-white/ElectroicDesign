@@ -66,6 +66,15 @@ class VisualServoNode(Node):
         self._enabled = self.get_parameter("enabled").value
         self._last_target_time = 0.0
         self._target_timeout_sec = 0.5
+
+        # Camera mounting yaw offsets (rotation about optical axis).
+        # Standard optical frame: image-top = forward.
+        #   narrow: image-top → right  ⇒ -π/2
+        #   wide:   image-top → left   ⇒ +π/2
+        self._camera_yaw_offsets: dict[str, float] = {
+            "camera_narrow_optical_frame": -math.pi / 2,
+            "camera_wide_optical_frame": math.pi / 2,
+        }
         
         # QoS for target observation (best effort, sensor data)
         target_qos = QoSProfile(
@@ -122,6 +131,9 @@ class VisualServoNode(Node):
         target_y = float(position.y)  # Down
         target_z = float(position.z)  # Forward
         
+        # Determine camera mounting yaw offset from frame_id
+        yaw_offset = self._camera_yaw_offsets.get(msg.frame_id, 0.0)
+        
         # Compute velocity command
         now = self._steady_clock()
         command = self._controller.compute_command(
@@ -129,6 +141,7 @@ class VisualServoNode(Node):
             target_y_m=target_y,
             target_z_m=target_z,
             current_timestamp_sec=now,
+            camera_yaw_offset_rad=yaw_offset,
         )
         
         # Publish velocity command

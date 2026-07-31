@@ -116,6 +116,7 @@ class VisualServoController:
         target_y_m: float,
         target_z_m: float,
         current_timestamp_sec: float,
+        camera_yaw_offset_rad: float = 0.0,
     ) -> VelocityCommand:
         """Compute velocity command to move toward target.
         
@@ -124,6 +125,9 @@ class VisualServoController:
             target_y_m: Target Y position in camera frame (down, meters)
             target_z_m: Target Z position in camera frame (forward, meters)
             current_timestamp_sec: Current timestamp (monotonic seconds)
+            camera_yaw_offset_rad: Rotation about optical axis (Z) to correct
+                for camera mounting orientation.  For a camera whose image-top
+                points right use -π/2, for image-top pointing left use +π/2.
             
         Returns:
             VelocityCommand in body frame
@@ -137,6 +141,18 @@ class VisualServoController:
         error_x = target_x_m  # Lateral error (right positive)
         error_y = target_y_m  # Vertical error (down positive)
         error_z = target_z_m  # Depth error (forward positive)
+
+        # Rotate about optical axis to compensate for camera mounting orientation.
+        # Standard optical frame assumes image-top = forward (nose).
+        # A physical yaw offset of the camera requires counter-rotating the
+        # measured coordinates so that the body-frame mapping below stays valid.
+        if camera_yaw_offset_rad != 0.0:
+            cos_a = math.cos(camera_yaw_offset_rad)
+            sin_a = math.sin(camera_yaw_offset_rad)
+            error_x, error_y = (
+                cos_a * error_x - sin_a * error_y,
+                sin_a * error_x + cos_a * error_y,
+            )
         
         # Compute distance for phase determination
         distance_m = math.sqrt(error_x**2 + error_y**2 + error_z**2)

@@ -152,7 +152,7 @@ def test_node_publishes_decodable_early_rejection_annotation_with_header() -> No
         TargetObservationNode,
     )
     from ed_uav_perception.target_annotation import annotation_lines
-    from ed_uav_perception.target_types import RejectedObservation
+    from ed_uav_perception.target_types import AcceptedObservation, RejectedObservation
     from sensor_msgs.msg import Image
 
     class ImageCapture:
@@ -168,6 +168,30 @@ def test_node_publishes_decodable_early_rejection_annotation_with_header() -> No
     try:
         assert node._annotated_publisher.topic_name == ANNOTATED_IMAGE_TOPIC
         node._annotated_publisher = capture
+
+        # Set up camera_info with mismatched dimensions (640x480) so the
+        # 32x48 image fails raster binding → node returns silently.
+        from ed_uav_interfaces.msg import VehicleTelemetry
+        from sensor_msgs.msg import CameraInfo
+        cam_info = CameraInfo()
+        cam_info.header.frame_id = "camera_optical"
+        cam_info.width = 640
+        cam_info.height = 480
+        cam_info.k = [800, 0, 320, 0, 800, 240, 0, 0, 1]
+        node._camera_info_callback(cam_info, "narrow")
+        vehicle = VehicleTelemetry()
+        vehicle.contract_version = vehicle.CONTRACT_VERSION
+        vehicle.acquisition_stamp = node.get_clock().now().to_msg()
+        vehicle.source_sequence = 1
+        vehicle.heartbeat_alive = True
+        vehicle.turn_class = vehicle.TURN_STRAIGHT
+        vehicle.motion_kind = vehicle.MOTION_WHEEL_SPEED
+        vehicle.wheel_speed_m_s = 0.0
+        vehicle.heading_rad = 0.0
+        vehicle.yaw_rate_rad_s = 0.0
+        vehicle.frame_id = "vehicle_start"
+        node._vehicle_callback(vehicle)
+
         source = CvBridge().cv2_to_imgmsg(
             np.full((32, 48, 3), 127, dtype=np.uint8), encoding="bgr8"
         )
@@ -175,23 +199,12 @@ def test_node_publishes_decodable_early_rejection_annotation_with_header() -> No
         source.header.stamp.sec = 4
         source.header.stamp.nanosec = 5
 
-        # When
-        node._image_callback(source)
+        # When — image raster (32x48) mismatches camera_info (640x480)
+        node._image_callback(source, "narrow")
 
-        # Then
-        assert len(capture.messages) == 1
-        annotated = capture.messages[0]
-        assert annotated.encoding == "bgr8"
-        assert annotated.width == source.width
-        assert annotated.height == source.height
-        assert annotated.header.frame_id == source.header.frame_id
-        assert annotated.header.stamp == source.header.stamp
-        assert isinstance(node.last_result, RejectedObservation)
-        lines = annotation_lines(node.last_result)
-        assert "reason: uncalibrated" in lines
-        assert all(not line.startswith("X:") for line in lines)
-        assert all(not line.startswith("Y:") for line in lines)
-        assert all(not line.startswith("Z:") for line in lines)
+        # Then — silent rejection; nothing published
+        assert len(capture.messages) == 0
+        assert not isinstance(node.last_result, AcceptedObservation)
     finally:
         node.destroy_node()
         rclpy.shutdown()

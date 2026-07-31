@@ -15,7 +15,7 @@ The landing marker recognition system now uses **AprilTag 36h11** as the primary
 
 ### Tag Specifications
 - **Family**: tag36h11
-- **Size**: 15.3cm (0.153m) - update `APRILTAG_SIZE_M` in `target_detector.py` if different
+- **Size**: 15cm (0.15m) — edge length of the square AprilTag
 - **Print**: Use `tmp/tag36h11_0_print.png`
 
 ### Key Files

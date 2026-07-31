@@ -85,9 +85,9 @@ def test_node_uses_canonical_vehicle_topic_and_publishes_valid_status() -> None:
     node, _, capture, camera, vehicle, image = _case()
     try:
         # When
-        node._camera_callback(camera)
+        node._camera_callback(camera, "narrow")
         node._vehicle_callback(vehicle)
-        node._image_callback(image)
+        node._image_callback(image, "narrow")
 
         # Then
         assert node.vehicle_topic == "/d_task/vehicle/telemetry"
@@ -117,9 +117,9 @@ def test_node_publishes_typed_rejection_for_invalid_vehicle(
         setattr(vehicle, field, value)
 
         # When
-        node._camera_callback(camera)
+        node._camera_callback(camera, "narrow")
         node._vehicle_callback(vehicle)
-        node._image_callback(image)
+        node._image_callback(image, "narrow")
 
         # Then
         assert len(capture.messages) == 1
@@ -141,8 +141,8 @@ def test_node_rejects_duplicate_or_replayed_vehicle_sequence(
 
         # When
         node._vehicle_callback(vehicle)
-        node._camera_callback(camera)
-        node._image_callback(image)
+        node._camera_callback(camera, "narrow")
+        node._image_callback(image, "narrow")
 
         # Then
         assert capture.messages[0].valid is False
@@ -178,9 +178,9 @@ def test_node_binds_camera_info_to_image(mutation: str, reason: str) -> None:
             )
 
         # When
-        node._camera_callback(camera)
+        node._camera_callback(camera, "narrow")
         node._vehicle_callback(vehicle)
-        node._image_callback(image)
+        node._image_callback(image, "narrow")
 
         # Then
         assert capture.messages[0].valid is False
@@ -193,12 +193,12 @@ def test_node_uses_steady_receipt_age_for_vehicle_freshness() -> None:
     # Given
     node, clock, capture, camera, vehicle, image = _case()
     try:
-        node._camera_callback(camera)
+        node._camera_callback(camera, "narrow")
         node._vehicle_callback(vehicle)
         clock.now = 100.51
 
         # When
-        node._image_callback(image)
+        node._image_callback(image, "narrow")
 
         # Then
         assert capture.messages[0].valid is False

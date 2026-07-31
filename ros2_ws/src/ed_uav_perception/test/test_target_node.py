@@ -58,9 +58,9 @@ def test_node_consumes_typed_camera_and_vehicle_context() -> None:
         image.header.stamp = now
 
         # When
-        node._camera_callback(camera)
+        node._camera_callback(camera, "narrow")
         node._vehicle_callback(vehicle)
-        node._image_callback(image)
+        node._image_callback(image, "narrow")
 
         # Then
         assert isinstance(node.last_result, AcceptedObservation)
@@ -115,7 +115,7 @@ def test_node_publishes_rejected_dimensions_over_ros_topic() -> None:
         image.header.stamp = producer.get_clock().now().to_msg()
 
         # When
-        producer._image_callback(image)
+        producer._image_callback(image, "narrow")
         receipt_deadline = time.monotonic() + 2.0
         while not received and time.monotonic() < receipt_deadline:
             rclpy.spin_once(probe, timeout_sec=0.05)
