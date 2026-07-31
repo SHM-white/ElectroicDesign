@@ -51,8 +51,17 @@ sudo python3 tools/diagnostics/vehicle_comm_diagnostic.py
 
 | 状态 | 含义 |
 |------|------|
-| `ONLINE` | 最近 750ms 内收到数据 |
-| `STALE` | 超过 750ms 未收到数据 |
+| `ONLINE` | 在端点各自的新鲜窗口内收到数据 |
+| `STALE` | 超过端点各自的新鲜窗口未收到数据 |
+
+新鲜窗口（`stale_threshold_ms`）：
+
+- **CAR 750ms**：车辆 20Hz 遥测
+- **HMI 1500ms**：地面站心跳 250ms，诊断工具对 HMI 心跳 500ms
+
+> 历史问题：HMI 心跳曾为 1000ms，大于 CAR 的 750ms 窗口，导致诊断工具周期性误报
+> HMI STALE（两个独立时钟相位漂移，刷新时刻落入两次心跳间隙）。已改为 250ms 心跳
+> + 1500ms 独立阈值。
 
 ## 故障排查
 
@@ -63,7 +72,10 @@ sudo python3 tools/diagnostics/vehicle_comm_diagnostic.py
 4. 用 `ping 192.168.20.2` 测试网络层
 
 ### HMI 一直是 STALE
-同上，检查 `192.168.20.3`
+1. 检查 HMI ESP32 是否上电
+2. 确认 `config_local.h` 中 `ROS_IP` = `192.168.20.1`
+3. 心跳周期默认 `HEARTBEAT_PERIOD_MS` = 250ms；如仍持续 STALE 再检查热点
+4. 用 `ping 192.168.20.3` 测试网络层
 
 ### 解码失败数持续增加
 - HMAC 密钥不一致（检查 config_local.h 中的 AUTH_KEY）

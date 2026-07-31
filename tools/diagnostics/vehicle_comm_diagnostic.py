@@ -81,6 +81,8 @@ SENDER_NAMES = {SENDER_ROS: "ROS", SENDER_CAR: "CAR", SENDER_HMI: "HMI"}
 
 # 750ms stale threshold (matches PROTOCOL_V1.md)
 STALE_THRESHOLD_MS = 750
+# HMI 心跳周期 250ms（固件）/500ms（诊断发送）；阈值留 3 倍裕度，避免周期性误报 STALE
+HMI_STALE_THRESHOLD_MS = 1500
 
 
 # ==============================================================================
@@ -249,6 +251,7 @@ class EndpointStats:
     ip: str
     port: int
     sender_id: int
+    stale_threshold_ms: int = STALE_THRESHOLD_MS
     boot_id: int | None = None
     last_sequence: int | None = None
     last_receive_ms: float = 0.0
@@ -262,7 +265,7 @@ class EndpointStats:
 
     @property
     def is_stale(self) -> bool:
-        return self.last_receive_ms > 0 and (time.monotonic() - self.last_receive_ms) * 1000 > STALE_THRESHOLD_MS
+        return self.last_receive_ms > 0 and (time.monotonic() - self.last_receive_ms) * 1000 > self.stale_threshold_ms
 
 
 @dataclass
@@ -305,7 +308,9 @@ class CommDiagnostic:
 
         self.stats = Stats()
         self.car = EndpointStats("CAR", CAR_IP, CAR_PORT, SENDER_CAR)
-        self.hmi = EndpointStats("HMI", HMI_IP, HMI_PORT, SENDER_HMI)
+        # HMI 心跳 250ms（固件）/500ms（诊断发送），1500ms 阈值 = 3 倍裕度，避免周期误报 STALE
+        self.hmi = EndpointStats("HMI", HMI_IP, HMI_PORT, SENDER_HMI,
+                                 stale_threshold_ms=HMI_STALE_THRESHOLD_MS)
         self.endpoints = {SENDER_CAR: self.car, SENDER_HMI: self.hmi}
 
         self.lock = threading.Lock()
@@ -441,24 +446,32 @@ class CommDiagnostic:
 
         seq_car = 0
         seq_hmi = 0
-        last_hb_time = 0.0
+        last_car_hb_time = 0.0
+        last_hmi_hb_time = 0.0
         last_display_time = 0.0
 
         try:
             while self.running:
                 now = time.monotonic()
 
-                # 每秒发送心跳
-                if now - last_hb_time >= 1.0:
+                # 每秒发送心跳给 CAR（车辆 20Hz 遥测为主，心跳仅用于保活/公布 boot_id）
+                if now - last_car_hb_time >= 1.0:
                     self.send_heartbeat(CAR_IP, CAR_PORT, seq_car)
+                    with self.lock:
+                        self.stats.total_tx += 1
+                        self.car.tx_count += 1
+                    seq_car = (seq_car + 1) & 0xFFFFFFFF
+                    last_car_hb_time = now
+
+                # 每 500ms 发送心跳给 HMI：必须低于 HMI 侧 ROS_STATUS_STALE_MS=750，
+                # 否则地面站会把 ROS 链路周期性误判为 STALE/FAULT_STALE_DATA
+                if now - last_hmi_hb_time >= 0.5:
                     self.send_heartbeat(HMI_IP, HMI_PORT, seq_hmi)
                     with self.lock:
-                        self.stats.total_tx += 2
-                        self.car.tx_count += 1
+                        self.stats.total_tx += 1
                         self.hmi.tx_count += 1
-                    seq_car = (seq_car + 1) & 0xFFFFFFFF
                     seq_hmi = (seq_hmi + 1) & 0xFFFFFFFF
-                    last_hb_time = now
+                    last_hmi_hb_time = now
 
                 # 接收数据包
                 result = self.receive_packet()
@@ -581,7 +594,10 @@ def parse_args() -> argparse.Namespace:
   %(prog)s --log-file diag_$(date +%%Y%%m%%d_%%H%%M%%S).log
 """
     )
-    p.add_argument("--key-file", help="HMAC 密钥文件路径（十六进制文本，至少 32 字节）")
+    default_key_file = os.path.join(os.path.dirname(__file__), "..", "..", "config", "hmac.key.hex")
+    default_key_file = os.path.normpath(default_key_file)
+    p.add_argument("--key-file", default=default_key_file,
+                   help="HMAC 密钥文件路径（十六进制文本，至少 32 字节，默认: config/hmac.key.hex）")
     p.add_argument("--bind", default="0.0.0.0", help="绑定地址 (默认: 0.0.0.0)")
     p.add_argument("--log-file", help="日志文件路径")
     return p.parse_args()
@@ -589,14 +605,22 @@ def parse_args() -> argparse.Namespace:
 
 def load_key(args) -> bytes:
     if args.key_file:
-        with open(args.key_file) as f:
-            key = bytes.fromhex(f.read().strip())
+        try:
+            with open(args.key_file) as f:
+                key = bytes.fromhex(f.read().strip())
+        except FileNotFoundError:
+            print(f"错误: 密钥文件不存在: {args.key_file}", file=sys.stderr)
+            print(f"提示: 可从 ESP32 config_local.h 中的 AUTH_KEY 生成，或运行:", file=sys.stderr)
+            print(f"  xxd -r -p config/hmac.key.hex /dev/null  # 验证格式", file=sys.stderr)
+            sys.exit(1)
         if len(key) < 32:
-            print(f"错误: 密钥不足 32 字节 ({len(key)})", file=sys.stderr)
+            print(f"错误: 密钥不足 32 字节 ({len(key)}): {args.key_file}", file=sys.stderr)
             sys.exit(1)
         return key
 
-    # 默认示例密钥（与 config_local.example.h 一致）
+    # 无密钥文件时使用 example 密钥（仅用于与 example 固件配对测试）
+    print("警告: 未指定密钥文件，使用 example 密钥（需与 ESP32 config_local.example.h 一致）",
+          file=sys.stderr)
     return bytes(range(32))
 
 

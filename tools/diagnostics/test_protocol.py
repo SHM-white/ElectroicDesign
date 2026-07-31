@@ -11,6 +11,7 @@ import struct
 import sys
 import threading
 import time
+from pathlib import Path
 
 # 把 tools/diagnostics 加入 path
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent))
@@ -145,6 +146,29 @@ def test_selection_payload_decode():
     print("  [PASS] 选择载荷解码")
 
 
+def test_production_key():
+    """验证生产密钥文件存在且与 ESP32 AUTH_KEY 一致"""
+    key_file = Path(__file__).resolve().parent.parent.parent / "config" / "hmac.key.hex"
+    assert key_file.exists(), f"密钥文件不存在: {key_file}"
+    key = bytes.fromhex(key_file.read_text().strip())
+    assert len(key) == 32, f"密钥长度错误: {len(key)} != 32"
+
+    # 用生产密钥编解码往返
+    payload = struct.pack("<BBBHHihhH", 1, 0, 1, 100, 3, 1500, 200, 10, 0)
+    packet = encode_packet(MSG_CAR_TELEMETRY, SENDER_CAR, 0xDEADBEEF, 1, 500, payload, key)
+    hdr = decode_packet(packet, key)
+    assert hdr is not None, "生产密钥编解码失败"
+    assert hdr.boot_id == 0xDEADBEEF
+
+    # example 密钥不应解码成功
+    example_key = bytes(range(32))
+    hdr2 = decode_packet(packet, example_key)
+    assert hdr2 is None, "example 密钥不应解码生产密钥数据包"
+
+    print(f"  [PASS] 生产密钥 ({key_file})")
+    print(f"         hex={key.hex()[:16]}...")
+
+
 def main():
     print("ED UAV 通信诊断工具自测")
     print("=" * 50)
@@ -161,6 +185,10 @@ def main():
     print("[载荷解码]")
     test_telemetry_payload_decode()
     test_selection_payload_decode()
+
+    print()
+    print("[生产密钥]")
+    test_production_key()
 
     print()
     print("[网络层]")

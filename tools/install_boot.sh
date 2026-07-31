@@ -293,8 +293,15 @@ EOF
 install_vehicle_bridge() {
     [[ -n "${ROS_SETUP:-}" ]] || { warn "跳过 vehicle bridge（ROS 未构建）"; return; }
 
+    # 自动查找密钥文件
+    local effective_key="${HMAC_KEY_FILE:-}"
+    if [[ -z "$effective_key" && -f "${REPO_ROOT}/config/hmac.key.hex" ]]; then
+        effective_key="${REPO_ROOT}/config/hmac.key.hex"
+        ok "自动使用密钥文件: $effective_key"
+    fi
+
     local key_param=""
-    [[ -n "${HMAC_KEY_FILE:-}" ]] && key_param="-p hmac_key_file:=${HMAC_KEY_FILE}"
+    [[ -n "$effective_key" ]] && key_param="-p hmac_key_file:=${effective_key}"
 
     cat > "/etc/systemd/system/${SVC_VEHICLE_BRIDGE}" <<EOF
 [Unit]
@@ -372,8 +379,14 @@ install_diagnostic() {
     local log_dir="/var/log/ed-uav"
     mkdir -p "$log_dir"
 
+    # 自动查找密钥文件
+    local effective_key="${HMAC_KEY_FILE:-}"
+    if [[ -z "$effective_key" && -f "${REPO_ROOT}/config/hmac.key.hex" ]]; then
+        effective_key="${REPO_ROOT}/config/hmac.key.hex"
+    fi
+
     local key_arg=""
-    [[ -n "${HMAC_KEY_FILE:-}" ]] && key_arg="--key-file ${HMAC_KEY_FILE}"
+    [[ -n "$effective_key" ]] && key_arg="--key-file ${effective_key}"
 
     cat > "/etc/systemd/system/${SVC_DIAGNOSTIC}" <<EOF
 [Unit]
@@ -423,7 +436,9 @@ do_install() {
 
     echo ""
     info "ROS 配置"
-    read -rp "  HMAC 密钥文件 (十六进制, 可选): " input; HMAC_KEY_FILE="${input:-${HMAC_KEY_FILE:-}}"
+    local default_key="${REPO_ROOT}/config/hmac.key.hex"
+    [[ -f "$default_key" ]] && default_key_info=" (默认: $default_key)" || default_key_info=""
+    read -rp "  HMAC 密钥文件 (十六进制)${default_key_info}: " input; HMAC_KEY_FILE="${input:-${HMAC_KEY_FILE:-$default_key}}"
     read -rp "  任务配置文件 (可选, 留空跳过 mission): " input; MISSION_CONFIG="${input:-${MISSION_CONFIG:-}}"
     read -rp "  场地配置文件 (可选): " input; PROFILE_PATH="${input:-${PROFILE_PATH:-}}"
     read -rp "  仅仿真模式? (true/false) [${SIMULATION_ONLY:-false}]: " input; SIMULATION_ONLY="${input:-${SIMULATION_ONLY:-false}}"

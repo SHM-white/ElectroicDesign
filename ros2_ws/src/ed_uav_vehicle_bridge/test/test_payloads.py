@@ -117,10 +117,15 @@ def test_payload_rejects_unknown_enum_and_status_flags() -> None:
 
 
 def test_payload_encoder_rejects_invalid_task() -> None:
-    # Given: a task selection with a value outside the delegated 1..2 range.
-    invalid = replace(SELECTION, task=3)
+    # Given: a task selection with a value outside the delegated 1..3 range.
+    invalid = replace(SELECTION, task=4)
 
     # When/Then: serialization rejects the invalid task.
     with pytest.raises(ProtocolError) as raised:
         encode_task_selection(invalid)
     assert raised.value.code is ProtocolErrorCode.BAD_PAYLOAD
+
+    # Task 0 is also invalid
+    invalid_zero = replace(SELECTION, task=0)
+    with pytest.raises(ProtocolError):
+        encode_task_selection(invalid_zero)

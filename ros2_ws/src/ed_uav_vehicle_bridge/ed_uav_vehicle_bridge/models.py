@@ -97,6 +97,7 @@ class MissionStatusFlag(IntFlag):
 class DTask(IntEnum):
     PAYLOAD_DROP = 1
     DYNAMIC_LANDING = 2
+    STABILITY_TEST = 3
 
 
 @unique

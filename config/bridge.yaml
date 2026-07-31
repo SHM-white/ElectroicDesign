@@ -1,0 +1,16 @@
+# ED UAV vehicle_bridge 生产配置
+# 由 install_boot.sh 交互配置生成，也可手动编辑
+vehicle_bridge:
+  ros__parameters:
+    bind_host: 0.0.0.0
+    bind_port: 0
+    car_peer_host: "192.168.20.2"
+    car_peer_port: 42001
+    hmi_peer_host: "192.168.20.3"
+    hmi_peer_port: 42002
+    car_sender_id: 0x43415231    # "CAR1"
+    hmi_sender_id: 0x484D4931    # "HMI1"
+    bridge_sender_id: 0x524F5331 # "ROS1"
+    hmac_key_file: "config/hmac.key.hex"
+    mission_timeout_seconds: 90.0
+    telemetry_stale_seconds: 0.75

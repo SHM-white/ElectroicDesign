@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+"""纯协议层电磁铁周期开关测试 (不经过 ROS, 直接通过串口发送 0xAA 帧)。
+
+激光头和电磁铁接在 C 板 (STM32H7 大疆电机开发板C) 同一个引脚 (01 脚),
+C 板固件已封装 PWM 驱动, 上位机沿用旧激光头 0xAA 协议即可, 无需关心引脚。
+
+用法:
+    ros2 run ed_uav_fcu_bridge ed_uav_h7_gpio_test                 # 默认01脚, 3周期
+    ros2 run ed_uav_fcu_bridge ed_uav_h7_gpio_test --cycles 5
+    ros2 run ed_uav_fcu_bridge ed_uav_h7_gpio_test --cycles 0      # 无限循环
+    ros2 run ed_uav_fcu_bridge ed_uav_h7_gpio_test --dry-run       # 不连硬件
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PACKAGE_ROOT))
+
+from ed_uav_fcu_bridge.h7_gpio_protocol import (
+    H7GpioResponse,
+    cmd_set_output,
+    format_frame,
+)
+from ed_uav_fcu_bridge.h7_gpio_serial import H7GpioTransport
+
+logger = logging.getLogger("h7_gpio_test")
+
+DEFAULT_PIN = 1  # 与激光头同脚 (01脚); C板固件已封装PWM, 沿用原协议数据包
+DEFAULT_PORT = "/dev/ttyUSB1"
+DEFAULT_BAUDRATE = 115200
+DEFAULT_INTERVAL_S = 5.0
+DEFAULT_CYCLES = 3
+
+
+def set_electromagnet(
+    transport: H7GpioTransport,
+    pin: int,
+    high: bool,
+    tag: str = "",
+) -> None:
+    """发送 SET_OUTPUT 帧并读取响应, 打印可读状态。"""
+    frame = cmd_set_output(pin, high)
+    transport.send(frame)
+    response: H7GpioResponse | None = transport.read_response(timeout_s=0.5)
+    state = "吸合(ON)" if high else "释放(OFF)"
+    ts = datetime.now().strftime("%H:%M:%S")
+    if response is None:
+        status = "无响应(超时)"
+    else:
+        status = f"status=0x{response.status:02X}"
+    logger.info("[%s] %-8s 电磁铁 -> %s | 帧=%s | %s",
+                ts, f"[{tag}]", state, format_frame(frame), status)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="电磁铁周期开关测试 (间隔5秒, 沿用C板旧激光头串口协议)")
+    parser.add_argument("--pin", type=int, default=DEFAULT_PIN,
+                        help=f"H7 GPIO 引脚编号 0-15, 默认 {DEFAULT_PIN} (激光头/电磁铁同脚01, 一般无需修改)")
+    parser.add_argument("--port", default=DEFAULT_PORT,
+                        help=f"串口设备路径 (默认 {DEFAULT_PORT})")
+    parser.add_argument("--baudrate", type=int, default=DEFAULT_BAUDRATE,
+                        help=f"波特率 (默认 {DEFAULT_BAUDRATE})")
+    parser.add_argument("--interval", type=float, default=DEFAULT_INTERVAL_S,
+                        help=f"开关间隔秒数 (默认 {DEFAULT_INTERVAL_S})")
+    parser.add_argument("--cycles", type=int, default=DEFAULT_CYCLES,
+                        help=f"完整周期数, 0=无限循环 (默认 {DEFAULT_CYCLES})")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="模拟模式: 不连接真实硬件")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="输出 DEBUG 级日志")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
+    if not 0 <= args.pin <= 15:
+        logger.error("引脚必须在 0-15 之间, 收到: %d", args.pin)
+        return 1
+
+    transport = H7GpioTransport(args.port, args.baudrate)
+    if args.dry_run:
+        logger.info("dry-run 模式: 不打开串口, 仅验证协议帧构造")
+        # 帧构造即验证
+        sample = cmd_set_output(args.pin, True)
+        logger.info("示例吸合帧: %s", format_frame(sample))
+        return 0
+
+    try:
+        transport.open()
+    except Exception as error:  # SerialOpenError 及其子类
+        logger.error("串口打开失败: %s", error)
+        return 1
+
+    logger.info("串口已连接: %s @ %d bps", args.port, args.baudrate)
+    logger.info("测试参数: pin=%d, interval=%.1fs, cycles=%s",
+                args.pin, args.interval,
+                "无限" if args.cycles == 0 else args.cycles)
+
+    cycle = 0
+    try:
+        set_electromagnet(transport, args.pin, False, "init")
+        time.sleep(0.5)
+        while True:
+            cycle += 1
+            if args.cycles and cycle > args.cycles:
+                break
+            logger.info("══════ 周期 %d ══════", cycle)
+            set_electromagnet(transport, args.pin, True, f"cycle{cycle}")
+            time.sleep(args.interval)
+            set_electromagnet(transport, args.pin, False, f"cycle{cycle}")
+            if args.cycles and cycle >= args.cycles:
+                break
+            time.sleep(args.interval)
+        logger.info("测试完成, 共 %d 个周期。", cycle)
+        return 0
+    except KeyboardInterrupt:
+        logger.warning("收到 Ctrl+C, 停止测试")
+        return 0
+    finally:
+        try:
+            set_electromagnet(transport, args.pin, False, "cleanup")
+        except Exception:
+            pass
+        transport.close()
+        logger.info("串口已断开")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

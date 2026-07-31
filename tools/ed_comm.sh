@@ -326,6 +326,34 @@ run_diagnostic() {
     python3 "$diag_script" "$@"
 }
 
+run_sim() {
+    local sim_script="tools/sim_network.py"
+    [[ -f "$sim_script" ]] || die "模拟工具不存在: $sim_script"
+
+    echo ""
+    echo -e "${G}启动网络模拟器 ...${N}  (Ctrl+C 退出)"
+    echo ""
+
+    cleanup() { echo -e "\n${Y}模拟已停止${N}"; }
+    trap cleanup EXIT
+
+    python3 "$sim_script" "$@"
+}
+
+run_sim_comp() {
+    local sim_script="tools/sim_competition.py"
+    [[ -f "$sim_script" ]] || die "比赛模拟器不存在: $sim_script"
+
+    echo ""
+    echo -e "${G}启动比赛模拟器 ...${N}  (Ctrl+C 退出)"
+    echo ""
+
+    cleanup() { echo -e "\n${Y}模拟已停止${N}"; }
+    trap cleanup EXIT
+
+    python3 "$sim_script" "$@"
+}
+
 # ─── 主入口 ─────────────────────────────────────────────────────────────────
 main() {
     local cmd="${1:-run}"
@@ -337,6 +365,9 @@ main() {
             echo ""
             echo "命令:"
             echo "  run    启动热点 + 运行诊断（默认）"
+            echo "  sim    运行网络模拟器（模拟 CAR+ROS 发包）"
+            echo "  sim-comp  全流程比赛模拟（支持地面站选题）"
+            echo "  sim-diag  模拟 + 提示启动诊断（双终端验证）"
             echo "  setup  仅创建/更新热点配置"
             echo "  stop   关闭热点"
             echo "  status 查看热点状态"
@@ -378,6 +409,23 @@ main() {
         test)
             check_root
             hotspot_test
+            ;;
+        sim)
+            check_root
+            hotspot_ensure
+            run_sim "${@:2}"
+            ;;
+        sim-comp)
+            check_root
+            hotspot_ensure
+            run_sim_comp "${@:2}"
+            ;;
+        sim-diag)
+            check_root
+            hotspot_ensure
+            echo -e "${C}提示: 请在另一个终端运行诊断工具:${N}"
+            echo -e "  ${B}sudo python3 tools/diagnostics/vehicle_comm_diagnostic.py${N}\n"
+            run_sim "${@:2}"
             ;;
         *)
             die "未知命令: $cmd (运行 $0 help 查看帮助)"
