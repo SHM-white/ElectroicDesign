@@ -167,6 +167,10 @@ class WireWriter(Protocol):
     def __call__(self, data: bytes) -> int | None: ...
 
 
+class CommandAllowed(Protocol):
+    def __call__(self) -> bool: ...
+
+
 class CommandRejectedError(RuntimeError):
     """Raised when a new high-level command would overlap a pending command."""
 
@@ -178,15 +182,19 @@ class FlightActionController:
         self,
         writer: WireWriter,
         arbiter: CommandArbiter | None = None,
+        command_allowed: CommandAllowed | None = None,
     ) -> None:
         self._writer = writer
         self._arbiter = arbiter if arbiter is not None else CommandArbiter()
+        self._command_allowed = command_allowed if command_allowed is not None else lambda: True
         self.pending: PendingCommand | None = None
         self.last_result: CommandResult | None = None
         self._used_ack_signatures: set[tuple[int, int, int]] = set()
 
     def start(self, request: CommandRequest, steady_now: float, timeout_s: float) -> PendingCommand:
         """Transmit a command and begin awaiting its checksum-bound V7 acknowledgement."""
+        if not self._command_allowed():
+            raise CommandRejectedError("emergency lock is latched")
         if self.pending is not None:
             raise CommandRejectedError("another FCU command is already awaiting acknowledgement")
         raw = request.to_frame()
@@ -201,6 +209,15 @@ class FlightActionController:
         try:
             self.last_result = None
             written = self._writer(raw)
+            if not self._command_allowed():
+                self.last_result = CommandResult(
+                    request.command,
+                    ResultCode.REJECTED,
+                    "emergency lock is latched",
+                    False,
+                    steady_now,
+                )
+                raise CommandRejectedError("emergency lock is latched")
             if written is not None and written != len(raw):
                 self.last_result = CommandResult(
                     request.command,
@@ -229,6 +246,22 @@ class FlightActionController:
         if tuple(frame.data[:3]) != (sent[2], sent[-2], sent[-1]):
             return None
         result = CommandResult(pending.command, ResultCode.SUCCEEDED, "matching V7 acknowledgement", True, steady_now)
+        self.pending = None
+        self.last_result = result
+        self._arbiter.release()
+        return result
+
+    def preempt_for_emergency_lock(self, steady_now: float) -> CommandResult | None:
+        pending = self.pending
+        if pending is None:
+            return None
+        result = CommandResult(
+            pending.command,
+            ResultCode.REJECTED,
+            "emergency lock is latched",
+            False,
+            steady_now,
+        )
         self.pending = None
         self.last_result = result
         self._arbiter.release()

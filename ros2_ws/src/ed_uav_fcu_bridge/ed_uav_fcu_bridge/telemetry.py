@@ -148,7 +148,7 @@ class TelemetryCache:
                     0.0,
                     source_stamp_ns,
                 )
-            case 0x40 if len(frame.data) >= 20:
+            case 0x40 if len(frame.data) == 20:
                 self._aux_sequence += 1
                 channels_us = struct.unpack_from("<10h", frame.data)
                 self._aux = AuxSample(

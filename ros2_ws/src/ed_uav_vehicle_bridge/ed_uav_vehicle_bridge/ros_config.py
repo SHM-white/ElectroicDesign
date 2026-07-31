@@ -22,6 +22,13 @@ def declare_bridge_provisioning(node: Node) -> BridgeProvisioning:
         "hmac_key_file": "",
         "mission_timeout_seconds": 90.0,
         "telemetry_stale_seconds": 0.75,
+        "task3_flight_test_mode": False,
+        "task3_mission_id": "",
+        "task3_field_profile_id": "",
+        "task3_mission_profile_id": "",
+        "task3_deployment_preset_id": "",
+        "task3_target_revision": "",
+        "task3_timeout_seconds": 120.0,
     }
     for name, default in defaults.items():
         node.declare_parameter(name, default)

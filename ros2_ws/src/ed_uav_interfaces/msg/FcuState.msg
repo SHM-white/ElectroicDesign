@@ -13,6 +13,10 @@ uint8 MODE_PROGRAM=3
 uint8 mode
 bool motors_armed
 bool communication_ok
+uint16 aux1_us
+bool aux1_valid
+bool task3_control_allowed
+bool emergency_lock_active
 
 # ENU displacement from the FCU's takeoff origin, in meters.
 geometry_msgs/Vector3 optical_flow_position_m

@@ -2,11 +2,13 @@
 uint16 CONTRACT_VERSION=1
 uint16 contract_version
 string<=64 mission_id
+string<=96 field_profile_id
 string<=64 mission_profile_id
 string<=64 deployment_preset_id
 string<=32 target_revision
 uint8 TASK_PAYLOAD_DROP=1
 uint8 TASK_DYNAMIC_LANDING=2
+uint8 TASK_STABILITY_TEST=3
 uint8 task
 ---
 bool accepted

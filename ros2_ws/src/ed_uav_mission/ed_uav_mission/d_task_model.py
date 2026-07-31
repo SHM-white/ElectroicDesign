@@ -69,6 +69,7 @@ class DTaskFault(str, Enum):
     CAPABILITY_BLOCKED = "capability_blocked"
     CANCELLED = "cancelled"
     LOCALIZATION_LOST = "localization_lost"
+    HARD_LOCKED = "hard_locked"
 
 
 class RouteStage(IntEnum):

@@ -195,6 +195,37 @@ class ExecuteMissionCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class Task3FlightTestIdentity:
+    mission_id: str
+    field_profile_id: str
+    mission_profile_id: str
+    deployment_preset_id: str
+    target_revision: str
+    timeout_seconds: float
+
+    def __post_init__(self) -> None:
+        if not all(
+            (
+                self.mission_id,
+                self.field_profile_id,
+                self.mission_profile_id,
+                self.deployment_preset_id,
+                self.target_revision,
+            )
+        ):
+            raise ValueError("Task 3 identity fields must be non-empty")
+        if self.timeout_seconds <= 0.0:
+            raise ValueError("Task 3 timeout must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class Task3FcuAuxGate:
+    communication_fresh: bool
+    motors_armed: bool
+    channel_5_task_permission: bool
+
+
+@dataclass(frozen=True, slots=True)
 class TelemetryFault:
     code: RejectCode
     age_seconds: float

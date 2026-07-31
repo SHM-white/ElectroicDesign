@@ -4,7 +4,7 @@ from builtin_interfaces.msg import Time
 from ed_uav_interfaces.action import ExecuteMission
 from ed_uav_interfaces.msg import MissionStatus, VehicleTelemetry
 from ed_uav_interfaces.srv import SelectDTaskMission
-from typing import assert_never
+from typing_extensions import assert_never
 
 from .models import (
     AuthenticatedDatagram,
@@ -16,6 +16,7 @@ from .models import (
     MissionStatusValue,
     RouteEvent,
     Sequence,
+    Task3FlightTestIdentity,
     VehicleTelemetryValue,
 )
 from .payloads import encode_mission_status
@@ -85,10 +86,19 @@ def to_stale_vehicle_message(
     return message
 
 
-def to_selection_request(value: MissionSelectionValue) -> SelectDTaskMission.Request:
+def to_selection_request(
+    value: MissionSelectionValue,
+    identity: Task3FlightTestIdentity | None = None,
+) -> SelectDTaskMission.Request:
     request = SelectDTaskMission.Request()
     request.contract_version = SelectDTaskMission.Request.CONTRACT_VERSION
     request.task = int(value.task)
+    if identity is not None:
+        request.mission_id = identity.mission_id
+        request.field_profile_id = identity.field_profile_id
+        request.mission_profile_id = identity.mission_profile_id
+        request.deployment_preset_id = identity.deployment_preset_id
+        request.target_revision = identity.target_revision
     return request
 
 
@@ -100,7 +110,10 @@ def to_execute_goal(command: ExecuteMissionCommand) -> ExecuteMission.Goal:
     return goal
 
 
-def encode_mission_status_for_hmi(message: MissionStatus | MissionStatusValue) -> bytes:
+def encode_mission_status_for_hmi(
+    message: MissionStatus | MissionStatusValue,
+    selection: MissionSelectionValue | None = None,
+) -> bytes:
     match message:
         case MissionStatusValue():
             return encode_mission_status(message)
@@ -113,11 +126,11 @@ def encode_mission_status_for_hmi(message: MissionStatus | MissionStatusValue) -
                     MissionStatus.STATE_ABORTED: MissionPhase.FAULT,
                 }.get(message.state, MissionPhase.CAR_RUNNING)
             value = MissionStatusValue(
-                selection_id=0,
-                car_boot_id=0,
+                selection_id=0 if selection is None else selection.selection_id,
+                car_boot_id=0 if selection is None else selection.car_boot_id,
                 hmi_boot_id=0,
                 phase=phase,
-                selected_task=0,
+                selected_task=0 if selection is None else int(selection.task),
                 reason_flags=0,
                 status_flags=MissionStatusFlag(0),
             )

@@ -9,6 +9,7 @@ from .models import (
     AuthorityDecision,
     AuthorityState,
     BootId,
+    DTask,
     ExecuteMissionCommand,
     MissionSelectionValue,
     MissionPhase,
@@ -17,6 +18,8 @@ from .models import (
     RejectCode,
     SelectMissionCommand,
     SelectionId,
+    Task3FcuAuxGate,
+    Task3FlightTestIdentity,
 )
 
 
@@ -34,7 +37,13 @@ class BridgeAuthority:
         self._hmi_boot_id = hmi_boot_id
         self._pending: MissionSelectionValue | None = None
         self._committed: MissionSelectionValue | None = None
+        self._task3_gate_consumed = False
         self._mission_timeout_seconds = mission_timeout_seconds
+
+    @property
+    def committed_selection(self) -> MissionSelectionValue | None:
+        with self._lock:
+            return self._committed
 
     def observe_car_epoch(self, boot_id: BootId, fcu_armed: bool) -> AuthorityDecision:
         with self._lock:
@@ -43,6 +52,7 @@ class BridgeAuthority:
             self._car_boot_id = boot_id
             self._pending = None
             self._committed = None
+            self._task3_gate_consumed = False
             self._state = AuthorityState.FAULT if fcu_armed else AuthorityState.PRESTART
             reason = RejectCode.FCU_ALREADY_ARMED if fcu_armed else "CAR_SESSION_READY"
             return self._result(not fcu_armed, reason)
@@ -104,6 +114,7 @@ class BridgeAuthority:
 
             self._pending = None
             self._committed = pending
+            self._task3_gate_consumed = False
             self._state = AuthorityState.SELECTED
             acknowledgement = self._mission_status(
                 selection_id=pending.selection_id,
@@ -132,6 +143,35 @@ class BridgeAuthority:
                     return self._result(False, RejectCode.FAULT_LATCHED)
                 case unreachable:
                     assert_never(unreachable)
+
+    def observe_task3_flight_gate(
+        self,
+        identity: Task3FlightTestIdentity,
+        gate: Task3FcuAuxGate,
+    ) -> AuthorityDecision:
+        with self._lock:
+            if self._committed is None:
+                return self._result(False, RejectCode.NO_COMMITTED_SELECTION)
+            if self._committed.task is not DTask.STABILITY_TEST:
+                return self._result(False, "TASK3_SELECTION_REQUIRED")
+            if self._state is AuthorityState.CAR_RUNNING or self._task3_gate_consumed:
+                return self._result(False, RejectCode.START_ALREADY_CONSUMED)
+            if self._state is not AuthorityState.SELECTED:
+                return self._result(False, RejectCode.FCU_NOT_ARMED)
+            if not (
+                gate.communication_fresh
+                and gate.motors_armed
+                and gate.channel_5_task_permission
+            ):
+                return self._result(False, "TASK3_FCU_AUX_GATE_INCOMPLETE")
+            self._task3_gate_consumed = True
+            self._state = AuthorityState.CAR_RUNNING
+            command = ExecuteMissionCommand(
+                mission_id=identity.mission_id,
+                field_profile_id=identity.field_profile_id,
+                timeout_seconds=identity.timeout_seconds,
+            )
+            return self._result(True, "MISSION_DISPATCH", execute_command=command)
 
     def observe_car_start(self, boot_id: BootId) -> AuthorityDecision:
         with self._lock:

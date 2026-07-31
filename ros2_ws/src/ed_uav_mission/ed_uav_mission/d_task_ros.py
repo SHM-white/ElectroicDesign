@@ -35,13 +35,16 @@ from ed_uav_mission.d_task_inputs import (
 )
 from ed_uav_mission.d_task_model import (
     DTaskFault,
-    DTaskKind,
     DTaskPhase,
     DTaskSelection,
     PayloadState,
     RouteStage,
     SelectionAccepted,
     SelectionStore,
+)
+from ed_uav_mission.d_task_selection import (
+    DTaskSelectionContract,
+    selection_from_request,
 )
 from ed_uav_mission.d_task_status import mission_status_state
 from ed_uav_mission.mission_model import CompetitionParams
@@ -58,13 +61,24 @@ class DTaskRosBoundary:
         self,
         node: Node,
         mission_id: str,
-        params: CompetitionParams,
+        params: CompetitionParams | None,
         is_pre_arm: Callable[[], bool],
         localization_valid: Callable[[], bool],
+        *,
+        field_profile_id: str = "",
+        selection_contract: DTaskSelectionContract | None = None,
     ) -> None:
         self._node = node
         self._mission_id = mission_id
-        self._params = params
+        if selection_contract is None:
+            if params is None:
+                raise ValueError("D-task selection contract is required")
+            selection_contract = DTaskSelectionContract.for_competition(
+                mission_id,
+                field_profile_id,
+                params,
+            )
+        self._selection_contract = selection_contract
         self._is_pre_arm = is_pre_arm
         self._localization_valid = localization_valid
         self._selection_store = SelectionStore()
@@ -108,6 +122,7 @@ class DTaskRosBoundary:
             "/mission/status",
             20,
         )
+        self.publish_status(DTaskPhase.PRE_ARM, RouteStage.START, "")
         self._tick_timer = node.create_timer(0.1, self._on_tick, callback_group=group)
 
     @property
@@ -198,7 +213,7 @@ class DTaskRosBoundary:
         snapshot = adapt_target_observation(
             message,
             now_s,
-            self._params.target_revision,
+            self._selection_contract.target_revision,
         )
         self._latest_target = snapshot
         self._push(TargetObserved(now_s=now_s, target=snapshot))
@@ -231,35 +246,16 @@ class DTaskRosBoundary:
         response: SelectDTaskMission.Response,
     ) -> SelectDTaskMission.Response:
         response.contract_version = SelectDTaskMission.Request.CONTRACT_VERSION
-        reason = self._selection_rejection_reason(request)
+        reason = self._selection_contract.rejection_reason(
+            request,
+            SelectDTaskMission.Request.CONTRACT_VERSION,
+        )
         if reason:
             response.accepted = False
             response.reason = reason[:96]
             return response
-        selection = DTaskSelection(
-            mission_id=str(request.mission_id),
-            mission_profile_id=str(request.mission_profile_id),
-            deployment_preset_id=str(request.deployment_preset_id),
-            target_revision=str(request.target_revision),
-            task=DTaskKind(int(request.task)),
-            committed_at_s=steady_now_sec(),
-        )
+        selection = selection_from_request(request, steady_now_sec())
         result = self._selection_store.commit(selection, pre_arm=self._is_pre_arm())
         response.accepted = result.accepted
         response.reason = "selection committed" if isinstance(result, SelectionAccepted) else result.reason
         return response
-
-    def _selection_rejection_reason(self, request: SelectDTaskMission.Request) -> str:
-        if request.contract_version != SelectDTaskMission.Request.CONTRACT_VERSION:
-            return "unsupported selection contract"
-        if request.mission_id != self._mission_id:
-            return "selection mission_id does not match loaded mission"
-        if request.mission_profile_id != self._params.mission_profile_id:
-            return "selection mission profile does not match loaded profile"
-        if request.deployment_preset_id != self._params.deployment_preset_id:
-            return "selection deployment preset does not match loaded preset"
-        if request.target_revision != self._params.target_revision:
-            return "selection target revision does not match loaded revision"
-        if request.task not in (int(DTaskKind.PAYLOAD_DROP), int(DTaskKind.DYNAMIC_LANDING), int(DTaskKind.STABILITY_TEST)):
-            return "selection task is unsupported"
-        return ""

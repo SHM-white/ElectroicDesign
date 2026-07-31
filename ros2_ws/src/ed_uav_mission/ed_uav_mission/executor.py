@@ -42,11 +42,16 @@ from ed_uav_mission.d_task_capability import evaluate_d_task_capability
 from ed_uav_mission.d_task_events import TargetSnapshot, VehicleSnapshot
 from ed_uav_mission.d_task_model import (
     DTaskFault,
+    DTaskKind,
     DTaskPhase,
     DTaskTransition,
     RouteStage,
 )
 from ed_uav_mission.d_task_ros import DTaskRosBoundary
+from ed_uav_mission.d_task_selection import (
+    DTaskSelectionContract,
+    is_committed_task3_selection,
+)
 from ed_uav_mission.mission_config import (
     calibration_file_is_valid,
     load_mission_bundle,
@@ -152,12 +157,17 @@ class MissionExecutorNode(Node):
         self.declare_parameter("payload_config_path", "")
         self.declare_parameter("programmable_capability_report", "")
         self.declare_parameter("fcu_device_identity", "")
+        self.declare_parameter("task3_mission_profile_id", "")
+        self.declare_parameter("task3_deployment_preset_id", "")
+        self.declare_parameter("task3_target_revision", "")
         self._fsm = MissionFSM()
         self._goal_handle: ServerGoalHandle | None = None
         self._cancel_requested = False
         self._active_flight_goal = None
         self._mission_deadline: MissionDeadline | None = None
         self._airborne = False
+        self._aux_start_active = False
+        self._hard_lock_active = False
         self._latest_fcu: FcuState | None = None
         self._latest_localization: LocalizationStatus | None = None
         self._latest_localization_at_s = 0.0
@@ -244,6 +254,29 @@ class MissionExecutorNode(Node):
                     self._mission_config.competition,
                     lambda: self._fsm.state == MissionState.IDLE,
                     self._localization_is_valid,
+                    field_profile_id=self._profile.profile_id,
+                )
+            else:
+                self._d_task_boundary = DTaskRosBoundary(
+                    self,
+                    self._mission_config.mission_id,
+                    None,
+                    lambda: self._fsm.state == MissionState.IDLE,
+                    self._localization_is_valid,
+                    selection_contract=DTaskSelectionContract(
+                        mission_id=self._mission_config.mission_id,
+                        field_profile_id=self._profile.profile_id,
+                        mission_profile_id=str(
+                            self.get_parameter("task3_mission_profile_id").value
+                        ),
+                        deployment_preset_id=str(
+                            self.get_parameter("task3_deployment_preset_id").value
+                        ),
+                        target_revision=str(
+                            self.get_parameter("task3_target_revision").value
+                        ),
+                        allowed_tasks=frozenset((DTaskKind.STABILITY_TEST,)),
+                    ),
                 )
         if self._competition_planner is not None:
             self._competition_runtime = CompetitionRuntime(
@@ -291,6 +324,21 @@ class MissionExecutorNode(Node):
 
     def _on_fcu_state(self, msg: FcuState) -> None:
         self._latest_fcu = msg
+        hard_lock_started = msg.emergency_lock_active and not self._hard_lock_active
+        self._aux_start_active = msg.channel5_valid and msg.channel5_permission
+        self._hard_lock_active = msg.emergency_lock_active
+        if hard_lock_started:
+            self._cancel_active_flight()
+            if self._fsm.is_active and self._d_task_boundary is not None:
+                self._d_task_boundary.publish_status(
+                    DTaskPhase.ABORTED,
+                    RouteStage.START,
+                    "physical hard lock",
+                )
+                self._d_task_boundary.interrupt(
+                    DTaskFault.HARD_LOCKED,
+                    "physical hard lock",
+                )
 
     def _on_localization_status(self, msg: LocalizationStatus) -> None:
         self._latest_localization = msg
@@ -315,6 +363,15 @@ class MissionExecutorNode(Node):
             and (
                 self._d_task_boundary is None
                 or self._d_task_boundary.selection is None
+            )
+        ):
+            return GoalResponse.REJECT
+        if (
+            self._mission_config.mission_type == MissionType.STABILITY_TEST
+            and not is_committed_task3_selection(
+                self._d_task_boundary.selection
+                if self._d_task_boundary is not None
+                else None
             )
         ):
             return GoalResponse.REJECT
@@ -436,7 +493,7 @@ class MissionExecutorNode(Node):
             fcu_source=fcu.source if fcu is not None else 0,
             fcu_motors_armed=fcu is not None and fcu.motors_armed,
             simulation_only=self._simulation_only,
-            aux_start_active=True,
+            aux_start_active=self._aux_start_active,
             localization_active=loc is not None and loc.state == LocalizationStatus.STATE_ACTIVE,
             map_to_odom_valid=loc is not None and loc.map_to_odom_valid,
             profile_loaded=self._profile is not None,
@@ -795,7 +852,7 @@ class MissionExecutorNode(Node):
         return result.result
 
     async def _recover_after_airborne_failure(self) -> None:
-        if not self._airborne:
+        if self._hard_lock_active or not self._airborne:
             return
         for recovery in (
             lambda: self._send_hover(1.0, recovery=True),

@@ -25,6 +25,7 @@ from ed_uav_mission.d_task_events import (
 from ed_uav_mission.d_task_model import (
     DTaskEffect,
     DTaskFault,
+    DTaskKind,
     DTaskPhase,
     DTaskSelection,
     DTaskState,
@@ -85,9 +86,9 @@ class CompetitionRuntime:
         stability_params: StabilityParams | None = None,
     ) -> None:
         if stability_params is not None:
-            if params is None:
-                raise RuntimeError("competition params not loaded")
-            if params.mission_variant != "stability":
+            if selection.task is not DTaskKind.STABILITY_TEST:
+                raise RuntimeError("stability execution requires a committed Task3 selection")
+            if params is not None and params.mission_variant != "stability":
                 raise RuntimeError("stability_params require mission_variant=stability")
             if self._stability_callbacks is None:
                 raise RuntimeError("stability callbacks are not configured")

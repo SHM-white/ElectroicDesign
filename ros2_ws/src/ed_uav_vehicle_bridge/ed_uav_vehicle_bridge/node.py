@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from queue import Empty, SimpleQueue
-from typing import assert_never
+from typing_extensions import assert_never
 
 from builtin_interfaces.msg import Time
 from ed_uav_interfaces.action import ExecuteMission
@@ -23,6 +23,7 @@ from .models import (
     AuthenticatedDatagram,
     AuthorityDecision,
     BootEpoch,
+    DTask,
     MessageType,
     MissionSelectionValue,
     MissionPhase,
@@ -32,6 +33,8 @@ from .models import (
     RouteEvent,
     SelectionId,
     Sequence,
+    Task3FcuAuxGate,
+    Task3FlightTestIdentity,
     VehicleTelemetryValue,
 )
 from .payloads import (
@@ -59,6 +62,21 @@ class VehicleBridgeNode(Node):
         super().__init__("vehicle_bridge", parameter_overrides=parameter_overrides)
         config = load_bridge_config(declare_bridge_provisioning(self))
         provision = config.provisioning
+        self._task3_flight_test_mode = bool(self.get_parameter("task3_flight_test_mode").value)
+        self._task3_identity = (
+            Task3FlightTestIdentity(
+                mission_id=str(self.get_parameter("task3_mission_id").value),
+                field_profile_id=str(self.get_parameter("task3_field_profile_id").value),
+                mission_profile_id=str(self.get_parameter("task3_mission_profile_id").value),
+                deployment_preset_id=str(
+                    self.get_parameter("task3_deployment_preset_id").value
+                ),
+                target_revision=str(self.get_parameter("task3_target_revision").value),
+                timeout_seconds=float(self.get_parameter("task3_timeout_seconds").value),
+            )
+            if self._task3_flight_test_mode
+            else None
+        )
         self._key = config.hmac_key
         self._socket = BoundUdpSocket(provision.bind)
         self._hmi_sender = HmiSender(
@@ -141,7 +159,7 @@ class VehicleBridgeNode(Node):
                     self._car_epoch = frame.boot_id
                     self._authority.observe_car_epoch(frame.boot_id, self._fcu_armed)
                 self._publish_telemetry(telemetry, datagram)
-                if telemetry.event is RouteEvent.START:
+                if telemetry.event is RouteEvent.START and not self._task3_flight_test_mode:
                     self._apply_start(self._authority.observe_car_start(frame.boot_id))
             case MessageType.TASK_SELECTION:
                 selection = decode_task_selection(frame.payload)
@@ -161,6 +179,15 @@ class VehicleBridgeNode(Node):
         if not self._mission_idle:
             self._send_rejection(selection.selection_id, selection.car_boot_id, "MISSION_NOT_IDLE")
             return
+        if self._task3_flight_test_mode:
+            if selection.task is not DTask.STABILITY_TEST:
+                self._send_rejection(selection.selection_id, selection.car_boot_id, "TASK3_SELECTION_REQUIRED")
+                return
+            epoch = self._authority.observe_car_epoch(selection.car_boot_id, self._fcu_armed)
+            if not epoch.accepted:
+                self._send_rejection(selection.selection_id, selection.car_boot_id, epoch.reason)
+                return
+            self._car_epoch = selection.car_boot_id
         decision = self._authority.request_selection(selection, self._fcu_armed)
         if decision.acknowledgement is not None:
             self._send_mission_status(decision.acknowledgement)
@@ -177,7 +204,9 @@ class VehicleBridgeNode(Node):
             )
             self._send_rejection(selection.selection_id, selection.car_boot_id, "SELECTION_SERVICE_UNAVAILABLE")
             return
-        future = self._selection_client.call_async(to_selection_request(selection))
+        future = self._selection_client.call_async(
+            to_selection_request(selection, self._task3_identity)
+        )
         future.add_done_callback(
             lambda completed: self._selection_completions.put((selection, completed))
         )
@@ -240,6 +269,21 @@ class VehicleBridgeNode(Node):
 
     def _on_fcu_state(self, message: FcuState) -> None:
         self._fcu_armed = bool(message.motors_armed and message.communication_ok)
+        if self._task3_flight_test_mode:
+            if self._task3_identity is not None:
+                decision = self._authority.observe_task3_flight_gate(
+                    self._task3_identity,
+                    Task3FcuAuxGate(
+                        communication_fresh=bool(message.communication_ok),
+                        motors_armed=bool(message.motors_armed),
+                        channel_5_task_permission=bool(
+                            message.channel_5_task_permission
+                        ),
+                    ),
+                )
+                if decision.execute_command is not None:
+                    self._apply_start(decision)
+            return
         decision = self._authority.observe_arm(self._fcu_armed)
         if message.motors_armed and not decision.accepted:
             self._send_rejection(SelectionId(0), self._car_epoch, decision.reason)
@@ -248,7 +292,10 @@ class VehicleBridgeNode(Node):
         self._mission_idle = message.state == MissionStatus.STATE_PRE_ARM and not message.complete
         self._hmi_sender.send(
             MessageType.MISSION_STATUS,
-            encode_mission_status_for_hmi(message),
+            encode_mission_status_for_hmi(
+                message,
+                self._authority.committed_selection if self._task3_flight_test_mode else None,
+            ),
         )
 
     def _send_rejection(

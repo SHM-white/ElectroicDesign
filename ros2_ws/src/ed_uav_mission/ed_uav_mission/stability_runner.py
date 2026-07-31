@@ -6,10 +6,22 @@ import math
 from dataclasses import dataclass, replace
 from typing import Protocol
 
+from typing_extensions import assert_never
+
 from ed_uav_interfaces.action import ExecuteMission
 
-from ed_uav_mission.d_task_events import DTaskEvent, SafetyInterrupted
+from ed_uav_mission.d_task_events import (
+    CommandCompleted,
+    CommandFailed,
+    ContactObserved,
+    DTaskEvent,
+    SafetyInterrupted,
+    TargetObserved,
+    Tick,
+    VehicleObserved,
+)
 from ed_uav_mission.d_task_model import (
+    DTaskFault,
     DTaskPhase,
     DTaskSelection,
     DTaskState,
@@ -101,20 +113,42 @@ class StabilityRunner:
 
     async def _handle_next_event(self, state: DTaskState, feedback: ExecuteMission.Feedback) -> None:
         event = await self._callbacks.next_event()
-        if isinstance(event, SafetyInterrupted):
-            safe_state = replace(
-                state,
-                phase=DTaskPhase.SAFE_HOVER,
-                phase_started_at_s=event.now_s,
-                fault=event.fault,
-                reason=event.reason,
-            )
-            self._callbacks.publish_transition(DTaskTransition(state=safe_state), feedback)
-            await self._callbacks.send_hover(0.5)
-            safe_state = replace(safe_state, phase=DTaskPhase.SAFE_LAND, phase_started_at_s=self._callbacks.now_s())
-            self._callbacks.publish_transition(DTaskTransition(state=safe_state), feedback)
-            await self._callbacks.land_home(feedback)
-            raise RuntimeError(event.reason or "stability mission interrupted")
+        match event:
+            case SafetyInterrupted(fault=DTaskFault.HARD_LOCKED, now_s=now_s, reason=reason):
+                aborted = replace(
+                    state,
+                    phase=DTaskPhase.ABORTED,
+                    phase_started_at_s=now_s,
+                    fault=DTaskFault.HARD_LOCKED,
+                    reason=reason,
+                )
+                self._callbacks.publish_transition(
+                    DTaskTransition(state=aborted, complete=True),
+                    feedback,
+                )
+                raise RuntimeError(reason or "physical hard lock")
+            case SafetyInterrupted(now_s=now_s, fault=fault, reason=reason):
+                safe_state = replace(
+                    state,
+                    phase=DTaskPhase.SAFE_HOVER,
+                    phase_started_at_s=now_s,
+                    fault=fault,
+                    reason=reason,
+                )
+                self._callbacks.publish_transition(DTaskTransition(state=safe_state), feedback)
+                await self._callbacks.send_hover(0.5)
+                safe_state = replace(
+                    safe_state,
+                    phase=DTaskPhase.SAFE_LAND,
+                    phase_started_at_s=self._callbacks.now_s(),
+                )
+                self._callbacks.publish_transition(DTaskTransition(state=safe_state), feedback)
+                await self._callbacks.land_home(feedback)
+                raise RuntimeError(reason or "stability mission interrupted")
+            case Tick() | VehicleObserved() | TargetObserved() | ContactObserved() | CommandCompleted() | CommandFailed():
+                return
+            case unreachable:
+                assert_never(unreachable)
 
     def _square_waypoints(self, start_x: float, start_y: float, yaw_rad: float) -> list[StabilityWaypoint]:
         # 顺时针正方形：先沿航向前进，然后向机体右侧转弯，保持航向角不变

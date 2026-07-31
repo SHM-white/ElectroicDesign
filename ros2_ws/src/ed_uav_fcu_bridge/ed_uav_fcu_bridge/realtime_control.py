@@ -43,6 +43,10 @@ class CancellationProbe(Protocol):
     def __call__(self) -> bool: ...
 
 
+class EmergencyLockProbe(Protocol):
+    def __call__(self) -> bool: ...
+
+
 @dataclass(frozen=True, slots=True)
 class RealtimeDependencies:
     writer: WireWriter
@@ -73,6 +77,10 @@ class RealtimeController:
         self._dependencies = dependencies
         self.config = config
         self._arbiter = arbiter if arbiter is not None else CommandArbiter()
+        self._emergency_lock_active: EmergencyLockProbe = lambda: False
+
+    def set_emergency_lock_probe(self, probe: EmergencyLockProbe) -> None:
+        self._emergency_lock_active = probe
 
     def execute(
         self,
@@ -81,6 +89,8 @@ class RealtimeController:
     ) -> RealtimeResult:
         """Run one request and stop output on every started terminal path."""
         now = self._dependencies.clock()
+        if self._emergency_lock_active():
+            return self._emergency_result(now)
         if not self.config.enable_realtime_control:
             return RealtimeResult(
                 RealtimeResultCode.REJECTED,
@@ -94,6 +104,8 @@ class RealtimeController:
                 now,
             )
         try:
+            if self._emergency_lock_active():
+                return self._emergency_result(self._dependencies.clock())
             try:
                 result = self._dispatch(request, cancelled)
             except WireWriteError as error:
@@ -102,14 +114,15 @@ class RealtimeController:
                     str(error),
                     self._dependencies.clock(),
                 )
-            try:
-                self._send_stop_frames()
-            except WireWriteError as error:
-                return RealtimeResult(
-                    RealtimeResultCode.FCU_ERROR,
-                    str(error),
-                    self._dependencies.clock(),
-                )
+            if not self._emergency_lock_active():
+                try:
+                    self._send_stop_frames()
+                except WireWriteError as error:
+                    return RealtimeResult(
+                        RealtimeResultCode.FCU_ERROR,
+                        str(error),
+                        self._dependencies.clock(),
+                    )
             return result
         finally:
             self._arbiter.release()
@@ -185,13 +198,15 @@ class RealtimeController:
             self._write(ZERO_CONTROL)
             self._dependencies.sleeper(self.config.stream_period_s)
 
-    @staticmethod
     def _loop_terminal(
+        self,
         cancelled: CancellationProbe,
         now: float,
         deadline: float,
         command_name: str,
     ) -> RealtimeResult | None:
+        if self._emergency_lock_active():
+            return self._emergency_result(now)
         if cancelled():
             return RealtimeResult(RealtimeResultCode.CANCELLED, "goal canceled", now)
         if now >= deadline:
@@ -210,11 +225,17 @@ class RealtimeController:
             now,
         )
 
+    @staticmethod
+    def _emergency_result(now: float) -> RealtimeResult:
+        return RealtimeResult(RealtimeResultCode.REJECTED, "emergency lock is latched", now)
+
     def _send_stop_frames(self) -> None:
         for _ in range(self.config.stop_frame_count):
             self._write(ZERO_CONTROL)
 
     def _write(self, fields: RealtimeControlFields) -> None:
+        if self._emergency_lock_active():
+            return
         raw = cmd_realtime_control(fields)
         written = self._dependencies.writer(raw)
         if written is not None and written != len(raw):
