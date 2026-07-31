@@ -6,7 +6,12 @@ ED UAV 全流程比赛模拟器
   BOOT_WAITING → PRESTART → SELECTED → ARMED → RUNNING → COMPLETE
 
 地面站 HMI 需要做相应的状态/数据显示变化，并且可以通过串口/按键
-选择任务（task 1 或 2），模拟器会回复 SELECT_ACK。
+选择任务（task 1/2/3），模拟器会回复 SELECT_ACK。
+
+虚拟 CAR 模式（默认开启）：无真实小车时，用 IP_TRANSPARENT 把模拟 CAR
+遥测的源 IP 伪装成 192.168.20.2:42001（HMI 按源 IP 过滤，必须来自该地址），
+并照常发送 MISSION_STATUS 回执，让 HMI 完整走通状态机。真实小车上线后
+自动让位给真实遥测。需要 root（模拟器本就以 sudo 运行）。
 
 用法：
   # 模拟完整比赛（自动推进 + 接受地面站选题）
@@ -14,6 +19,9 @@ ED UAV 全流程比赛模拟器
 
   # 指定任务（跳过地面站选题，自动选 task 1）
   sudo python3 tools/sim_competition.py --task 1
+
+  # 不使用虚拟 CAR（仅诊断/ROS 链路模拟）
+  sudo python3 tools/sim_competition.py --no-virtual-car
 
   # 使用 example 密钥（与 config_local.example.h 一致）
   sudo python3 tools/sim_competition.py --example-key
@@ -192,17 +200,43 @@ def make_bound_sock(ip, port):
     return sock
 
 
+def make_virtual_car_sock(ip: str, port: int):
+    """创建伪装源 IP 的虚拟 CAR socket。
+
+    HMI 按源 IP 过滤 CAR 遥测（必须来自 192.168.20.2:42001）。
+    IP_TRANSPARENT 允许 UDP socket bind 非本机 IP，发往 HMI 的包源 IP 即为
+    该地址。需要 root 且内核支持 TPROXY；失败返回 None（降级为普通发送）。
+    """
+    transparent = getattr(socket, "IP_TRANSPARENT", None)
+    if transparent is None:
+        return None
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        s.setsockopt(socket.IPPROTO_IP, transparent, 1)
+    except OSError:
+        s.close()
+        return None
+    try:
+        s.bind((ip, port))
+    except OSError:
+        s.close()
+        return None
+    return s
+
+
 # ─── 比赛场景定义 ───────────────────────────────────────────────────────────
 class CompetitionScenario:
     """定义一场比赛的完整时间线"""
 
     def __init__(self, task: int = 0, auto_arm_delay: float = 5.0):
-        self.task = task            # 0=等待地面站选题, 1/2=自动选
+        self.task = task            # 0=等待地面站选题, 1/2/3=自动选
         self.auto_arm_delay = auto_arm_delay
         self.car_boot = secrets.randbits(32) or 1
         self.ros_boot = secrets.randbits(32) or 1
         self.hmi_boot = 0           # 从 HMI 的 TASK_SELECTION 包中获取
         self.real_car_boot = 0      # 从真实 CAR 遥测中学习
+        self.virtual_car = False    # 虚拟 CAR 模式（无真实小车时伪装源 IP）
 
         # 状态
         self.phase = PHASE_PRESTART
@@ -394,10 +428,12 @@ def print_status(scenario: CompetitionScenario, elapsed: float):
     # 预测 HMI 应显示的状态
     if s.hmi_boot == 0:
         lines.append(f"  {Y}BOOT_WAITING{N}  (等待 HMI 心跳获取 hmi_boot)")
-    elif s.real_car_boot == 0:
+    elif s.real_car_boot == 0 and not s.virtual_car:
         lines.append(f"  {Y}BOOT_WAITING{N}  (等待真实 CAR 遥测获取 car_boot)")
-    elif s.phase == PHASE_PRESTART:
-        lines.append(f"  {G}PRESTART{N}  可选题: task 1 / task 2 / test")
+    elif s.real_car_boot == 0 and s.virtual_car:
+        lines.append(f"  {C}虚拟 CAR{N}  boot=0x{s.car_boot:08X}  模拟遥测+回执已启用")
+        if s.phase == PHASE_PRESTART:
+            lines.append(f"  {G}PRESTART{N}  可选题: task 1 / task 2 / test")
     elif s.phase == PHASE_SELECT_ACK:
         lines.append(f"  {C}SELECTED{N}  已选: {TASK_NAMES.get(s.committed_task, '?')}")
     elif s.phase == PHASE_ARMED:
@@ -415,7 +451,7 @@ def print_status(scenario: CompetitionScenario, elapsed: float):
 
 
 # ─── 主循环 ─────────────────────────────────────────────────────────────────
-def run_competition(key: bytes, task: int, duration: float):
+def run_competition(key: bytes, task: int, duration: float, virtual_car: bool = True):
     scenario = CompetitionScenario(task=task)
     car_boot = scenario.car_boot
     ros_boot = scenario.ros_boot
@@ -424,6 +460,18 @@ def run_competition(key: bytes, task: int, duration: float):
     # ROS 和接收共用 42000（同一个 socket）
     ros_sock = make_bound_sock("0.0.0.0", NUC_PORT)  # 42000: 发 ROS 包 + 接收 HMI 选题
     car_sock = make_bound_sock("0.0.0.0", CAR_PORT)   # 42001: 发 CAR 遥测
+
+    # 虚拟 CAR：伪装源 IP=192.168.20.2:42001，让 HMI 的源 IP 过滤通过
+    virtual_car_sock = None
+    if virtual_car:
+        virtual_car_sock = make_virtual_car_sock(CAR_IP, CAR_PORT)
+        if virtual_car_sock is None:
+            print("警告: IP_TRANSPARENT 不可用，虚拟 CAR 未启用（HMI 将收不到模拟 CAR 遥测）",
+                  file=sys.stderr)
+        else:
+            scenario.virtual_car = True
+            print(f"虚拟 CAR 已启用: 源 {CAR_IP}:{CAR_PORT} → HMI:{HMI_IP}:{HMI_PORT} "
+                  f"(真实小车在线时自动让位)", file=sys.stderr)
 
     print_header(scenario)
 
@@ -479,13 +527,17 @@ def run_competition(key: bytes, task: int, duration: float):
                     scenario.hmi_boot = boot_id
                     scenario.hmi_rx += 1
                 elif msg_type == MSG_CAR_TELEMETRY and sender == SENDER_CAR:
-                    # 从真实 CAR 学习 boot_id（CAR 也发到 42000）
-                    if scenario.real_car_boot != boot_id:
-                        scenario.real_car_boot = boot_id
-                        scenario.car_boot = boot_id
-                        sys.stderr.write(
-                            f"\n  {C}[CAR 上线]{N} boot=0x{boot_id:08X}\n"
-                        )
+                    # 只把来自真实小车(192.168.20.2:42001)的遥测视为"真实 CAR 上线"。
+                    # 注意：模拟器自己也把模拟 CAR 遥测发往本机 42000（走回环，
+                    # 源 IP 是 192.168.20.1），若不按源地址过滤会把虚拟 CAR 误判为
+                    # 真实 CAR，导致虚拟遥测块被跳过、HMI 永远学不到 car_boot。
+                    if addr[0] == CAR_IP and addr[1] == CAR_PORT:
+                        if scenario.real_car_boot != boot_id:
+                            scenario.real_car_boot = boot_id
+                            scenario.car_boot = boot_id
+                            sys.stderr.write(
+                                f"\n  {C}[CAR 上线]{N} boot=0x{boot_id:08X}\n"
+                            )
 
             # ── 推进比赛状态 ──
             scenario.update(elapsed)
@@ -494,9 +546,8 @@ def run_competition(key: bytes, task: int, duration: float):
                 scenario.car_boot = scenario.real_car_boot
 
             # ── 20Hz CAR 遥测 → HMI (port 42002) + 诊断 (port 42000) ──
-            # 注意：HMI 按源 IP 过滤 CAR 包（必须来自 192.168.20.2:42001），
-            # 从 NUC 发出的模拟 CAR 包源 IP 是 192.168.20.1，HMI 会拒绝。
-            # 如果真实 CAR 已在线（real_car_boot > 0），跳过模拟 CAR 遥测。
+            # HMI 按源 IP 过滤 CAR 包（必须来自 192.168.20.2:42001）。
+            # 虚拟 CAR 模式用 IP_TRANSPARENT 伪装源 IP；真实 CAR 在线时跳过。
             if scenario.real_car_boot == 0 and now - last_telem_time >= 0.05:
                 now_ms = int(now * 1000) & 0xFFFFFFFF
                 payload = pack_car_telemetry(
@@ -509,7 +560,10 @@ def run_competition(key: bytes, task: int, duration: float):
                 pkt = encode_packet(MSG_CAR_TELEMETRY, SENDER_CAR, car_boot,
                                     car_seq, now_ms, payload, key)
                 try:
-                    car_sock.sendto(pkt, (HMI_IP, HMI_PORT))
+                    if virtual_car_sock is not None:
+                        virtual_car_sock.sendto(pkt, (HMI_IP, HMI_PORT))
+                    else:
+                        car_sock.sendto(pkt, (HMI_IP, HMI_PORT))
                     ros_sock.sendto(pkt, (NUC_IP, NUC_PORT))
                 except OSError:
                     pass
@@ -532,8 +586,10 @@ def run_competition(key: bytes, task: int, duration: float):
                 last_hb_time = now
 
             # ── 2Hz MISSION_STATUS → CAR + HMI ──
-            # 必须同时知道 hmi_boot 和 real_car_boot，否则 HMI 会因 boot_id 不匹配拒绝
-            if now - last_status_time >= 0.5 and scenario.hmi_boot > 0 and scenario.real_car_boot > 0:
+            # 必须同时知道 hmi_boot 和可用的 car_boot（真实或虚拟），
+            # 否则 HMI 会因 boot_id 不匹配拒绝回执。
+            car_known = scenario.real_car_boot > 0 or scenario.virtual_car
+            if now - last_status_time >= 0.5 and scenario.hmi_boot > 0 and car_known:
                 now_ms = int(now * 1000) & 0xFFFFFFFF
                 status_payload = scenario.mission_status_payload()
                 pkt = encode_packet(MSG_MISSION_STATUS, SENDER_ROS, ros_boot,
@@ -594,13 +650,15 @@ def main():
                    help="使用 example 密钥 (000102...1E1F)")
     p.add_argument("--task", type=int, default=0, choices=[0, 1, 2, 3],
                    help="指定任务 (0=等地面站选, 1=投放, 2=降落, 3=稳定测试)")
+    p.add_argument("--virtual-car", action=argparse.BooleanOptionalAction, default=True,
+                   help="无真实小车时模拟虚拟 CAR（IP_TRANSPARENT 伪装源 IP，需 root）")
     p.add_argument("--duration", type=float, default=0,
                    help="运行时长秒 (0=无限)")
     args = p.parse_args()
 
     key = load_key(args)
     print(f"密钥: {key.hex()[:16]}...  任务: {args.task or '等HMI选'}", file=sys.stderr)
-    run_competition(key, args.task, args.duration)
+    run_competition(key, args.task, args.duration, virtual_car=args.virtual_car)
 
 
 if __name__ == "__main__":

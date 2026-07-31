@@ -324,19 +324,15 @@ class CommDiagnostic:
             fh.setLevel(logging.DEBUG)
             fh.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
             self.logger.addHandler(fh)
-        # stderr handler for detailed packet logging
+        # stderr handler for key event logging（低频关键事件：选题/任务状态/boot 变化）
         sh = logging.StreamHandler(sys.stderr)
-        sh.setLevel(logging.WARNING)
+        sh.setLevel(logging.INFO)
         sh.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
         self.logger.addHandler(sh)
 
     def start(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        except AttributeError:
-            pass  # Windows
         self.sock.bind(("0.0.0.0", NUC_PORT))
         self.sock.settimeout(0.5)
         self.running = True
@@ -416,7 +412,10 @@ class CommDiagnostic:
         # 载荷解码（不持有锁，只读操作）
         decoded = self._decode_payload(hdr)
         if decoded:
-            self.logger.info("RX: %s %s", ep.label, decoded)
+            # 高频消息（CAR 遥测 20Hz、心跳 4Hz）走 DEBUG 避免刷屏；
+            # 低频关键事件（TASK_SELECTION / MISSION_STATUS / BOOT CHANGE）走 INFO 实时可见
+            level = logging.DEBUG if hdr.msg_type in (MSG_CAR_TELEMETRY, MSG_HEARTBEAT) else logging.INFO
+            self.logger.log(level, "RX: %s %s", ep.label, decoded)
 
     def _decode_payload(self, hdr: PacketHeader) -> str | None:
         if hdr.msg_type == MSG_CAR_TELEMETRY:
@@ -643,6 +642,10 @@ def main():
         sys.exit(1)
     except OSError as e:
         print(f"错误: {e}", file=sys.stderr)
+        print("提示: 端口 42000 可能已被占用。请先停止占用者再重试：", file=sys.stderr)
+        print("  - tools/sim_competition.py (sudo ./tools/ed_comm.sh sim-comp)", file=sys.stderr)
+        print("  - 真实 ROS 桥 vehicle_bridge (bind_port=42000)", file=sys.stderr)
+        print("  - 另一个诊断工具实例", file=sys.stderr)
         sys.exit(1)
 
 

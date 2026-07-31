@@ -101,7 +101,7 @@ def encode_mission_status(value: MissionStatusValue) -> bytes:
     _require_uint32(value.car_boot_id, "car boot ID")
     _require_uint32(value.hmi_boot_id, "HMI boot ID")
     _require_uint8(int(value.phase), "mission phase", 5)
-    _require_uint8(value.selected_task, "selected task", 2)
+    _require_uint8(value.selected_task, "selected task", 3)
     _require_uint16(value.reason_flags, "reason flags")
     _require_uint16(int(value.status_flags), "status flags")
     if int(value.status_flags) & ~KNOWN_MISSION_STATUS_FLAGS:
@@ -121,7 +121,7 @@ def decode_mission_status(payload: bytes) -> MissionStatusValue:
     selection_id, car_boot_id, hmi_boot_id, raw_phase, selected_task, reason_flags, status_flags = _unpack_exact(
         payload, MISSION_STATUS
     )
-    if selected_task > 2 or status_flags & ~KNOWN_MISSION_STATUS_FLAGS:
+    if selected_task > 3 or status_flags & ~KNOWN_MISSION_STATUS_FLAGS:
         raise ProtocolError(ProtocolErrorCode.BAD_PAYLOAD, "invalid mission status flags")
     try:
         phase = MissionPhase(raw_phase)
