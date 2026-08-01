@@ -226,6 +226,16 @@ class VehicleBridgeNode(Node):
                 if accepted.session_changed:
                     self._car_epoch = frame.boot_id
                     self._authority.observe_car_epoch(frame.boot_id, self._fcu_armed)
+                if accepted.session_changed or (
+                    telemetry.event is not RouteEvent.NONE or telemetry.state is CarState.RUNNING
+                ):
+                    # 边沿 + 事件/运行态时打 log, 避免 20Hz 刷屏
+                    self.get_logger().info(
+                        f"udp.rx CAR_TELEMETRY state={int(telemetry.state)}"
+                        f" event={int(telemetry.event)} event_id={telemetry.event_id}"
+                        f" vel={telemetry.velocity_mm_s}mm/s disp={telemetry.displacement_mm}mm"
+                        f" boot=0x{frame.boot_id:08X} seq={frame.sequence}"
+                    )
                 self._publish_telemetry(telemetry, datagram)
                 # 转发原始 CAR 遥测给 HMI (保持 CAR sender_id/boot/seq)
                 try:
@@ -358,8 +368,45 @@ class VehicleBridgeNode(Node):
             self.get_logger().error("mission.dispatch unavailable")
             self._send_rejection(SelectionId(0), self._car_epoch, "MISSION_ACTION_UNAVAILABLE")
             return
-        self._mission_client.send_goal_async(to_execute_goal(decision.execute_command))
-        self.get_logger().info("mission.dispatch requested")
+        goal = to_execute_goal(decision.execute_command)
+        self.get_logger().info(
+            f"mission.dispatch requested mission_id={goal.mission_id}"
+            f" field={goal.field_profile_id} timeout={goal.timeout_sec}s"
+        )
+        future = self._mission_client.send_goal_async(goal)
+        future.add_done_callback(self._on_mission_goal_accepted)
+
+    def _on_mission_goal_accepted(self, future: Future) -> None:
+        self._guard("mission_goal_accepted", lambda: self._on_mission_goal_accepted_impl(future))
+
+    def _on_mission_goal_accepted_impl(self, future: Future) -> None:
+        if future.exception() is not None:
+            self.get_logger().error(
+                f"mission.goal_accepted FAILED: {future.exception()}"
+            )
+            return
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().warning("mission.goal REJECTED by executor")
+            return
+        self.get_logger().info("mission.goal ACCEPTED by executor")
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(self._on_mission_result)
+
+    def _on_mission_result(self, future: Future) -> None:
+        self._guard("mission_result", lambda: self._on_mission_result_impl(future))
+
+    def _on_mission_result_impl(self, future: Future) -> None:
+        if future.exception() is not None:
+            self.get_logger().error(
+                f"mission.result FAILED: {future.exception()}"
+            )
+            return
+        outcome = future.result()
+        self.get_logger().info(
+            f"mission.result code={outcome.status} result_code={outcome.result.result_code}"
+            f" reason={outcome.result.reason}"
+        )
 
     def _publish_telemetry(
         self,
@@ -384,6 +431,10 @@ class VehicleBridgeNode(Node):
         if fault is None or self._last_telemetry is None:
             return
         decision = self._authority.telemetry_fault()
+        self.get_logger().warning(
+            f"telemetry.stale car_boot=0x{fault.car_boot_epoch:08X}"
+            f" age>={self._stale_seconds}s authority={decision.reason}"
+        )
         sequence = Sequence((self._last_sequence + 1) & 0xFFFFFFFF)
         message = to_stale_vehicle_message(
             self._last_telemetry, sequence, self.get_clock().now().to_msg(), self._start_stamp
@@ -398,18 +449,29 @@ class VehicleBridgeNode(Node):
         self._fcu_armed = bool(message.motors_armed and message.communication_ok)
         if self._task3_flight_test_mode:
             if self._task3_identity is not None:
-                decision = self._authority.observe_task3_flight_gate(
-                    self._task3_identity,
-                    Task3FcuAuxGate(
-                        communication_fresh=bool(message.communication_ok),
-                        motors_armed=bool(message.motors_armed),
-                        channel_5_task_permission=bool(
-                            message.task3_control_allowed
-                        ),
+                gate = Task3FcuAuxGate(
+                    communication_fresh=bool(message.communication_ok),
+                    motors_armed=bool(message.motors_armed),
+                    channel_5_task_permission=bool(
+                        message.task3_control_allowed
                     ),
                 )
+                decision = self._authority.observe_task3_flight_gate(
+                    self._task3_identity,
+                    gate,
+                )
+                gate_log = (
+                    f"task3.gate comm={int(gate.communication_fresh)}"
+                    f" armed={int(gate.motors_armed)}"
+                    f" ch5={int(gate.channel_5_task_permission)}"
+                )
                 if decision.execute_command is not None:
+                    self.get_logger().info(gate_log + " → 启动任务")
                     self._apply_start(decision)
+                elif decision.reason:
+                    self.get_logger().debug(
+                        gate_log + f" wait reason={decision.reason}"
+                    )
             return
         decision = self._authority.observe_arm(self._fcu_armed)
         if message.motors_armed and not decision.accepted:

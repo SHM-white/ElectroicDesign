@@ -246,6 +246,12 @@ class DTaskRosBoundary:
         response: SelectDTaskMission.Response,
     ) -> SelectDTaskMission.Response:
         response.contract_version = SelectDTaskMission.Request.CONTRACT_VERSION
+        self._node.get_logger().info(
+            f"select_d_task.rx mission_id={request.mission_id}"
+            f" task={request.task_id} mode={request.mode}"
+            f" car_boot=0x{request.car_boot_id:08X}"
+            f" sel={request.selection_id}"
+        )
         reason = self._selection_contract.rejection_reason(
             request,
             SelectDTaskMission.Request.CONTRACT_VERSION,
@@ -253,9 +259,15 @@ class DTaskRosBoundary:
         if reason:
             response.accepted = False
             response.reason = reason[:96]
+            self._node.get_logger().warning(
+                f"select_d_task.reject reason={reason}"
+            )
             return response
         selection = selection_from_request(request, steady_now_sec())
         result = self._selection_store.commit(selection, pre_arm=self._is_pre_arm())
         response.accepted = result.accepted
         response.reason = "selection committed" if isinstance(result, SelectionAccepted) else result.reason
+        self._node.get_logger().info(
+            f"select_d_task.done accepted={response.accepted} reason={response.reason}"
+        )
         return response

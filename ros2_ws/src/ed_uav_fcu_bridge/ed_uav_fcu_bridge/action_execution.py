@@ -70,7 +70,31 @@ def execute_goal(
     goal = goal_handle.request
     rejection_reason = goal_rejection_reason(goal)
     if rejection_reason is not None:
+        _log_goal(context, goal, f"REJECTED reason={rejection_reason}")
         return _reject_goal(goal_handle, rejection_reason)
+    realtime_capable = goal.command in (
+        FlightCommand.Goal.COMMAND_MOVE,
+        FlightCommand.Goal.COMMAND_HOVER,
+    )
+    _log_goal(context, goal, f"ACCEPT backend={'realtime' if use_realtime_backend(realtime_capable) else 'legacy'}")
+    if use_realtime_backend(realtime_capable):
+        return _execute_realtime(context, goal_handle)
+    return _execute_legacy(context, goal_handle)
+
+
+def _log_goal(context: ActionNodeContext, goal: FlightCommand.Goal, tag: str) -> None:
+    """Emit one flight-command goal log line with target context."""
+    log = getattr(context, "get_logger", None)
+    if log is None:
+        return
+    pos = goal.target_pose.pose.position
+    vel = goal.target_velocity.linear
+    log().info(
+        f"flight_command.goal cmd={goal.command} corr={goal.correlation_id}"
+        f" target=({pos.x:.2f},{pos.y:.2f},{pos.z:.2f})"
+        f" vel=({vel.x:.2f},{vel.y:.2f})"
+        f" {tag}"
+    )
     realtime_capable = goal.command in (
         FlightCommand.Goal.COMMAND_MOVE,
         FlightCommand.Goal.COMMAND_HOVER,
@@ -120,6 +144,23 @@ def _execute_realtime(
     return _finish_realtime(context, goal_handle, completed)
 
 
+def _log_result(context: ActionNodeContext, goal: FlightCommand.Goal, result: FlightCommand.Result) -> None:
+    log = getattr(context, "get_logger", None)
+    if log is None:
+        return
+    code_names = {
+        FlightCommand.Result.RESULT_SUCCEEDED: "SUCCEEDED",
+        FlightCommand.Result.RESULT_REJECTED: "REJECTED",
+        FlightCommand.Result.RESULT_TIMEOUT: "TIMEOUT",
+        FlightCommand.Result.RESULT_FCU_ERROR: "FCU_ERROR",
+    }
+    log().info(
+        f"flight_command.result cmd={goal.command} corr={goal.correlation_id}"
+        f" code={code_names.get(result.result_code, result.result_code)}"
+        f" reason={result.reason}"
+    )
+
+
 def _finish_realtime(
     context: ActionNodeContext,
     goal_handle: FlightGoalHandle,
@@ -144,6 +185,7 @@ def _finish_realtime(
         case RealtimeResultCode.FCU_ERROR:
             result.result_code = FlightCommand.Result.RESULT_FCU_ERROR
             goal_handle.abort()
+    _log_result(context, goal_handle.request, result)
     return result
 
 
@@ -173,6 +215,7 @@ def _execute_legacy(
         result.result_code = FlightCommand.Result.RESULT_REJECTED
         result.reason = str(error)
         goal_handle.abort()
+        _log_result(context, goal, result)
         return result
     feedback = FlightCommand.Feedback()
     feedback.execution_state = FlightCommand.Feedback.STATE_SENT
@@ -193,6 +236,7 @@ def _execute_legacy(
         goal_handle.succeed()
     else:
         goal_handle.abort()
+    _log_result(context, goal, result)
     return result
 
 

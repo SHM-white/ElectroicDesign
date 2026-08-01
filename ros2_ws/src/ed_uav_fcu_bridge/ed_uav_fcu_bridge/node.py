@@ -96,6 +96,12 @@ class FcuBridgeNode(Node):
             lock_dir=Path(str(self.get_parameter("serial_lock_dir").value)),
         )
         self._port.open()
+        self.get_logger().info(
+            f"serial.open {self.get_parameter('serial_port').value}"
+            f" @ {self.get_parameter('baudrate').value}"
+            f" flight_commands={commands_enabled}"
+            f" realtime={bool(self.get_parameter('enable_realtime_control').value)}"
+        )
         realtime_config = RealtimeControlConfig(
             enable_realtime_control=bool(
                 self.get_parameter("enable_realtime_control").value
@@ -133,9 +139,17 @@ class FcuBridgeNode(Node):
                 cancel_callback=self._cancel,
                 callback_group=group,
             )
+            self.get_logger().info("action.server /fcu/flight_command ready")
+        # AUX / 链路边沿检测状态 (仅在变化时打 log)
+        self._last_aux1_us: int | None = None
+        self._last_task3_gate: bool | None = None
+        self._last_aux6: bool | None = None
+        self._last_emergency: bool | None = None
+        self._last_link_ok: bool | None = None
 
     def destroy_node(self) -> bool:
         self._port.close()
+        self.get_logger().info("serial.close")
         return super().destroy_node()
 
     def _poll(self) -> None:
@@ -148,7 +162,42 @@ class FcuBridgeNode(Node):
         timeout = self._bridge.tick(steady_now)
         if timeout is not None:
             self._command_result.set()
-        self._publish(self._bridge.snapshot(steady_now))
+        snapshot = self._bridge.snapshot(steady_now)
+        self._log_edge_transitions(snapshot)
+        self._publish(snapshot)
+
+    def _log_edge_transitions(self, snapshot: TelemetrySnapshot) -> None:
+        """Log AUX1/AUX6/硬锁/链路状态变化 (仅边沿, 避免刷屏)."""
+        aux1 = snapshot.aux1_us if snapshot.aux1_valid else None
+        if aux1 is not None and aux1 != self._last_aux1_us:
+            self.get_logger().info(f"aux1_us={aux1}")
+            self._last_aux1_us = aux1
+        gate = snapshot.task3_control_allowed
+        if gate != self._last_task3_gate:
+            if gate:
+                self.get_logger().info("aux.gate TASK3_CONTROL_ALLOWED (AUX1 1400~1600us)")
+            else:
+                self.get_logger().info(f"aux.gate task3_control_lost (aux1={snapshot.aux1_us}us)")
+            self._last_task3_gate = gate
+        aux6 = snapshot.aux is not None and snapshot.aux.valid and snapshot.aux.aux6_us > 1700
+        if aux6 != self._last_aux6:
+            if aux6:
+                self.get_logger().info("aux6.start_switch ON (>1700us)")
+            else:
+                self.get_logger().info(f"aux6.start_switch OFF (aux6={snapshot.aux.aux6_us if snapshot.aux else 0}us)")
+            self._last_aux6 = aux6
+        if snapshot.emergency_lock_active != self._last_emergency:
+            if snapshot.emergency_lock_active:
+                self.get_logger().warning("emergency_lock LATCHED (AUX1>=1800us)")
+            else:
+                self.get_logger().warning("emergency_lock released")
+            self._last_emergency = snapshot.emergency_lock_active
+        if snapshot.link.valid != self._last_link_ok:
+            if snapshot.link.valid:
+                self.get_logger().info("link.ok (飞控遥测恢复)")
+            else:
+                self.get_logger().warning(f"link.lost age={snapshot.link.age_s:.2f}s")
+            self._last_link_ok = snapshot.link.valid
 
     def _publish(self, snapshot: TelemetrySnapshot) -> None:
         stamp = self.get_clock().now().to_msg()
