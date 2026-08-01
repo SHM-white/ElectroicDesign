@@ -24,12 +24,15 @@ from .models import (
     AuthenticatedDatagram,
     AuthorityDecision,
     BootEpoch,
+    CarState,
     DTask,
+    FaultFlag,
     MessageType,
     MissionSelectionValue,
     MissionPhase,
     MissionStatusFlag,
     MissionStatusValue,
+    QualityFlag,
     ReceiptSeconds,
     RouteEvent,
     SelectionId,
@@ -37,11 +40,13 @@ from .models import (
     Task3FcuAuxGate,
     Task3FlightTestIdentity,
     TaskMode,
+    TurnClass,
     VehicleTelemetryValue,
 )
 from .payloads import (
     decode_car_telemetry,
     decode_task_selection,
+    encode_car_telemetry,
 )
 from .protocol import decode_datagram
 from .ros_mapping import (
@@ -98,7 +103,16 @@ class VehicleBridgeNode(Node):
             )
         )
         self._no_car_mode = bool(self.get_parameter("no_car_mode").value)
+        self._simulate_car = bool(self.get_parameter("simulate_car").value)
         self._immediate_start = bool(self.get_parameter("task3_immediate_start").value)
+        self._car_hmi_sender = HmiSender(
+            HmiSenderConfig(
+                socket=self._socket,
+                destination=provision.hmi_peer,
+                sender_id=provision.car_sender_id,
+                key=self._key,
+            )
+        )
         self._authority = BridgeAuthority(
             provision.mission_timeout_seconds,
             no_car_mode=self._no_car_mode,
@@ -148,12 +162,17 @@ class VehicleBridgeNode(Node):
         self._udp_timer = self.create_timer(0.01, self._drain_udp, callback_group=self._callbacks)
         self._freshness_timer = self.create_timer(0.05, self._check_freshness, callback_group=self._callbacks)
         self._heartbeat_timer = self.create_timer(0.25, self._send_heartbeat, callback_group=self._callbacks)
+        self._sim_car_timer = None
+        self._sim_car_start = time.monotonic()
+        if self._simulate_car:
+            # dry-run: 以 20Hz 模拟 CAR 遥测发往 HMI (与 tools/sim_network.py 一致)
+            self._sim_car_timer = self.create_timer(0.05, self._send_sim_car_telemetry, callback_group=self._callbacks)
         self.get_logger().info(
             f"vehicle_bridge.ready"
             f"  bind={provision.bind.host}:{provision.bind.port}"
             f"  car={provision.car_peer.host}:{provision.car_peer.port}"
             f"  hmi={provision.hmi_peer.host}:{provision.hmi_peer.port}"
-            f"  heartbeat=4Hz"
+            f"  heartbeat=4Hz simulate_car={self._simulate_car}"
         )
 
     def _guard(self, label: str, action: Callable[[], None]) -> None:
@@ -208,6 +227,11 @@ class VehicleBridgeNode(Node):
                     self._car_epoch = frame.boot_id
                     self._authority.observe_car_epoch(frame.boot_id, self._fcu_armed)
                 self._publish_telemetry(telemetry, datagram)
+                # 转发原始 CAR 遥测给 HMI (保持 CAR sender_id/boot/seq)
+                try:
+                    self._socket.send(packet.data, provision.hmi_peer)
+                except Exception as error:  # noqa: BLE001
+                    self.get_logger().error(f"car→hmi 转发异常(已隔离): {error}")
                 if telemetry.event is RouteEvent.START and not self._task3_flight_test_mode:
                     self._apply_start(self._authority.observe_car_start(frame.boot_id))
             case MessageType.TASK_SELECTION:
@@ -456,11 +480,49 @@ class VehicleBridgeNode(Node):
     def _send_heartbeat_impl(self) -> None:
         self._hmi_sender.send(MessageType.HEARTBEAT, b"")
         self._car_sender.send(MessageType.HEARTBEAT, b"")
+        # 仅 dry-run / no-car 时以 CAR 身份向 HMI 发送心跳 (HMI 据此显示
+        # CAR→HMI 链路在线); 真实模式由物理小车自行发包, bridge 不冒充。
+        if self._simulate_car or self._no_car_mode:
+            self._car_hmi_sender.send(MessageType.HEARTBEAT, b"")
         self._heartbeat_count = getattr(self, "_heartbeat_count", 0) + 1
         if self._heartbeat_count == 1 or self._heartbeat_count % 40 == 0:
             self.get_logger().debug(
                 f"udp.tx HEARTBEAT #{self._heartbeat_count} → CAR+HMI"
             )
+
+    def _send_sim_car_telemetry(self) -> None:
+        """dry-run: 模拟 CAR 遥测发给 HMI (20Hz), 与 tools/sim_network.py 一致."""
+        self._guard("sim_car_telemetry", self._send_sim_car_telemetry_impl)
+
+    def _send_sim_car_telemetry_impl(self) -> None:
+        elapsed = time.monotonic() - self._sim_car_start
+        if elapsed < 2.0:
+            state, event, event_id, vel = CarState.READY, RouteEvent.NONE, 0, 0
+        elif elapsed < 5.0:
+            state, event, event_id, vel = CarState.RUNNING, RouteEvent.START, 1, 200
+        elif elapsed < 15.0:
+            state, event, event_id, vel = CarState.RUNNING, RouteEvent.NONE, 0, 300 + int(elapsed * 10)
+        elif elapsed < 25.0:
+            state, event, event_id, vel = CarState.RUNNING, RouteEvent.B, 2, 250
+        elif elapsed < 35.0:
+            state, event, event_id, vel = CarState.RUNNING, RouteEvent.NONE, 0, 400
+        elif elapsed < 40.0:
+            state, event, event_id, vel = CarState.COMPLETE, RouteEvent.COMPLETE, 5, 0
+        else:
+            self._sim_car_start = time.monotonic()
+            state, event, event_id, vel = CarState.READY, RouteEvent.NONE, 0, 0
+        value = VehicleTelemetryValue(
+            state=state,
+            turn=TurnClass.STRAIGHT,
+            event=event,
+            event_id=event_id,
+            quality_flags=QualityFlag.LINE_VALID | QualityFlag.ENCODER_VALID,
+            displacement_mm=int(elapsed * 200),
+            velocity_mm_s=vel,
+            line_error_milli=0,
+            fault_flags=FaultFlag(0),
+        )
+        self._car_hmi_sender.send(MessageType.CAR_TELEMETRY, encode_car_telemetry(value))
 
     def destroy_node(self) -> None:
         self._socket.close()

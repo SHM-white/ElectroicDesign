@@ -24,6 +24,7 @@ def declare_bridge_provisioning(node: Node) -> BridgeProvisioning:
         "telemetry_stale_seconds": 0.75,
         "task3_flight_test_mode": False,
         "no_car_mode": False,
+        "simulate_car": False,
         "task3_immediate_start": False,
         "task3_mission_id": "",
         "task3_field_profile_id": "",

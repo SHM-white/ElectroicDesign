@@ -177,6 +177,7 @@ def _build_nodes(context, fcu_port: str, h7_port: str):
                     "mission_timeout_seconds": 90.0,
                     "telemetry_stale_seconds": 0.75,
                     "task3_flight_test_mode": not simulation_only,
+                    "simulate_car": dry_run,
                     "task3_immediate_start": task3_immediate_start,
                     "task3_mission_id": _TASK3_MISSION_PROFILE_ID,
                     "task3_field_profile_id": field_profile_id,
