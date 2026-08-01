@@ -24,3 +24,4 @@ green-ownership-order.txt
 # 生产密钥（含真实 AUTH_KEY，禁止入库）
 config/hmac.key.hex
 readonly/embedded/*/config_local.h
+keystore/

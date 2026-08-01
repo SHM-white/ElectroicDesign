@@ -37,7 +37,7 @@ from ed_uav_mission.competition_runtime import (
     CompetitionRuntime,
     DTaskEffectError,
 )
-from ed_uav_mission.stability_runtime import StabilityCallbacks
+from ed_uav_mission.stability_runner import StabilityCallbacks
 from ed_uav_mission.d_task_capability import evaluate_d_task_capability
 from ed_uav_mission.d_task_events import TargetSnapshot, VehicleSnapshot
 from ed_uav_mission.d_task_model import (
@@ -427,6 +427,8 @@ class MissionExecutorNode(Node):
                     raise RuntimeError("committed D-task selection unavailable")
                 if self._competition_runtime is None:
                     raise RuntimeError("D-task action runtime unavailable")
+                # stability branch never publishes TAKEOFF; drive FSM so final COMPLETE is reachable
+                self._fsm.transition(MissionState.TAKEOFF, "D-task start observed")
                 await self._competition_runtime.run(
                     config.competition,
                     self._d_task_boundary.selection,
@@ -540,6 +542,8 @@ class MissionExecutorNode(Node):
             self._fsm.transition(MissionState.TAKEOFF, "D-task start observed")
         elif phase is DTaskPhase.STABILIZING and self._fsm.state == MissionState.TAKEOFF:
             self._fsm.transition(MissionState.EXECUTING, "takeoff complete")
+        elif phase is DTaskPhase.STABILITY_PRE_HOVER and self._fsm.state == MissionState.TAKEOFF:
+            self._fsm.transition(MissionState.EXECUTING, "stability trajectory started")
         elif phase in (DTaskPhase.RETURNING_HOME, DTaskPhase.SAFE_RETURN):
             if self._fsm.state == MissionState.EXECUTING:
                 self._fsm.transition(MissionState.RETURNING, phase.value)

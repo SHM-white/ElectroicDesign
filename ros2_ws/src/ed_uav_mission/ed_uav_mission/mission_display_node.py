@@ -59,6 +59,7 @@ _STATE_LABELS: Final[dict[int, str]] = {
     MissionStatus.STATE_LANDING_HOME: "LANDING_HOME",
     MissionStatus.STATE_SUCCEEDED: "SUCCEEDED",
     MissionStatus.STATE_ABORTED: "ABORTED",
+    MissionStatus.STATE_STABILITY_TEST: "STABILITY_TEST",
 }
 
 # ── FCU mode label mapping ─────────────────────────────────────────────────

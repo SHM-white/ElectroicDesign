@@ -1,0 +1,53 @@
+# D题场地 2026-08 实测配置（4m × 5m 作业区）。
+# 参照赛题《陆空协同无人机系统（D题）》: 400cm×500cm 场地, 安全网顶部不低于 250cm。
+# 坐标约定: 原点为左下角 H 点(无人机起降点), X 沿 5m 长边, Y 沿 4m 短边, ENU。
+version: 1
+profile_type: field
+profile_id: d-arena-2026
+units:
+  length: m
+  angle: rad
+frame:
+  id: map
+  convention: ENU
+provenance:
+  classification: current_field
+  activation: eligible
+takeoff:
+  origin:
+    x_m: 0.0
+    y_m: 0.0
+  commanded_heading_rad: 0.0
+colors:
+  - id: arena-boundary
+    label: arena boundary
+boundary_segments:
+  - id: south
+    start: {x_m: 0.0, y_m: 0.0}
+    end: {x_m: 5.0, y_m: 0.0}
+    color_id: arena-boundary
+  - id: east
+    start: {x_m: 5.0, y_m: 0.0}
+    end: {x_m: 5.0, y_m: 4.0}
+    color_id: arena-boundary
+  - id: north
+    start: {x_m: 5.0, y_m: 4.0}
+    end: {x_m: 0.0, y_m: 4.0}
+    color_id: arena-boundary
+  - id: west
+    start: {x_m: 0.0, y_m: 4.0}
+    end: {x_m: 0.0, y_m: 0.0}
+    color_id: arena-boundary
+allowed_zone:
+  id: d-arena
+  vertices:
+    - {x_m: 0.0, y_m: 0.0}
+    - {x_m: 5.0, y_m: 0.0}
+    - {x_m: 5.0, y_m: 4.0}
+    - {x_m: 0.0, y_m: 4.0}
+no_fly_zones: []
+altitude:
+  minimum_m: 0.5
+  maximum_m: 2.5
+  takeoff_m: 1.5
+landmarks: []

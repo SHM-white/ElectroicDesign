@@ -253,5 +253,5 @@ def test_stability_runner_executes_requested_trajectory_sequence() -> None:
 
     assert callbacks.hovers == [5.0, 5.0]
     assert len(callbacks.moves) == 17  # 4 square + 13 circle waypoints
-    assert callbacks.phases[0] is DTaskPhase.STABILIZING
+    assert callbacks.phases[0] is DTaskPhase.STABILITY_PRE_HOVER
     assert callbacks.phases[-1] is DTaskPhase.SUCCEEDED

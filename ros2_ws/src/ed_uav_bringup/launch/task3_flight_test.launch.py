@@ -4,12 +4,20 @@ Composes the live-flight chain with FCU bridge, mission executor, vehicle bridge
 localization, lidar (mid360), camera (dual_uvc), and AprilTag target observation.
 Requires enforced SROS2, calibrated sensors, and explicit runtime inputs.
 No simulation mode, no RViz, no programmable competition commands.
+
+``dry_run:=true`` starts every module except the flight controller — vehicle
+bridge (ground station), lidar odometry chain, dual cameras, AprilTag tracking,
+H7 GPIO (electromagnet/laser) and mission display — for offline chain self-test.
+Lidar chain is skipped when the MID-360 is unreachable, mirroring field_test.sh.
 """
 
 from __future__ import annotations
 
+import json
+import subprocess
 from pathlib import Path
 
+import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
@@ -39,12 +47,29 @@ _DUAL_UVC_LAUNCH = "dual_uvc.launch.py"
 _TARGET_OBSERVATION_LAUNCH = "target_observation.launch.py"
 
 
+def _lidar_reachable(ip: str) -> bool:
+    """Ping the MID-360; mirrors the reachability gate in field_test.sh."""
+    try:
+        return (
+            subprocess.run(
+                ["ping", "-c", "1", "-W", "1", ip],
+                capture_output=True,
+                timeout=3,
+                check=False,
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def _build_actions(context):
     """Build the complete Task3 flight-test node graph."""
     mission_share = Path(get_package_share_directory("ed_uav_mission"))
     camera_share = Path(get_package_share_directory("ed_uav_camera"))
     perception_share = Path(get_package_share_directory("ed_uav_perception"))
     lidar_share = Path(get_package_share_directory("ed_uav_lidar"))
+    fcu_bridge_share = Path(get_package_share_directory("ed_uav_fcu_bridge"))
 
     fcu_serial_port = LaunchConfiguration("fcu_serial_port").perform(context)
     calibration_file = LaunchConfiguration("calibration_file").perform(context)
@@ -58,6 +83,9 @@ def _build_actions(context):
     ros_security_enable = LaunchConfiguration("ros_security_enable").perform(context)
     ros_security_strategy = LaunchConfiguration("ros_security_strategy").perform(context)
     mid360_driver_config_path = LaunchConfiguration("mid360_driver_config_path").perform(context)
+    dry_run = LaunchConfiguration("dry_run").perform(context).lower() in ("true", "1", "yes")
+    h7_serial_port = LaunchConfiguration("h7_serial_port").perform(context)
+    lidar_ip = LaunchConfiguration("lidar_ip").perform(context)
 
     actions = [
         SetEnvironmentVariable("ROS_SECURITY_ENABLE", ros_security_enable),
@@ -65,27 +93,31 @@ def _build_actions(context):
         SetEnvironmentVariable("ROS_SECURITY_KEYSTORE", ros_security_keystore),
     ]
 
-    # 1. FCU bridge
-    actions.append(
-        Node(
-            package="ed_uav_fcu_bridge",
-            executable="ed_uav_fcu_bridge",
-            name="ed_uav_fcu_bridge",
-            output="screen",
-            arguments=["--ros-args", "--enclave", "/ed_uav_fcu_bridge"],
-            parameters=[
-                {
-                    "serial_port": fcu_serial_port,
-                    "baudrate": 500000,
-                    "enable_flight_commands": True,
-                    "enable_realtime_control": True,
-                    "enable_programmable_commands": False,
-                }
-            ],
+    # 1. FCU bridge — skipped in dry-run (no flight control)
+    if not dry_run:
+        actions.append(
+            Node(
+                package="ed_uav_fcu_bridge",
+                executable="ed_uav_fcu_bridge",
+                name="ed_uav_fcu_bridge",
+                output="screen",
+                arguments=["--ros-args", "--enclave", "/ed_uav_fcu_bridge"],
+                parameters=[
+                    {
+                        "serial_port": fcu_serial_port,
+                        "baudrate": 500000,
+                        "enable_flight_commands": True,
+                        "enable_realtime_control": True,
+                        "enable_programmable_commands": False,
+                    }
+                ],
+            )
         )
-    )
 
-    # 2. Vehicle bridge
+    # 2. Vehicle bridge — 需要 profile_id(而非路径),与 executor 的
+    #    DTaskSelectionContract 匹配,否则小车选择请求会被拒绝
+    profile_document = yaml.safe_load(Path(field_profile_path).read_text(encoding="utf-8"))
+    field_profile_id = str(profile_document["profile_id"])
     actions.append(
         Node(
             package="ed_uav_vehicle_bridge",
@@ -97,13 +129,29 @@ def _build_actions(context):
                     "hmac_key_file": hmac_key_file,
                     "task3_flight_test_mode": True,
                     "task3_mission_id": task3_identity,
-                    "task3_field_profile_id": field_profile_path,
+                    "task3_field_profile_id": field_profile_id,
                 }
             ],
         )
     )
 
-    # 3. Mission executor
+    # 3. H7 GPIO bridge (electromagnet/laser) — part of every dry-run chain check
+    actions.append(
+        Node(
+            package="ed_uav_fcu_bridge",
+            executable="ed_uav_h7_gpio_bridge",
+            name="ed_uav_h7_gpio_bridge",
+            output="screen",
+            parameters=[
+                {
+                    "serial_port": h7_serial_port,
+                    "baudrate": 115200,
+                }
+            ],
+        )
+    )
+
+    # 4. Mission executor
     actions.append(
         Node(
             package="ed_uav_mission",
@@ -130,7 +178,7 @@ def _build_actions(context):
         )
     )
 
-    # 4. Localization
+    # 5. Localization
     actions.append(
         Node(
             package="ed_uav_localization",
@@ -148,38 +196,43 @@ def _build_actions(context):
             output="screen",
         )
     )
-    extrinsics = lidar_share / "config" / "fields" / "field_extrinsics.yaml"
-    actions.append(
-        Node(
-            package="ed_uav_localization",
-            executable="lio_adapter",
-            name="lio_adapter",
-            output="screen",
-            parameters=[{"calibration_file": str(extrinsics)}],
-        )
-    )
 
-    # 5. Lidar — MID-360
-    actions.append(
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(str(lidar_share / "launch" / _LIDAR_LAUNCH)),
-            launch_arguments={
-                "lidar_enabled": "true",
-                "transport": _LIDAR_TRANSPORT,
-                "driver_config_path": mid360_driver_config_path,
-            }.items(),
+    # 6. Lidar + FAST-LIO — gated on MID-360 reachability in dry-run
+    lidar_chain_up = not dry_run or _lidar_reachable(lidar_ip)
+    if not lidar_chain_up:
+        print(
+            f"[dry-run] MID-360 {lidar_ip} unreachable — lidar/FAST-LIO/lio_adapter skipped "
+            "(same gate as field_test.sh)"
         )
-    )
-
-    # 6. FAST-LIO
-    fast_lio = Path(fast_lio_launch_path)
-    if not fast_lio.is_absolute():
-        fast_lio = lidar_share / "config" / "fields" / fast_lio.name
-    actions.append(
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(str(fast_lio)),
+    if lidar_chain_up:
+        extrinsics = lidar_share / "config" / "fields" / "field_extrinsics.yaml"
+        actions.append(
+            Node(
+                package="ed_uav_localization",
+                executable="lio_adapter",
+                name="lio_adapter",
+                output="screen",
+                parameters=[{"calibration_file": str(extrinsics)}],
+            )
         )
-    )
+        actions.append(
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(str(lidar_share / "launch" / _LIDAR_LAUNCH)),
+                launch_arguments={
+                    "lidar_enabled": "true",
+                    "transport": _LIDAR_TRANSPORT,
+                    "driver_config_path": mid360_driver_config_path,
+                }.items(),
+            )
+        )
+        fast_lio = Path(fast_lio_launch_path)
+        if not fast_lio.is_absolute():
+            fast_lio = lidar_share / "config" / "fields" / fast_lio.name
+        actions.append(
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(str(fast_lio)),
+            )
+        )
 
     # 7. Camera — dual UVC
     actions.append(
@@ -242,6 +295,21 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("ros_security_strategy", default_value="Enforce"),
             DeclareLaunchArgument("ros_security_keystore", description="SROS2 keystore directory"),
             DeclareLaunchArgument("enable_display", default_value="false", description="Enable mission display window"),
+            DeclareLaunchArgument(
+                "dry_run",
+                default_value="false",
+                description="Start all modules except the flight controller (offline chain self-test)",
+            ),
+            DeclareLaunchArgument(
+                "h7_serial_port",
+                default_value="/dev/ttyUSB1",
+                description="H7 GPIO (electromagnet/laser) serial device",
+            ),
+            DeclareLaunchArgument(
+                "lidar_ip",
+                default_value="192.168.1.3",
+                description="MID-360 IP for dry-run reachability gate",
+            ),
             OpaqueFunction(function=_build_actions),
         ]
     )

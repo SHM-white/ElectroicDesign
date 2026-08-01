@@ -57,7 +57,9 @@ Environment:
   ROS_SECURITY_KEYSTORE        SROS2 keystore directory (required)
 
 Flags:
-  --dry-run                    Validate inputs and print launch command only
+  --dry-run                    Validate inputs, then launch all non-FCU modules
+                               (ground station / lidar odometry / cameras /
+                               visual tracking / electromagnet / display)
   --enable-display             Enable mission display window (auto-detects headless)
   -h, --help                   Show this help
 EOF
@@ -100,15 +102,16 @@ validate_required "--fast-lio-launch" "$FAST_LIO_LAUNCH"
 [[ -n "$TASK3_IDENTITY" ]] || die "Missing required argument: --task3-identity"
 
 # Check calibration is CALIBRATED (not UNCALIBRATED or SYNTHETIC)
-if ! grep -q '"CALIBRATED"' "$CALIBRATION_FILE" 2>/dev/null; then
+# YAML 值无引号: calibration_status: CALIBRATED
+if ! grep -Eq '^calibration_status:[[:space:]]*["'"'"']?CALIBRATED["'"'"']?([[:space:]]|$)' "$CALIBRATION_FILE" 2>/dev/null; then
     die "Calibration file must contain CALIBRATED status: $CALIBRATION_FILE"
 fi
 
 # Check field profile is not synthetic/blocked
-if grep -q '"synthetic_simulation"' "$FIELD_PROFILE" 2>/dev/null; then
+if grep -Eq '^classification:[[:space:]]*["'"'"']?synthetic_simulation' "$FIELD_PROFILE" 2>/dev/null; then
     die "Field profile must not be synthetic simulation: $FIELD_PROFILE"
 fi
-if grep -q '"blocked"' "$FIELD_PROFILE" 2>/dev/null; then
+if grep -Eq '^activation:[[:space:]]*["'"'"']?blocked' "$FIELD_PROFILE" 2>/dev/null; then
     die "Field profile must not be blocked: $FIELD_PROFILE"
 fi
 
@@ -144,9 +147,16 @@ LAUNCH_CMD=(
 
 # ─── Dry-run mode ───────────────────────────────────────────────────────────
 if [[ "$DRY_RUN" -eq 1 ]]; then
-    ok "Task3 flight-test configuration validated"
+    # 非飞控全链路自检: 启动地面站/雷达里程计/相机/视觉跟踪/电磁铁/显示,
+    # 跳过飞控桥并强制关闭飞行指令
+    LAUNCH_CMD+=(
+        "dry_run:=true"
+        "enable_flight_commands:=false"
+        "enable_realtime_control:=false"
+    )
+    ok "Task3 配置校验通过, 以 dry-run 模式启动非飞控全链路自检"
+    ok "跳过: 飞控桥 (ed_uav_fcu_bridge); 保留: 地面站/雷达/相机/视觉/电磁铁/显示"
     printf '%s\n' "${LAUNCH_CMD[*]}"
-    exit 0
 fi
 
 # ─── Launch ─────────────────────────────────────────────────────────────────

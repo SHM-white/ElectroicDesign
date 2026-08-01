@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
-from typing import Protocol
 
 from typing_extensions import assert_never
 
@@ -21,6 +21,7 @@ from ed_uav_mission.d_task_events import (
     VehicleObserved,
 )
 from ed_uav_mission.d_task_model import (
+    DTaskEffect,
     DTaskFault,
     DTaskPhase,
     DTaskSelection,
@@ -30,24 +31,19 @@ from ed_uav_mission.d_task_model import (
 from ed_uav_mission.mission_model import StabilityParams
 
 
-class StabilityCallbacks(Protocol):
-    async def execute_takeoff(self, feedback: ExecuteMission.Feedback) -> None: ...
+@dataclass(frozen=True, slots=True)
+class StabilityCallbacks:
+    """Executor-owned callback surface used by the stability mission."""
 
-    async def send_hover(self, duration_sec: float) -> None: ...
-
-    async def send_move(self, x_m: float, y_m: float, altitude_m: float) -> None: ...
-
-    async def land_home(self, feedback: ExecuteMission.Feedback) -> None: ...
-
-    async def next_event(self) -> DTaskEvent: ...
-
-    def publish_transition(self, transition: DTaskTransition, feedback: ExecuteMission.Feedback) -> None: ...
-
-    def now_s(self) -> float: ...
-
-    def capture_home(self) -> None: ...
-
-    def capture_pose(self) -> tuple[float, float, float]: ...
+    execute_takeoff: Callable[[ExecuteMission.Feedback], Awaitable[None]]
+    send_hover: Callable[[float], Awaitable[None]]
+    send_move: Callable[[float, float, float], Awaitable[None]]
+    land_home: Callable[[ExecuteMission.Feedback], Awaitable[None]]
+    next_event: Callable[[], Awaitable[DTaskEvent]]
+    publish_transition: Callable[[DTaskTransition, ExecuteMission.Feedback], None]
+    now_s: Callable[[], float]
+    capture_home: Callable[[], None]
+    capture_pose: Callable[[], tuple[float, float, float]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,16 +63,19 @@ class StabilityRunner:
 
     async def run(self, selection: DTaskSelection, feedback: ExecuteMission.Feedback) -> None:
         state = DTaskState(
-            phase=DTaskPhase.STABILIZING,
+            phase=DTaskPhase.STABILITY_PRE_HOVER,
             task=selection.task,
             phase_started_at_s=selection.committed_at_s,
             mission_started_at_s=selection.committed_at_s,
         )
+        self._callbacks.publish_transition(DTaskTransition(state=state), feedback)
 
         # 起飞
         await self._callbacks.execute_takeoff(feedback)
-        state = replace(state, phase=DTaskPhase.STABILIZING, phase_started_at_s=self._callbacks.now_s())
-        self._callbacks.publish_transition(DTaskTransition(state=state), feedback)
+        state = replace(state, phase_started_at_s=self._callbacks.now_s())
+        self._callbacks.publish_transition(
+            DTaskTransition(state=state, effect=DTaskEffect.STABILITY_HOVER), feedback
+        )
 
         # 起飞后悬停
         await self._callbacks.send_hover(self._params.pre_hover_sec)
@@ -84,29 +83,59 @@ class StabilityRunner:
         x, y, yaw = self._callbacks.capture_pose()
 
         # 顺时针正方形轨迹
-        state = replace(state, phase=DTaskPhase.ACQUIRING, phase_started_at_s=self._callbacks.now_s())
-        self._callbacks.publish_transition(DTaskTransition(state=state), feedback)
+        state = replace(state, phase=DTaskPhase.STABILITY_SQUARE, phase_started_at_s=self._callbacks.now_s())
+        self._callbacks.publish_transition(
+            DTaskTransition(state=state, effect=DTaskEffect.STABILITY_WAYPOINT), feedback
+        )
         for waypoint in self._square_waypoints(x, y, yaw):
             await self._handle_next_event(state, feedback)
             await self._callbacks.send_move(waypoint.x_m, waypoint.y_m, self._params.altitude_m)
+            self._callbacks.publish_transition(
+                DTaskTransition(
+                    state=replace(state, phase_started_at_s=self._callbacks.now_s()),
+                    effect=DTaskEffect.STABILITY_WAYPOINT,
+                ),
+                feedback,
+            )
 
         # 顺时针圆形轨迹
-        state = replace(state, phase=DTaskPhase.TRACKING, phase_started_at_s=self._callbacks.now_s())
-        self._callbacks.publish_transition(DTaskTransition(state=state), feedback)
+        state = replace(state, phase=DTaskPhase.STABILITY_CIRCLE, phase_started_at_s=self._callbacks.now_s())
+        self._callbacks.publish_transition(
+            DTaskTransition(state=state, effect=DTaskEffect.STABILITY_WAYPOINT), feedback
+        )
         for waypoint in self._circle_waypoints(x, y, yaw):
             await self._handle_next_event(state, feedback)
             await self._callbacks.send_move(waypoint.x_m, waypoint.y_m, self._params.altitude_m)
+            self._callbacks.publish_transition(
+                DTaskTransition(
+                    state=replace(state, phase_started_at_s=self._callbacks.now_s()),
+                    effect=DTaskEffect.STABILITY_WAYPOINT,
+                ),
+                feedback,
+            )
 
         # 降落前悬停
-        state = replace(state, phase=DTaskPhase.STABILIZING, phase_started_at_s=self._callbacks.now_s())
-        self._callbacks.publish_transition(DTaskTransition(state=state), feedback)
+        state = replace(state, phase=DTaskPhase.STABILITY_POST_HOVER, phase_started_at_s=self._callbacks.now_s())
+        self._callbacks.publish_transition(
+            DTaskTransition(state=state, effect=DTaskEffect.STABILITY_HOVER), feedback
+        )
         await self._callbacks.send_hover(self._params.post_hover_sec)
 
         # 降落
-        state = replace(state, phase=DTaskPhase.RETURNING_HOME, phase_started_at_s=self._callbacks.now_s())
-        self._callbacks.publish_transition(DTaskTransition(state=state), feedback)
-        state = replace(state, phase=DTaskPhase.LANDING_HOME, phase_started_at_s=self._callbacks.now_s())
-        self._callbacks.publish_transition(DTaskTransition(state=state), feedback)
+        self._callbacks.publish_transition(
+            DTaskTransition(
+                state=replace(state, phase=DTaskPhase.RETURNING_HOME, phase_started_at_s=self._callbacks.now_s()),
+                effect=DTaskEffect.STABILITY_HOVER,
+            ),
+            feedback,
+        )
+        self._callbacks.publish_transition(
+            DTaskTransition(
+                state=replace(state, phase=DTaskPhase.LANDING_HOME, phase_started_at_s=self._callbacks.now_s()),
+                effect=DTaskEffect.LAND_HOME,
+            ),
+            feedback,
+        )
         await self._callbacks.land_home(feedback)
         state = replace(state, phase=DTaskPhase.SUCCEEDED, phase_started_at_s=self._callbacks.now_s())
         self._callbacks.publish_transition(DTaskTransition(state=state, complete=True), feedback)

@@ -4,7 +4,7 @@
 #
 # 用法:
 #   ./task3.sh                    # 启动（需要 SROS2 keystore）
-#   ./task3.sh --dry-run          # 验证配置，不启动硬件
+#   ./task3.sh --dry-run          # 非飞控全链路自检（地面站/雷达/相机/视觉/电磁铁/显示）
 #   ./task3.sh --fcu /dev/ttyUSB1 # 指定飞控串口
 #
 # 环境变量:
@@ -30,9 +30,9 @@ elif [[ -f /opt/ros/humble/setup.bash ]]; then
 fi
 
 # ─── 默认路径（使用仓库内已有配置）─────────────────────────────────────────
-MISSION_CONFIG="${REPO_ROOT}/ros2_ws/src/ed_uav_mission/config/missions/simulation_stability_test.yaml"
-FIELD_PROFILE="${REPO_ROOT}/ros2_ws/src/ed_uav_localization/config/fields/simulation_arena.yaml"
-CALIBRATION="${REPO_ROOT}/ros2_ws/src/ed_uav_description/config/example_uncalibrated.yaml"
+MISSION_CONFIG="${REPO_ROOT}/ros2_ws/src/ed_uav_mission/config/missions/d_arena_stability_test.yaml"
+FIELD_PROFILE="${REPO_ROOT}/ros2_ws/src/ed_uav_localization/config/fields/d_arena_2026.yaml"
+CALIBRATION="${REPO_ROOT}/calibration_data/field_calibrated_v1.yaml"
 CAMERA_PLAN="${REPO_ROOT}/calibration_data/camera_runtime_plan.local.json"
 HMAC_KEY="${REPO_ROOT}/config/hmac.key.hex"
 MID360_DRIVER="${REPO_ROOT}/ros2_ws/src/ed_uav_lidar/config/fields/mid360_field_manifest.local.json"
@@ -61,7 +61,7 @@ Task3 一键启动脚本
 用法: ./task3.sh [选项]
 
 选项:
-  --dry-run           验证配置，不启动硬件
+  --dry-run           非飞控全链路自检: 启动地面站/雷达里程计/相机/视觉跟踪/电磁铁/显示, 跳过飞控桥
   --fcu PATH          飞控串口（默认 /dev/ttyUSB0）
   --mission PATH      任务配置 YAML
   --profile PATH      场地配置 YAML

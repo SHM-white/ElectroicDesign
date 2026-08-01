@@ -23,6 +23,10 @@ def mission_status_state(phase: DTaskPhase) -> int:
         DTaskPhase.SAFE_HOVER: MissionStatus.STATE_RETURNING_HOME,
         DTaskPhase.SAFE_RETURN: MissionStatus.STATE_RETURNING_HOME,
         DTaskPhase.SAFE_LAND: MissionStatus.STATE_LANDING_HOME,
+        DTaskPhase.STABILITY_PRE_HOVER: MissionStatus.STATE_STABILITY_TEST,
+        DTaskPhase.STABILITY_SQUARE: MissionStatus.STATE_STABILITY_TEST,
+        DTaskPhase.STABILITY_CIRCLE: MissionStatus.STATE_STABILITY_TEST,
+        DTaskPhase.STABILITY_POST_HOVER: MissionStatus.STATE_STABILITY_TEST,
         DTaskPhase.SUCCEEDED: MissionStatus.STATE_SUCCEEDED,
         DTaskPhase.ABORTED: MissionStatus.STATE_ABORTED,
     }

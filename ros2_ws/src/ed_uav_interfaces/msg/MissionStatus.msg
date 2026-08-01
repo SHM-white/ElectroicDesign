@@ -16,6 +16,7 @@ uint8 STATE_RETURNING_HOME=7
 uint8 STATE_LANDING_HOME=8
 uint8 STATE_SUCCEEDED=9
 uint8 STATE_ABORTED=10
+uint8 STATE_STABILITY_TEST=11
 uint8 state
 uint8 route_stage
 bool complete

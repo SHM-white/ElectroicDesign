@@ -1,0 +1,22 @@
+schema_version: 1
+calibration_id: FIELD-CALIBRATED-20260801
+calibration_status: CALIBRATED
+sensor_serials: {camera_narrow: 'usb-revision:0ac8:3460:0122', camera_wide: 'usb-revision:0ac8:3460:0708',
+  lidar: MWLDA24001H3J22}
+transforms:
+  fcu_link:
+    xyz_m: [0.0, 0.0, 0.0]
+    rpy_rad: [0.0, 0.0, 0.0]
+  lidar_link:
+    xyz_m: [0.0, 0.0, 0.12]
+    rpy_rad: [0.0, 0.0, 0.0]
+  camera_narrow_optical_frame:
+    xyz_m: [0.0, 0.005, -0.13]
+    rpy_rad: [-3.14159265, 0.0, -1.57079633]
+  camera_wide_optical_frame:
+    xyz_m: [0.0, -0.005, -0.13]
+    rpy_rad: [3.14159265, 0.0, 1.57079633]
+  rangefinder_link:
+    xyz_m: [0.0, 0.0, -0.13]
+    rpy_rad: [0.0, 0.0, 0.0]
+calibration_hash: 858fe2f94efeb87005fb4f03de8054f15419fdf25a82c8301616d18694d749ea
