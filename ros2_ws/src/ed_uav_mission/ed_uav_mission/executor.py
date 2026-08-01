@@ -9,6 +9,9 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import sys
+import time
+import traceback
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
@@ -871,17 +874,46 @@ class MissionExecutorNode(Node):
 
 def main(args: list[str] | None = None) -> None:
     rclpy.init(args=args)
-    node = MissionExecutorNode()
-    try:
-        rclpy.spin(node)
-    except (KeyboardInterrupt, ExternalShutdownException):
-        pass
-    except RuntimeError:
-        if rclpy.ok():
-            raise
-    finally:
-        node.destroy_node()
-        rclpy.try_shutdown()
+    backoff = 1.0
+    while True:
+        node = None
+        try:
+            node = MissionExecutorNode()
+            rclpy.spin(node)
+            return
+        except (KeyboardInterrupt, ExternalShutdownException):
+            return
+        except Exception:  # noqa: BLE001 - daemon contract: never exit on errors
+            if node is not None:
+                node.get_logger().error(
+                    f"mission_executor 异常退出, {backoff:.1f}s 后重建节点"
+                    "(守护契约: 进程不退出)",
+                    exc_info=True,
+                )
+            else:
+                print(
+                    f"mission_executor 初始化异常, {backoff:.1f}s 后重建节点"
+                    "(守护契约: 进程不退出)",
+                    file=sys.stderr,
+                )
+                traceback.print_exc()
+            time.sleep(backoff)
+            backoff = min(backoff * 2.0, 30.0)
+        finally:
+            if node is not None:
+                try:
+                    node.destroy_node()
+                except Exception:  # noqa: BLE001
+                    pass
+            rclpy.try_shutdown()
+        try:
+            rclpy.init(args=args)
+        except Exception:  # noqa: BLE001
+            print("rclpy 重新初始化失败, 重试", file=sys.stderr)
+            time.sleep(backoff)
+            backoff = min(backoff * 2.0, 30.0)
+            continue
+        backoff = 1.0
 
 
 if __name__ == "__main__":

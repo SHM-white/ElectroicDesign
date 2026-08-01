@@ -22,4 +22,9 @@ setup(
     description="Core ED UAV description bringup and activation gate.",
     license="Apache-2.0",
     tests_require=["pytest"],
+    entry_points={
+        "console_scripts": [
+            "no_car_sim = ed_uav_bringup.no_car_sim:main",
+        ],
+    },
 )

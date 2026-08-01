@@ -32,10 +32,16 @@
           <topics publish="ALLOW">
             <topic>rosout</topic>
             <topic>/parameter_events</topic>
+            <topic>/d_task/mission_status</topic>
           </topics>
           <topics subscribe="ALLOW">
             <topic>/fcu/state</topic>
             <topic>/localization/status</topic>
+            <topic>/d_task/vehicle/telemetry</topic>
+            <topic>/d_task/target_observation</topic>
+            <topic>/payload/contact_state</topic>
+            <topic>/tf</topic>
+            <topic>/tf_static</topic>
           </topics>
           <services reply="ALLOW">
             <service>~/describe_parameters</service>
@@ -44,12 +50,38 @@
             <service>~/list_parameters</service>
             <service>~/set_parameters</service>
             <service>~/set_parameters_atomically</service>
+            <service>/d_task/pre_arm/select_mission</service>
           </services>
           <actions call="ALLOW">
             <action>fcu/flight_command</action>
+            <action>compute_path_to_pose</action>
           </actions>
           <actions execute="ALLOW">
             <action>mission/execute</action>
+          </actions>
+        </profile>
+      </profiles>
+    </enclave>
+    <enclave path="/">
+      <profiles>
+        <profile ns="/" node="*">
+          <topics publish="ALLOW">
+            <topic>*</topic>
+          </topics>
+          <topics subscribe="ALLOW">
+            <topic>*</topic>
+          </topics>
+          <services reply="ALLOW">
+            <service>*</service>
+          </services>
+          <services request="ALLOW">
+            <service>*</service>
+          </services>
+          <actions call="ALLOW">
+            <action>*</action>
+          </actions>
+          <actions execute="ALLOW">
+            <action>*</action>
           </actions>
         </profile>
       </profiles>

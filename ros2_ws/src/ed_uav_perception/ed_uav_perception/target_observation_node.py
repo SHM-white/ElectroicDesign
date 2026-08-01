@@ -55,6 +55,14 @@ except ImportError:  # pragma: no cover
 
 VEHICLE_TOPIC = "/d_task/vehicle/telemetry"
 ANNOTATED_IMAGE_TOPIC = "/d_task/target_observation/annotated_image"
+# 发布 QoS 必须兼容 mission_executor / mission_display 的 RELIABLE 订阅,
+# 否则视觉结果收不到 (黑屏)。图像仍用 sensor_data (BEST_EFFORT) 避免丢帧阻塞。
+TARGET_OBSERVATION_QOS = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+)
 VEHICLE_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=10,
@@ -321,7 +329,7 @@ class TargetObservationNode(Node):
 
         # ── Publishers ──────────────────────────────────────────────────
         self._publisher = self.create_publisher(
-            TargetObservation, "/d_task/target_observation", qos_profile_sensor_data
+            TargetObservation, "/d_task/target_observation", TARGET_OBSERVATION_QOS
         )
         self._annotated_publisher = self.create_publisher(
             Image, ANNOTATED_IMAGE_TOPIC, qos_profile_sensor_data

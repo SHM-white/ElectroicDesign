@@ -27,7 +27,11 @@ class BridgeAuthority:
     """Mutable synchronized authority state for one vehicle run."""
 
     def __init__(
-        self, mission_timeout_seconds: float = 90.0, *, hmi_boot_id: BootId = BootId(0)
+        self,
+        mission_timeout_seconds: float = 90.0,
+        *,
+        hmi_boot_id: BootId = BootId(0),
+        no_car_mode: bool = False,
     ) -> None:
         if mission_timeout_seconds <= 0.0:
             raise ValueError("mission timeout must be positive")
@@ -39,6 +43,7 @@ class BridgeAuthority:
         self._committed: MissionSelectionValue | None = None
         self._task3_gate_consumed = False
         self._mission_timeout_seconds = mission_timeout_seconds
+        self._no_car_mode = no_car_mode
 
     @property
     def committed_selection(self) -> MissionSelectionValue | None:
@@ -61,13 +66,21 @@ class BridgeAuthority:
         self, selection: MissionSelectionValue, fcu_armed: bool
     ) -> AuthorityDecision:
         with self._lock:
-            if self._car_boot_id is None:
+            if self._no_car_mode:
+                # 无小车模式: 无 CAR 会话/无真实飞控, 地面站选择本身即会话。
+                if self._state is AuthorityState.CAR_RUNNING:
+                    return self._result(False, RejectCode.READ_ONLY_AFTER_START)
+                if self._car_boot_id is None:
+                    self._car_boot_id = selection.car_boot_id
+                if self._state is AuthorityState.BOOT_LOCKED:
+                    self._state = AuthorityState.PRESTART
+            elif self._car_boot_id is None:
                 return self._result(False, RejectCode.NO_CAR_SESSION)
             if self._state is AuthorityState.CAR_RUNNING:
                 return self._result(False, RejectCode.READ_ONLY_AFTER_START)
-            if fcu_armed:
+            if fcu_armed and not self._no_car_mode:
                 return self._result(False, RejectCode.FCU_ALREADY_ARMED)
-            if selection.car_boot_id != self._car_boot_id:
+            if selection.car_boot_id != self._car_boot_id and not self._no_car_mode:
                 return self._result(False, RejectCode.CAR_EPOCH_MISMATCH)
             if self._state is AuthorityState.SELECTED and selection == self._committed:
                 acknowledgement = self._mission_status(
@@ -103,7 +116,7 @@ class BridgeAuthority:
             if self._pending.selection_id != selection_id:
                 return self._result(False, RejectCode.SELECTION_ID_MISMATCH)
             pending = self._pending
-            if fcu_armed:
+            if fcu_armed and not self._no_car_mode:
                 self._pending = None
                 self._state = AuthorityState.FAULT
                 return self._result(False, RejectCode.ARMED_DURING_SELECTION)
@@ -170,6 +183,44 @@ class BridgeAuthority:
                 mission_id=identity.mission_id,
                 field_profile_id=identity.field_profile_id,
                 timeout_seconds=identity.timeout_seconds,
+            )
+            return self._result(True, "MISSION_DISPATCH", execute_command=command)
+
+    def observe_no_car_start(
+        self,
+        identity: Task3FlightTestIdentity | None = None,
+    ) -> AuthorityDecision:
+        """No-car mode start: the HMI selection commit itself is the start.
+
+        No car telemetry and no FCU aux gate exist in this mode; the
+        ground-station task command directly dispatches the mission.
+        """
+        with self._lock:
+            if not self._no_car_mode:
+                return self._result(False, "NO_CAR_MODE_REQUIRED")
+            if self._committed is None:
+                return self._result(False, RejectCode.NO_COMMITTED_SELECTION)
+            if self._state is not AuthorityState.SELECTED:
+                return self._result(False, RejectCode.FCU_NOT_ARMED)
+            selection = self._committed
+            self._state = AuthorityState.CAR_RUNNING
+            task_name = selection.task.name.lower()
+            command = ExecuteMissionCommand(
+                mission_id=(
+                    identity.mission_id
+                    if identity is not None
+                    else f"d-task-{task_name}"
+                ),
+                field_profile_id=(
+                    identity.field_profile_id
+                    if identity is not None
+                    else f"d-task-{task_name}"
+                ),
+                timeout_seconds=(
+                    identity.timeout_seconds
+                    if identity is not None
+                    else self._mission_timeout_seconds
+                ),
             )
             return self._result(True, "MISSION_DISPATCH", execute_command=command)
 

@@ -148,9 +148,11 @@ LAUNCH_CMD=(
 # ─── Dry-run mode ───────────────────────────────────────────────────────────
 if [[ "$DRY_RUN" -eq 1 ]]; then
     # 非飞控全链路自检: 启动地面站/雷达里程计/相机/视觉跟踪/电磁铁/显示,
-    # 跳过飞控桥并强制关闭飞行指令
+    # 跳过飞控桥并强制关闭飞行指令; 无飞行指令故不启用 SROS2 (与 field_test.sh 一致)
     LAUNCH_CMD+=(
         "dry_run:=true"
+        "ros_security_enable:=false"
+        "ros_security_strategy:=Enforce"
         "enable_flight_commands:=false"
         "enable_realtime_control:=false"
     )

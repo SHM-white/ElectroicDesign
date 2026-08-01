@@ -60,6 +60,10 @@ class BoundUdpSocket:
                 data, source = owned.recvfrom(MAXIMUM_DATAGRAM_BYTES + 1)
             except BlockingIOError:
                 break
+            except OSError:
+                # Transient socket faults (e.g. EINTR after signal delivery)
+                # must not kill the daemon — treat as "no packet this round".
+                break
             packets.append(
                 ReceivedDatagram(
                     data=data,

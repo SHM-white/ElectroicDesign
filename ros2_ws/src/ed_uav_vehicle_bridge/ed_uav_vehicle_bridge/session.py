@@ -51,7 +51,9 @@ class SessionTracker:
         if source != self._policy.endpoint or frame.sender_id != self._policy.sender_id:
             raise ProtocolError(
                 ProtocolErrorCode.SOURCE_MISMATCH,
-                "sender endpoint is not the provisioned peer",
+                f"sender endpoint is not the provisioned peer "
+                f"(source={source} policy={self._policy.endpoint} "
+                f"sender={frame.sender_id} policy_sender={self._policy.sender_id})",
             )
         if frame.message_type not in self._policy.allowed_types:
             raise ProtocolError(

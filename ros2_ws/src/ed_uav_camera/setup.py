@@ -29,6 +29,7 @@ setup(
         "console_scripts": [
             "fake_camera_surface = ed_uav_camera.fake_cli:main",
             "fake_image_device = ed_uav_camera.fake_image_device:main",
+            "direct_uvc = ed_uav_camera.direct_uvc_node:main",
         ]
     },
 )

@@ -33,6 +33,8 @@ from launch_ros.actions import Node
 
 # Target revision for AprilTag detection
 _TARGET_REVISION = "d2026-apriltag-v1"
+_TASK3_MISSION_PROFILE_ID = "task3-stability"
+_TASK3_DEPLOYMENT_PRESET_ID = "field-2026"
 
 # Lidar transport mode
 _LIDAR_TRANSPORT = "mid360"
@@ -45,6 +47,14 @@ _LIDAR_LAUNCH = "lidar.launch.py"
 _FAST_LIO_LAUNCH = "fast_lio.launch.py"
 _DUAL_UVC_LAUNCH = "dual_uvc.launch.py"
 _TARGET_OBSERVATION_LAUNCH = "target_observation.launch.py"
+
+# UDP endpoints — same three-party layout as full_competition.launch.py
+_NUC_IP = "192.168.20.1"
+_CAR_IP = "192.168.20.2"
+_HMI_IP = "192.168.20.3"
+_CAR_SENDER_ID = 0x43415231  # "CAR1"
+_HMI_SENDER_ID = 0x484D4931  # "HMI1"
+_BRIDGE_SENDER_ID = 0x524F5331  # "ROS1"
 
 
 def _lidar_reachable(ip: str) -> bool:
@@ -126,30 +136,49 @@ def _build_actions(context):
             output="screen",
             parameters=[
                 {
+                    "bind_host": _NUC_IP,
+                    "bind_port": 42000,
+                    "car_peer_host": _CAR_IP,
+                    "car_peer_port": 42001,
+                    "hmi_peer_host": _HMI_IP,
+                    "hmi_peer_port": 42002,
+                    "car_sender_id": _CAR_SENDER_ID,
+                    "hmi_sender_id": _HMI_SENDER_ID,
+                    "bridge_sender_id": _BRIDGE_SENDER_ID,
                     "hmac_key_file": hmac_key_file,
+                    "mission_timeout_seconds": 90.0,
+                    "telemetry_stale_seconds": 0.75,
                     "task3_flight_test_mode": True,
                     "task3_mission_id": task3_identity,
                     "task3_field_profile_id": field_profile_id,
+                    "task3_mission_profile_id": _TASK3_MISSION_PROFILE_ID,
+                    "task3_deployment_preset_id": _TASK3_DEPLOYMENT_PRESET_ID,
+                    "task3_target_revision": _TARGET_REVISION,
                 }
             ],
         )
     )
 
-    # 3. H7 GPIO bridge (electromagnet/laser) — part of every dry-run chain check
-    actions.append(
-        Node(
-            package="ed_uav_fcu_bridge",
-            executable="ed_uav_h7_gpio_bridge",
-            name="ed_uav_h7_gpio_bridge",
-            output="screen",
-            parameters=[
-                {
-                    "serial_port": h7_serial_port,
-                    "baudrate": 115200,
-                }
-            ],
+    # 3. H7 GPIO bridge (electromagnet/laser) — skipped in dry-run when the
+    #    board is not attached (node exits on serial open failure by design)
+    h7_device_present = Path(h7_serial_port).exists() if dry_run else True
+    if not h7_device_present:
+        print(f"[dry-run] {h7_serial_port} not present — H7 GPIO (electromagnet/laser) skipped")
+    if h7_device_present:
+        actions.append(
+            Node(
+                package="ed_uav_fcu_bridge",
+                executable="ed_uav_h7_gpio_bridge",
+                name="ed_uav_h7_gpio_bridge",
+                output="screen",
+                parameters=[
+                    {
+                        "serial_port": h7_serial_port,
+                        "baudrate": 115200,
+                    }
+                ],
+            )
         )
-    )
 
     # 4. Mission executor
     actions.append(
@@ -168,6 +197,9 @@ def _build_actions(context):
                     "payload_config_path": str(mission_share / "config" / "payload_adapter.yaml"),
                     "programmable_capability_report": "",
                     "fcu_device_identity": "",
+                    "task3_mission_profile_id": _TASK3_MISSION_PROFILE_ID,
+                    "task3_deployment_preset_id": _TASK3_DEPLOYMENT_PRESET_ID,
+                    "task3_target_revision": _TARGET_REVISION,
                 }
             ],
             remappings=[
@@ -205,7 +237,10 @@ def _build_actions(context):
             "(same gate as field_test.sh)"
         )
     if lidar_chain_up:
-        extrinsics = lidar_share / "config" / "fields" / "field_extrinsics.yaml"
+        # field_extrinsics.yaml lives in src (not installed into share) — keep
+        # pointing at the repo copy, same as task3.sh's other src-relative inputs
+        repo_root = Path(__file__).resolve().parents[4]
+        extrinsics = repo_root / "ros2_ws" / "src" / "ed_uav_lidar" / "config" / "fields" / "field_extrinsics.yaml"
         actions.append(
             Node(
                 package="ed_uav_localization",
@@ -215,13 +250,31 @@ def _build_actions(context):
                 parameters=[{"calibration_file": str(extrinsics)}],
             )
         )
+        # MID-360 参数必须从 manifest 完整解析 (serial/sensor_ip/firmware/driver_json),
+        # 否则 lidar.launch.py 报 LIDAR_FIELD_CONFIGURATION_INCOMPLETE 不启动驱动 —
+        # 与 field_test.sh 的 manifest_value 逻辑一致
+        lidar_manifest = json.loads(Path(mid360_driver_config_path).read_text(encoding="utf-8"))
+        lidar_serial = str(lidar_manifest["serial_number"])
+        lidar_sensor_ip = str(lidar_manifest["lidar_ip"])
+        lidar_host_ip = str(lidar_manifest["host_ip"])
+        lidar_firmware = str(lidar_manifest["firmware"])
+        lidar_driver_json = Path(lidar_manifest["driver_json"])
+        if not lidar_driver_json.is_absolute():
+            lidar_driver_json = Path(mid360_driver_config_path).parent / lidar_driver_json
+        actions.append(
+            SetEnvironmentVariable("MID360_HOST_IP", lidar_host_ip)
+        )
         actions.append(
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(str(lidar_share / "launch" / _LIDAR_LAUNCH)),
                 launch_arguments={
                     "lidar_enabled": "true",
                     "transport": _LIDAR_TRANSPORT,
-                    "driver_config_path": mid360_driver_config_path,
+                    "serial_number": lidar_serial,
+                    "sensor_ip": lidar_sensor_ip,
+                    "firmware_version": lidar_firmware,
+                    "time_authority": "host",
+                    "driver_config_path": str(lidar_driver_json),
                 }.items(),
             )
         )
@@ -234,11 +287,14 @@ def _build_actions(context):
             )
         )
 
-    # 7. Camera — dual UVC
+    # 7. Camera — dual UVC (OpenCV direct capture: v4l2_camera cannot handle MJPG)
     actions.append(
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(str(camera_share / "launch" / _DUAL_UVC_LAUNCH)),
-            launch_arguments={"camera_plan": camera_runtime_plan}.items(),
+            launch_arguments={
+                "camera_plan": camera_runtime_plan,
+                "use_direct_capture": "true",
+            }.items(),
         )
     )
 

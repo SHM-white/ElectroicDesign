@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from queue import Empty, SimpleQueue
 from typing_extensions import assert_never
 
@@ -87,7 +88,11 @@ class VehicleBridgeNode(Node):
                 key=self._key,
             )
         )
-        self._authority = BridgeAuthority(provision.mission_timeout_seconds)
+        self._no_car_mode = bool(self.get_parameter("no_car_mode").value)
+        self._authority = BridgeAuthority(
+            provision.mission_timeout_seconds,
+            no_car_mode=self._no_car_mode,
+        )
         self._car_session = SessionTracker(
             PeerPolicy(provision.car_sender_id, provision.car_peer, frozenset({MessageType.CAR_TELEMETRY}))
         )
@@ -134,18 +139,41 @@ class VehicleBridgeNode(Node):
         self._freshness_timer = self.create_timer(0.05, self._check_freshness, callback_group=self._callbacks)
         self.get_logger().info("vehicle_bridge.ready")
 
+    def _guard(self, label: str, action: Callable[[], None]) -> None:
+        """Run one callback body; any exception is logged and isolated.
+
+        The ground-station communication module must NEVER exit on errors:
+        a single bad datagram or transient ROS failure must not kill the
+        process that keeps the UDP boundary alive.
+        """
+        try:
+            action()
+        except Exception:  # noqa: BLE001 - daemon contract: log and continue
+            self.get_logger().error(f"{label} 异常(已隔离, 通信模块继续运行)", exc_info=True)
+
     def _drain_udp(self) -> None:
         while True:
             try:
                 selection, future = self._selection_completions.get_nowait()
             except Empty:
                 break
-            self._finish_selection(selection, future)
-        for packet in self._socket.receive(32):
-            try:
-                self._handle_packet(packet)
-            except ProtocolError as error:
-                self.get_logger().warning(f"udp.reject code={error.code}")
+            self._guard(
+                "selection_completion",
+                lambda selection=selection, future=future: self._finish_selection(selection, future),
+            )
+        try:
+            packets = self._socket.receive(32)
+        except Exception:  # noqa: BLE001 - socket faults must not kill the daemon
+            self.get_logger().error("udp.receive 异常(已隔离)", exc_info=True)
+            packets = ()
+        for packet in packets:
+            self._guard("udp_packet", lambda packet=packet: self._handle_packet_safely(packet))
+
+    def _handle_packet_safely(self, packet: ReceivedDatagram) -> None:
+        try:
+            self._handle_packet(packet)
+        except ProtocolError as error:
+            self.get_logger().warning(f"udp.reject code={error.code} detail={error}")
 
     def _handle_packet(self, packet: ReceivedDatagram) -> None:
         datagram = decode_datagram(packet.data, self._key)
@@ -179,7 +207,11 @@ class VehicleBridgeNode(Node):
         if not self._mission_idle:
             self._send_rejection(selection.selection_id, selection.car_boot_id, "MISSION_NOT_IDLE")
             return
-        if self._task3_flight_test_mode:
+        if self._no_car_mode:
+            # 无小车模式: 无 CAR 会话, 地面站选择即会话; 任务类型由 executor 的
+            # selection contract 校验, 此处不做 task3 专有 gate。
+            self._car_epoch = selection.car_boot_id
+        elif self._task3_flight_test_mode:
             if selection.task is not DTask.STABILITY_TEST:
                 self._send_rejection(selection.selection_id, selection.car_boot_id, "TASK3_SELECTION_REQUIRED")
                 return
@@ -229,6 +261,12 @@ class VehicleBridgeNode(Node):
             self._send_mission_status(decision.acknowledgement)
         else:
             self._send_rejection(selection.selection_id, selection.car_boot_id, decision.reason)
+        if self._no_car_mode and decision.acknowledgement is not None:
+            # 无小车模式: 地面站 TASK 指令提交即开始任务, 无需小车 START 事件
+            # 或飞控 AUX gate。
+            start = self._authority.observe_no_car_start(self._task3_identity)
+            if start.execute_command is not None:
+                self._apply_start(start)
 
     def _apply_start(self, decision: AuthorityDecision) -> None:
         if decision.execute_command is None:
@@ -254,6 +292,9 @@ class VehicleBridgeNode(Node):
         self._vehicle_pub.publish(to_vehicle_message(value, datagram, now, self._start_stamp))
 
     def _check_freshness(self) -> None:
+        self._guard("freshness", self._check_freshness_impl)
+
+    def _check_freshness_impl(self) -> None:
         fault = self._car_session.telemetry_fault_if_stale(
             ReceiptSeconds(time.monotonic()), self._stale_seconds
         )
@@ -268,6 +309,9 @@ class VehicleBridgeNode(Node):
         self._send_rejection(SelectionId(0), fault.car_boot_epoch, decision.reason)
 
     def _on_fcu_state(self, message: FcuState) -> None:
+        self._guard("fcu_state", lambda: self._on_fcu_state_impl(message))
+
+    def _on_fcu_state_impl(self, message: FcuState) -> None:
         self._fcu_armed = bool(message.motors_armed and message.communication_ok)
         if self._task3_flight_test_mode:
             if self._task3_identity is not None:
@@ -289,12 +333,17 @@ class VehicleBridgeNode(Node):
             self._send_rejection(SelectionId(0), self._car_epoch, decision.reason)
 
     def _on_mission_status(self, message: MissionStatus) -> None:
+        self._guard("mission_status", lambda: self._on_mission_status_impl(message))
+
+    def _on_mission_status_impl(self, message: MissionStatus) -> None:
         self._mission_idle = message.state == MissionStatus.STATE_PRE_ARM and not message.complete
         self._hmi_sender.send(
             MessageType.MISSION_STATUS,
             encode_mission_status_for_hmi(
                 message,
-                self._authority.committed_selection if self._task3_flight_test_mode else None,
+                self._authority.committed_selection
+                if (self._task3_flight_test_mode or self._no_car_mode)
+                else None,
             ),
         )
 
@@ -317,10 +366,13 @@ class VehicleBridgeNode(Node):
         )
 
     def _send_mission_status(self, status: MissionStatusValue) -> None:
-        self._hmi_sender.send(
-            MessageType.MISSION_STATUS,
-            encode_mission_status_for_hmi(status),
-        )
+        try:
+            self._hmi_sender.send(
+                MessageType.MISSION_STATUS,
+                encode_mission_status_for_hmi(status),
+            )
+        except Exception:  # noqa: BLE001 - a UDP send fault must not kill the daemon
+            self.get_logger().error("hmi.send 异常(已隔离)", exc_info=True)
 
     def destroy_node(self) -> None:
         self._socket.close()

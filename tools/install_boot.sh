@@ -4,9 +4,10 @@
 #
 # 功能：
 #   1. 配置 Wi-Fi 热点（NetworkManager AP + DHCP 静态绑定 + 开机自启）
-#   2. 安装 ROS vehicle bridge / mission executor 为 systemd 服务
-#   3. 安装通信诊断日志服务
-#   4. 一键 enable/disable/status
+#   2. 安装最底层守护进程 (guardian) 托管 vehicle_bridge 通信模块
+#   3. 安装 mission executor / 无小车模拟环境服务
+#   4. 安装通信诊断日志服务
+#   5. 一键 enable/disable/status
 #
 # 用法：
 #   sudo ./tools/install_boot.sh install   # 交互式安装（首次）
@@ -36,7 +37,8 @@ STA_IFACE=""
 
 # systemd 服务名
 SVC_HOTSPOT_WAIT="ed-hotspot-wait.service"
-SVC_VEHICLE_BRIDGE="ed-vehicle-bridge.service"
+SVC_GUARDIAN="ed-guardian.service"
+SVC_NO_CAR_SIM="ed-no-car-sim.service"
 SVC_MISSION_EXECUTOR="ed-mission-executor.service"
 SVC_DIAGNOSTIC="ed-comm-diagnostic.service"
 
@@ -118,12 +120,25 @@ detect_iface() {
 
 detect_ros() {
     ROS_SETUP=""
+    ROS_UNDERLAY=""
     if [[ -f "${REPO_ROOT}/ros2_ws/install/setup.bash" ]]; then
         ROS_SETUP="${REPO_ROOT}/ros2_ws/install/setup.bash"
         ok "ROS 工作空间: $ROS_SETUP"
     else
         warn "ROS 工作空间未构建 (ros2_ws/install/ 不存在)"
     fi
+    if [[ -f /opt/ros/humble/setup.bash ]]; then
+        ROS_UNDERLAY="/opt/ros/humble/setup.bash"
+        ok "ROS 基础环境: $ROS_UNDERLAY"
+    fi
+}
+
+# systemd 子进程无登录 shell, 必须显式 source 两层环境
+ros_source_line() {
+    local line=""
+    [[ -n "$ROS_UNDERLAY" ]] && line="source ${ROS_UNDERLAY}; "
+    line="${line}source ${ROS_SETUP}"
+    echo "$line"
 }
 
 # ─── 配置持久化 ─────────────────────────────────────────────────────────────
@@ -144,6 +159,8 @@ HMAC_KEY_FILE=${HMAC_KEY_FILE:-}
 MISSION_CONFIG=${MISSION_CONFIG:-}
 PROFILE_PATH=${PROFILE_PATH:-}
 SIMULATION_ONLY=${SIMULATION_ONLY:-false}
+NO_CAR_MODE=${NO_CAR_MODE:-false}
+TASK3_IDENTITY=${TASK3_IDENTITY:-task3-stability-2026}
 EOF
     ok "配置已保存: $CONFIG_FILE"
 }
@@ -290,8 +307,10 @@ EOF
     ok "热点等待服务: ${SVC_HOTSPOT_WAIT} (接口: ${IFACE})"
 }
 
-install_vehicle_bridge() {
-    [[ -n "${ROS_SETUP:-}" ]] || { warn "跳过 vehicle bridge（ROS 未构建）"; return; }
+install_guardian() {
+    [[ -n "${ROS_SETUP:-}" ]] || { warn "跳过 guardian（ROS 未构建）"; return; }
+    local ros_source
+    ros_source="$(ros_source_line)"
 
     # 自动查找密钥文件
     local effective_key="${HMAC_KEY_FILE:-}"
@@ -303,9 +322,66 @@ install_vehicle_bridge() {
     local key_param=""
     [[ -n "$effective_key" ]] && key_param="-p hmac_key_file:=${effective_key}"
 
-    cat > "/etc/systemd/system/${SVC_VEHICLE_BRIDGE}" <<EOF
+    # 无小车模式: bridge 加 no_car_mode + task3 身份参数, 地面站 TASK 直接开始任务
+    local bridge_mode_params=""
+    if [[ "${NO_CAR_MODE:-false}" == "true" ]]; then
+        local field_profile_id
+        field_profile_id="$(grep -m1 '^profile_id:' "$PROFILE_PATH" 2>/dev/null | awk '{print $2}')"
+        bridge_mode_params=" -p task3_flight_test_mode:=true -p no_car_mode:=true \
+ -p task3_mission_id:=${TASK3_IDENTITY:-task3-stability-2026} \
+ -p task3_field_profile_id:=${field_profile_id:-d-arena-2026} \
+ -p task3_mission_profile_id:=task3-stability \
+ -p task3_deployment_preset_id:=field-2026 \
+ -p task3_target_revision:=d2026-apriltag-v1 \
+ -p task3_timeout_seconds:=120.0"
+        ok "无小车模式: 地面站 TASK 指令直接开始任务 (identity=${TASK3_IDENTITY:-task3-stability-2026})"
+    fi
+
+    # guardian 环境文件 (START_CMD 由 guardian 负责拉起 bridge)
+    local guardian_conf="${STATE_DIR}/guardian.conf"
+    mkdir -p "$(dirname "$guardian_conf")"
+    cat > "$guardian_conf" <<EOF
+ED_GUARDIAN_LOG_DIR=/var/log/ed-uav
+ED_GUARDIAN_WATCH_NAME=vehicle_bridge
+ED_GUARDIAN_START_CMD=${ros_source}; ros2 run ed_uav_vehicle_bridge vehicle_bridge --ros-args -p bind_host:=${NUC_IP} -p bind_port:=42000 -p car_peer_host:=${CAR_IP} -p car_peer_port:=42001 -p hmi_peer_host:=${HMI_IP} -p hmi_peer_port:=42002 -p car_sender_id:=1128419121 -p hmi_sender_id:=1213024561 -p bridge_sender_id:=1381122353 ${key_param} -p telemetry_stale_seconds:=0.75 -p mission_timeout_seconds:=90.0${bridge_mode_params}
+EOF
+    chmod 600 "$guardian_conf"
+    ok "guardian 配置: $guardian_conf"
+
+    cat > "/etc/systemd/system/${SVC_GUARDIAN}" <<EOF
 [Unit]
-Description=ED UAV: ROS vehicle bridge (UDP ↔ ROS)
+Description=ED UAV: 最底层守护进程 (监控 vehicle_bridge 崩溃自动拉起并记录日志)
+After=${SVC_HOTSPOT_WAIT}
+Requires=${SVC_HOTSPOT_WAIT}
+
+[Service]
+Type=simple
+Environment=HOME=/root
+EnvironmentFile=${guardian_conf}
+ExecStartPre=/bin/sleep 2
+ExecStart=${REPO_ROOT}/tools/ed_guardian.sh
+Restart=always
+RestartSec=2
+StartLimitIntervalSec=0
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ed-guardian
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    ok "Guardian 服务: ${SVC_GUARDIAN} (Restart=always, 接管 vehicle_bridge 生命周期)"
+}
+
+install_no_car_sim() {
+    [[ -n "${ROS_SETUP:-}" ]] || { warn "跳过 no-car sim（ROS 未构建）"; return; }
+    [[ "${NO_CAR_MODE:-false}" == "true" ]] || { info "无小车模式未启用, 跳过模拟环境服务"; return; }
+    local ros_source
+    ros_source="$(ros_source_line)"
+
+    cat > "/etc/systemd/system/${SVC_NO_CAR_SIM}" <<EOF
+[Unit]
+Description=ED UAV: 无小车模拟环境 (模拟 /fcu/state /localization/status /fcu/flight_command)
 After=${SVC_HOTSPOT_WAIT}
 Requires=${SVC_HOTSPOT_WAIT}
 
@@ -313,27 +389,18 @@ Requires=${SVC_HOTSPOT_WAIT}
 Type=simple
 Environment=HOME=/root
 ExecStartPre=/bin/sleep 2
-ExecStart=/bin/bash -c '\
-  source ${ROS_SETUP}; \
-  ros2 run ed_uav_vehicle_bridge ed_uav_vehicle_bridge \
-    --ros-args -p bind_host:=${NUC_IP} -p bind_port:=42000 \
-    -p car_peer_host:=${CAR_IP} -p car_peer_port:=42001 \
-    -p hmi_peer_host:=${HMI_IP} -p hmi_peer_port:=42002 \
-    -p car_sender_id:=1128419121 -p hmi_sender_id:=1212563761 \
-    -p bridge_sender_id:=1381122353 \
-    ${key_param} \
-    -p telemetry_stale_seconds:=0.75 \
-    -p mission_timeout_seconds:=90.0'
-Restart=on-failure
+ExecStart=/bin/bash -c '${ros_source}; ros2 run ed_uav_bringup no_car_sim --ros-args -p state_rate_hz:=10.0'
+Restart=always
 RestartSec=3
+StartLimitIntervalSec=0
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=ed-bridge
+SyslogIdentifier=ed-no-car-sim
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    ok "Vehicle bridge 服务: ${SVC_VEHICLE_BRIDGE}"
+    ok "无小车模拟环境服务: ${SVC_NO_CAR_SIM}"
 }
 
 install_mission_executor() {
@@ -342,26 +409,52 @@ install_mission_executor() {
 
     local profile="${PROFILE_PATH:-}"
     local sim="${SIMULATION_ONLY:-false}"
+    local no_car="${NO_CAR_MODE:-false}"
+    [[ "$no_car" == "true" ]] && sim="true"
+    local ros_source
+    ros_source="$(ros_source_line)"
+    local after_unit="${SVC_GUARDIAN}"
+    local requires_line="Requires=${SVC_GUARDIAN}"
+    if [[ "$no_car" == "true" ]]; then
+        after_unit="${SVC_NO_CAR_SIM} ${SVC_GUARDIAN}"
+        requires_line="Requires=${SVC_NO_CAR_SIM} ${SVC_GUARDIAN}"
+    fi
+
+    # 标定文件: 真机 CALIBRATED; simulation_only 要求 SYNTHETIC, 否则 preflight 拒绝
+    local calibration
+    if [[ "$sim" == "true" ]]; then
+        calibration="${REPO_ROOT}/ros2_ws/src/ed_uav_description/config/synthetic_calibrated.yaml"
+    else
+        calibration="${CALIBRATION_FILE:-${REPO_ROOT}/calibration_data/field_calibrated_v1.yaml}"
+    fi
 
     cat > "/etc/systemd/system/${SVC_MISSION_EXECUTOR}" <<EOF
 [Unit]
 Description=ED UAV: ROS mission executor
-After=${SVC_VEHICLE_BRIDGE}
-Requires=${SVC_VEHICLE_BRIDGE}
+After=${after_unit}
+${requires_line}
 
 [Service]
 Type=simple
 Environment=HOME=/root
 ExecStartPre=/bin/sleep 3
 ExecStart=/bin/bash -c '\
-  source ${ROS_SETUP}; \
+  ${ros_source}; \
   ros2 run ed_uav_mission mission_executor \
     --ros-args --enclave /ed_uav_mission_executor \
     -p mission_config_path:=${MISSION_CONFIG} \
     ${profile:+-p profile_path:=${profile}} \
-    -p simulation_only:=${sim}'
-Restart=on-failure
+    -p calibration_file:=${calibration} \
+    -p simulation_only:=${sim} \
+    -p task3_mission_profile_id:=task3-stability \
+    -p task3_deployment_preset_id:=field-2026 \
+    -p task3_target_revision:=d2026-apriltag-v1 \
+    -r /vehicle/telemetry:=/d_task/vehicle/telemetry \
+    -r /mission/status:=/d_task/mission_status \
+    -r /mission/select_d_task:=/d_task/pre_arm/select_mission'
+Restart=always
 RestartSec=3
+StartLimitIntervalSec=0
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=ed-mission
@@ -369,7 +462,7 @@ SyslogIdentifier=ed-mission
 [Install]
 WantedBy=multi-user.target
 EOF
-    ok "Mission executor 服务: ${SVC_MISSION_EXECUTOR}"
+    ok "Mission executor 服务: ${SVC_MISSION_EXECUTOR} (simulation_only=${sim})"
 }
 
 install_diagnostic() {
@@ -441,6 +534,7 @@ do_install() {
     read -rp "  HMAC 密钥文件 (十六进制)${default_key_info}: " input; HMAC_KEY_FILE="${input:-${HMAC_KEY_FILE:-$default_key}}"
     read -rp "  任务配置文件 (可选, 留空跳过 mission): " input; MISSION_CONFIG="${input:-${MISSION_CONFIG:-}}"
     read -rp "  场地配置文件 (可选): " input; PROFILE_PATH="${input:-${PROFILE_PATH:-}}"
+    read -rp "  无小车模式? (true/false) [${NO_CAR_MODE:-false}]: " input; NO_CAR_MODE="${input:-${NO_CAR_MODE:-false}}"
     read -rp "  仅仿真模式? (true/false) [${SIMULATION_ONLY:-false}]: " input; SIMULATION_ONLY="${input:-${SIMULATION_ONLY:-false}}"
 
     echo ""
@@ -451,7 +545,8 @@ do_install() {
 
     # systemd
     install_wait_service
-    install_vehicle_bridge
+    install_guardian
+    install_no_car_sim
     install_mission_executor
     install_diagnostic
 
@@ -461,7 +556,8 @@ do_install() {
     # 重载并启用
     systemctl daemon-reload
     systemctl enable "$SVC_HOTSPOT_WAIT" >/dev/null 2>&1
-    [[ -f "/etc/systemd/system/${SVC_VEHICLE_BRIDGE}" ]] && systemctl enable "$SVC_VEHICLE_BRIDGE" >/dev/null 2>&1
+    [[ -f "/etc/systemd/system/${SVC_GUARDIAN}" ]] && systemctl enable "$SVC_GUARDIAN" >/dev/null 2>&1
+    [[ -f "/etc/systemd/system/${SVC_NO_CAR_SIM}" ]] && systemctl enable "$SVC_NO_CAR_SIM" >/dev/null 2>&1
     [[ -f "/etc/systemd/system/${SVC_MISSION_EXECUTOR}" ]] && systemctl enable "$SVC_MISSION_EXECUTOR" >/dev/null 2>&1
     [[ -f "/etc/systemd/system/${SVC_DIAGNOSTIC}" ]] && systemctl enable "$SVC_DIAGNOSTIC" >/dev/null 2>&1
     ok "所有服务已启用"
@@ -474,7 +570,7 @@ do_install() {
     echo ""
     echo "  管理命令:"
     echo "    sudo systemctl status ed-*            # 查看全部服务"
-    echo "    sudo journalctl -u ed-vehicle-bridge -f  # 实时日志"
+    echo "    sudo journalctl -u ed-guardian -f  # 实时日志 (guardian + bridge)"
     echo "    sudo ./tools/install_boot.sh status   # 一键状态"
     echo ""
 }
@@ -484,13 +580,14 @@ do_uninstall() {
     check_root
     info "卸载 ED UAV 开机自启服务"
 
-    for svc in "$SVC_DIAGNOSTIC" "$SVC_MISSION_EXECUTOR" "$SVC_VEHICLE_BRIDGE" "$SVC_HOTSPOT_WAIT"; do
+    for svc in "$SVC_DIAGNOSTIC" "$SVC_MISSION_EXECUTOR" "$SVC_NO_CAR_SIM" "$SVC_GUARDIAN" "$SVC_HOTSPOT_WAIT"; do
         if systemctl is-enabled "$svc" &>/dev/null; then
             systemctl disable --now "$svc" 2>/dev/null || true
             ok "已禁用: $svc"
         fi
         rm -f "/etc/systemd/system/${svc}"
     done
+    rm -f "${STATE_DIR}/guardian.conf"
 
     nmcli connection delete "$CON_NAME" 2>/dev/null || true
     rm -f "$DNSMASQ_CONF"
@@ -539,7 +636,7 @@ do_status() {
     echo ""
 
     # systemd 服务
-    for svc in "$SVC_HOTSPOT_WAIT" "$SVC_VEHICLE_BRIDGE" "$SVC_MISSION_EXECUTOR" "$SVC_DIAGNOSTIC"; do
+    for svc in "$SVC_HOTSPOT_WAIT" "$SVC_GUARDIAN" "$SVC_NO_CAR_SIM" "$SVC_MISSION_EXECUTOR" "$SVC_DIAGNOSTIC"; do
         local label="${svc%.service}"
         if [[ ! -f "/etc/systemd/system/${svc}" ]]; then
             echo -e "  ${label}:  ${Y}未安装${N}"
@@ -584,14 +681,14 @@ do_status() {
 # ─── enable/disable ─────────────────────────────────────────────────────────
 do_enable() {
     check_root
-    for svc in "$SVC_HOTSPOT_WAIT" "$SVC_VEHICLE_BRIDGE" "$SVC_MISSION_EXECUTOR" "$SVC_DIAGNOSTIC"; do
+    for svc in "$SVC_HOTSPOT_WAIT" "$SVC_GUARDIAN" "$SVC_NO_CAR_SIM" "$SVC_MISSION_EXECUTOR" "$SVC_DIAGNOSTIC"; do
         [[ -f "/etc/systemd/system/${svc}" ]] && systemctl enable "$svc" 2>/dev/null && ok "已启用: ${svc%.service}"
     done
 }
 
 do_disable() {
     check_root
-    for svc in "$SVC_HOTSPOT_WAIT" "$SVC_VEHICLE_BRIDGE" "$SVC_MISSION_EXECUTOR" "$SVC_DIAGNOSTIC"; do
+    for svc in "$SVC_HOTSPOT_WAIT" "$SVC_GUARDIAN" "$SVC_NO_CAR_SIM" "$SVC_MISSION_EXECUTOR" "$SVC_DIAGNOSTIC"; do
         systemctl disable "$svc" 2>/dev/null && ok "已禁用: ${svc%.service}" || true
     done
 }
@@ -600,14 +697,14 @@ do_disable() {
 do_start() {
     check_root
     nmcli connection up "$CON_NAME" >/dev/null 2>&1 || true
-    for svc in "$SVC_HOTSPOT_WAIT" "$SVC_VEHICLE_BRIDGE" "$SVC_MISSION_EXECUTOR" "$SVC_DIAGNOSTIC"; do
+    for svc in "$SVC_HOTSPOT_WAIT" "$SVC_GUARDIAN" "$SVC_NO_CAR_SIM" "$SVC_MISSION_EXECUTOR" "$SVC_DIAGNOSTIC"; do
         [[ -f "/etc/systemd/system/${svc}" ]] && systemctl start "$svc" 2>/dev/null && ok "已启动: ${svc%.service}"
     done
 }
 
 do_stop() {
     check_root
-    for svc in "$SVC_DIAGNOSTIC" "$SVC_MISSION_EXECUTOR" "$SVC_VEHICLE_BRIDGE" "$SVC_HOTSPOT_WAIT"; do
+    for svc in "$SVC_DIAGNOSTIC" "$SVC_MISSION_EXECUTOR" "$SVC_NO_CAR_SIM" "$SVC_GUARDIAN" "$SVC_HOTSPOT_WAIT"; do
         systemctl stop "$svc" 2>/dev/null && ok "已停止: ${svc%.service}" || true
     done
 }
@@ -619,13 +716,14 @@ do_restart() {
 
 # ─── 日志 ───────────────────────────────────────────────────────────────────
 do_logs() {
-    local svc="${1:-vehicle-bridge}"
+    local svc="${1:-all}"
     case "$svc" in
-        bridge|vehicle-bridge)  journalctl -u "$SVC_VEHICLE_BRIDGE" -f ;;
-        mission)                journalctl -u "$SVC_MISSION_EXECUTOR" -f ;;
-        diag|diagnostic)        journalctl -u "$SVC_DIAGNOSTIC" -f ;;
-        all)                    journalctl -u "ed-*" -f ;;
-        *)                      journalctl -u "$svc" -f ;;
+        bridge|vehicle-bridge|guardian) journalctl -u "$SVC_GUARDIAN" -f ;;
+        sim|no-car-sim)                journalctl -u "$SVC_NO_CAR_SIM" -f ;;
+        mission)                       journalctl -u "$SVC_MISSION_EXECUTOR" -f ;;
+        diag|diagnostic)               journalctl -u "$SVC_DIAGNOSTIC" -f ;;
+        all)                           journalctl -u "ed-*" -f ;;
+        *)                             journalctl -u "$svc" -f ;;
     esac
 }
 
@@ -656,7 +754,7 @@ main() {
             echo "    restart    重启全部服务"
             echo "    enable     启用开机自启"
             echo "    disable    禁用开机自启"
-            echo "    logs [svc] 查看实时日志 (bridge/mission/diag/all)"
+            echo "    logs [svc] 查看实时日志 (guardian/sim/mission/diag/all)"
             echo ""
             ;;
         *)
