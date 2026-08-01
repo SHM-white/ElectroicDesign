@@ -27,6 +27,7 @@ setup(
         "console_scripts": [
             "mission_executor = ed_uav_mission.executor:main",
             "mission_display = ed_uav_mission.mission_display_node:main",
+            "field_test = ed_uav_mission.field_test_node:main",
         ],
     },
 )

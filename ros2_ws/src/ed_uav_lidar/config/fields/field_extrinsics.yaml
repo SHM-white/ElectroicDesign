@@ -1,7 +1,7 @@
 schema_version: 1
 calibration_id: FIELD-MID360-MANUAL
 calibration_status: MANUAL
-calibration_hash: 5db1fb261c588379300b27dfd236bdd2fb83a5795ef95ebe1c34cdfff991de6a
+calibration_hash: 59204e7f42123d32d2731da1520fdc1f90ba6e2a78c63f295c1fb2002f80f4d6
 sensor_serials:
   camera_narrow: UNSET
   camera_wide: UNSET

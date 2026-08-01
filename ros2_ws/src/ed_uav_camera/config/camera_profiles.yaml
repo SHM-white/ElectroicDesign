@@ -39,6 +39,14 @@
         },
         {
           "fourcc": "YUYV",
+          "width": 1280,
+          "height": 720,
+          "frames_per_second": 5,
+          "compression": "uncompressed",
+          "bits_per_pixel": 16
+        },
+        {
+          "fourcc": "YUYV",
           "width": 640,
           "height": 480,
           "frames_per_second": 15,
@@ -58,6 +66,14 @@
           "frames_per_second": 20,
           "compression": "mjpeg",
           "declared_peak_mbit_s": 64.0
+        },
+        {
+          "fourcc": "YUYV",
+          "width": 1280,
+          "height": 720,
+          "frames_per_second": 5,
+          "compression": "uncompressed",
+          "bits_per_pixel": 16
         },
         {
           "fourcc": "YUYV",

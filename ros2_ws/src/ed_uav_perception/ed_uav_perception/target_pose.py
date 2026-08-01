@@ -127,7 +127,10 @@ def _yaw(candidate: PoseCandidate) -> float:
 
 
 def _select(
-    candidates: list[PoseCandidate], motion: MotionContext, limits: PoseLimits
+    candidates: list[PoseCandidate],
+    motion: MotionContext,
+    limits: PoseLimits,
+    symmetry_order: int = 1,
 ) -> PoseCandidate | RejectReason:
     viable = candidates
     if motion.prior is not None:
@@ -140,7 +143,12 @@ def _select(
         if not viable:
             return RejectReason.TEMPORAL_JUMP
     if motion.heading_rad is None and motion.prior is None:
-        return RejectReason.SYMMETRIC_AMBIGUOUS
+        if symmetry_order > 1:
+            return RejectReason.SYMMETRIC_AMBIGUOUS
+        # Asymmetric target (e.g. AprilTag) without any motion prior — the
+        # candidate with the lowest reprojection error is the best pose
+        # (top-down field test where the tag's yaw on the ground is arbitrary).
+        return min(viable, key=lambda candidate: candidate.reprojection_rms_px)
     expected_yaw = motion.heading_rad
     if expected_yaw is None and motion.prior is not None:
         prior_rotation, _ = cv2.Rodrigues(motion.prior.rotation_vector)
@@ -184,7 +192,7 @@ def estimate_target_pose(
     if not candidates:
         reason = RejectReason.REPROJECTION_RMS if best_inliers >= 4 else RejectReason.PNP_FAILED
         return PoseRejection(reason)
-    selected = _select(candidates, motion, limits)
+    selected = _select(candidates, motion, limits, points.symmetry_order)
     if isinstance(selected, RejectReason):
         return PoseRejection(
             selected,

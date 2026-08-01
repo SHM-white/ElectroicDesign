@@ -16,6 +16,19 @@ set -euo pipefail
 
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# ─── 自动 source ROS2 workspace ────────────────────────────────────────────
+_ros2_ws_setup="${REPO_ROOT}/ros2_ws/install/setup.bash"
+if [[ -f "$_ros2_ws_setup" ]]; then
+    set +u  # colcon setup.bash 使用未声明变量
+    # shellcheck disable=SC1090
+    source "$_ros2_ws_setup"
+    set -u
+elif [[ -f /opt/ros/humble/setup.bash ]]; then
+    set +u
+    source /opt/ros/humble/setup.bash
+    set -u
+fi
+
 # ─── 默认路径（使用仓库内已有配置）─────────────────────────────────────────
 MISSION_CONFIG="${REPO_ROOT}/ros2_ws/src/ed_uav_mission/config/missions/simulation_stability_test.yaml"
 FIELD_PROFILE="${REPO_ROOT}/ros2_ws/src/ed_uav_localization/config/fields/simulation_arena.yaml"
