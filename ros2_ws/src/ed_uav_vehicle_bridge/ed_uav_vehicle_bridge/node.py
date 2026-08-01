@@ -148,7 +148,13 @@ class VehicleBridgeNode(Node):
         self._udp_timer = self.create_timer(0.01, self._drain_udp, callback_group=self._callbacks)
         self._freshness_timer = self.create_timer(0.05, self._check_freshness, callback_group=self._callbacks)
         self._heartbeat_timer = self.create_timer(0.25, self._send_heartbeat, callback_group=self._callbacks)
-        self.get_logger().info("vehicle_bridge.ready")
+        self.get_logger().info(
+            f"vehicle_bridge.ready"
+            f"  bind={provision.bind.host}:{provision.bind.port}"
+            f"  car={provision.car_peer.host}:{provision.car_peer.port}"
+            f"  hmi={provision.hmi_peer.host}:{provision.hmi_peer.port}"
+            f"  heartbeat=4Hz"
+        )
 
     def _guard(self, label: str, action: Callable[[], None]) -> None:
         """Run one callback body; any exception is logged and isolated.
@@ -207,6 +213,11 @@ class VehicleBridgeNode(Node):
             case MessageType.TASK_SELECTION:
                 selection = decode_task_selection(frame.payload)
                 self._hmi_session.accept(datagram, packet.source, receipt)
+                self.get_logger().info(
+                    f"udp.rx TASK_SELECTION id={selection.selection_id}"
+                    f" task={int(selection.task)} mode={int(selection.mode)}"
+                    f" car_boot=0x{selection.car_boot_id:08X}"
+                )
                 self._apply_selection(selection)
             case MessageType.HEARTBEAT | MessageType.DIAGNOSTIC:
                 return
@@ -220,6 +231,9 @@ class VehicleBridgeNode(Node):
 
     def _apply_selection(self, selection: MissionSelectionValue) -> None:
         if not self._mission_idle:
+            self.get_logger().warning(
+                f"selection.reject id={selection.selection_id} reason=MISSION_NOT_IDLE"
+            )
             self._send_rejection(selection.selection_id, selection.car_boot_id, "MISSION_NOT_IDLE")
             return
         if selection.mode is TaskMode.SIMULATED:
@@ -231,18 +245,30 @@ class VehicleBridgeNode(Node):
             self._car_epoch = selection.car_boot_id
         elif self._task3_flight_test_mode:
             if selection.task is not DTask.STABILITY_TEST:
+                self.get_logger().warning(
+                    f"selection.reject id={selection.selection_id} reason=TASK3_SELECTION_REQUIRED"
+                )
                 self._send_rejection(selection.selection_id, selection.car_boot_id, "TASK3_SELECTION_REQUIRED")
                 return
             epoch = self._authority.observe_car_epoch(selection.car_boot_id, self._fcu_armed)
             if not epoch.accepted:
+                self.get_logger().warning(
+                    f"selection.reject id={selection.selection_id} reason={epoch.reason}"
+                )
                 self._send_rejection(selection.selection_id, selection.car_boot_id, epoch.reason)
                 return
             self._car_epoch = selection.car_boot_id
         decision = self._authority.request_selection(selection, self._fcu_armed)
         if decision.acknowledgement is not None:
+            self.get_logger().info(
+                f"selection.ack id={selection.selection_id} phase={int(decision.acknowledgement.phase)}"
+            )
             self._send_mission_status(decision.acknowledgement)
             return
         if decision.select_command is None:
+            self.get_logger().warning(
+                f"selection.reject id={selection.selection_id} reason={decision.reason}"
+            )
             self._send_rejection(selection.selection_id, selection.car_boot_id, decision.reason)
             return
         if not self._selection_client.service_is_ready():
@@ -254,6 +280,10 @@ class VehicleBridgeNode(Node):
             )
             self._send_rejection(selection.selection_id, selection.car_boot_id, "SELECTION_SERVICE_UNAVAILABLE")
             return
+        self.get_logger().info(
+            f"selection.call id={selection.selection_id} task={int(selection.task)}"
+            f" → mission_executor"
+        )
         future = self._selection_client.call_async(
             to_selection_request(selection, self._task3_identity)
         )
@@ -264,11 +294,18 @@ class VehicleBridgeNode(Node):
     def _finish_selection(self, selection: MissionSelectionValue, future: Future) -> None:
         failure = future.exception()
         if failure is not None:
+            self.get_logger().error(
+                f"selection.done id={selection.selection_id} result=FAILED exception={failure}"
+            )
             decision = self._authority.commit_selection(
                 selection.selection_id, False, "SELECTION_SERVICE_FAILED", self._fcu_armed
             )
         else:
             response = future.result()
+            self.get_logger().info(
+                f"selection.done id={selection.selection_id}"
+                f" accepted={response.accepted} reason={response.reason}"
+            )
             decision = self._authority.commit_selection(
                 selection.selection_id,
                 bool(response.accepted),
@@ -278,6 +315,9 @@ class VehicleBridgeNode(Node):
         if decision.acknowledgement is not None:
             self._send_mission_status(decision.acknowledgement)
         else:
+            self.get_logger().warning(
+                f"selection.reject id={selection.selection_id} reason={decision.reason}"
+            )
             self._send_rejection(selection.selection_id, selection.car_boot_id, decision.reason)
         if (self._no_car_mode or selection.mode is TaskMode.SIMULATED or self._immediate_start) and decision.acknowledgement is not None:
             # 立即启动: 地面站 TASK 指令提交即开始任务 — 模拟飞 (no_car_sim 应答),
@@ -362,6 +402,10 @@ class VehicleBridgeNode(Node):
             if (self._task3_flight_test_mode or self._no_car_mode)
             else None,
         )
+        self.get_logger().info(
+            f"udp.tx MISSION_STATUS state={message.state} complete={message.complete}"
+            f" idle={self._mission_idle} → CAR+HMI"
+        )
         self._hmi_sender.send(MessageType.MISSION_STATUS, payload)
         self._car_sender.send(MessageType.MISSION_STATUS, payload)
 
@@ -385,6 +429,13 @@ class VehicleBridgeNode(Node):
 
     def _send_mission_status(self, status: MissionStatusValue) -> None:
         payload = encode_mission_status_for_hmi(status)
+        self.get_logger().info(
+            f"udp.tx MISSION_STATUS phase={int(status.phase)}"
+            f" task={status.selected_task}"
+            f" sel={status.selection_id}"
+            f" car_boot=0x{status.car_boot_id:08X}"
+            f" → CAR+HMI"
+        )
         try:
             self._hmi_sender.send(MessageType.MISSION_STATUS, payload)
         except Exception as error:  # noqa: BLE001 - a UDP send fault must not kill the daemon
@@ -405,6 +456,11 @@ class VehicleBridgeNode(Node):
     def _send_heartbeat_impl(self) -> None:
         self._hmi_sender.send(MessageType.HEARTBEAT, b"")
         self._car_sender.send(MessageType.HEARTBEAT, b"")
+        self._heartbeat_count = getattr(self, "_heartbeat_count", 0) + 1
+        if self._heartbeat_count == 1 or self._heartbeat_count % 40 == 0:
+            self.get_logger().debug(
+                f"udp.tx HEARTBEAT #{self._heartbeat_count} → CAR+HMI"
+            )
 
     def destroy_node(self) -> None:
         self._socket.close()
