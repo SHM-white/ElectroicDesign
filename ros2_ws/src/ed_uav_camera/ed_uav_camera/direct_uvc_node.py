@@ -156,6 +156,8 @@ class DirectUvcNode(Node):
 
     def destroy_node(self) -> None:
         self._stop.set()
+        # 等 capture 线程退出 read() 阻塞, 再释放设备; 防止 release() 与 read() 竞争
+        self._thread.join(timeout=2.0)
         self._capture.release()
         super().destroy_node()
 

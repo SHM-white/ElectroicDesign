@@ -21,6 +21,8 @@ class DTaskPhase(str, Enum):
     WAITING_START = "waiting_start"
     TAKEOFF = "takeoff"
     STABILIZING = "stabilizing"
+    MOVE_RIGHT = "move_right"
+    SEARCHING = "searching"
     ACQUIRING = "acquiring"
     ESCORTING = "escorting"
     TRACKING = "tracking"
@@ -44,6 +46,7 @@ class DTaskPhase(str, Enum):
 class DTaskEffect(str, Enum):
     TAKEOFF = "takeoff"
     HOVER = "hover"
+    MOVE_RIGHT = "move_right"
     TRACK_TARGET = "track_target"
     RELEASE_PAYLOAD = "release_payload"
     DESCEND_TO_VEHICLE = "descend_to_vehicle"
@@ -100,7 +103,8 @@ D_TASK_BRANCHES: Final[Mapping[DTaskKind, DTaskBranch]] = MappingProxyType(
                 DTaskPhase.WAITING_START,
                 DTaskPhase.TAKEOFF,
                 DTaskPhase.STABILIZING,
-                DTaskPhase.ACQUIRING,
+                DTaskPhase.MOVE_RIGHT,
+                DTaskPhase.SEARCHING,
                 DTaskPhase.ESCORTING,
                 DTaskPhase.RELEASING,
                 DTaskPhase.RETURNING_HOME,
@@ -114,7 +118,8 @@ D_TASK_BRANCHES: Final[Mapping[DTaskKind, DTaskBranch]] = MappingProxyType(
                 DTaskPhase.WAITING_START,
                 DTaskPhase.TAKEOFF,
                 DTaskPhase.STABILIZING,
-                DTaskPhase.ACQUIRING,
+                DTaskPhase.MOVE_RIGHT,
+                DTaskPhase.SEARCHING,
                 DTaskPhase.TRACKING,
                 DTaskPhase.DESCENDING,
                 DTaskPhase.VEHICLE_DWELL,

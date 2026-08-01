@@ -37,7 +37,8 @@ def _airborne_runtime(task: DTaskKind = DTaskKind.PAYLOAD_DROP) -> DTaskRuntime:
     runtime.advance(VehicleObserved(1.0, vehicle(1.0)))
     runtime.advance(CommandCompleted(2.0, DTaskEffect.TAKEOFF))
     runtime.advance(Tick(5.0))
-    runtime.advance(TargetObserved(5.1, target(5.1)))
+    runtime.advance(CommandCompleted(5.5, DTaskEffect.MOVE_RIGHT))
+    runtime.advance(TargetObserved(6.0, target(6.0)))
     return runtime
 
 

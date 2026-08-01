@@ -24,14 +24,17 @@ def test_task1_releases_once_before_d_and_lands_home_within_90_seconds() -> None
     runtime = DTaskRuntime(selection(DTaskKind.PAYLOAD_DROP), DTaskRuntimeConfig(), payload_config())
     trace = [DTaskPhase.WAITING_START]
 
-    # When: start, takeoff, three stable seconds, target acquisition, B, release, and H execute.
+    # When: start, takeoff, three stable seconds, right move, target search, B, release, and H execute.
     takeoff = _advance(runtime, VehicleObserved(1.0, vehicle(1.0)), trace)
     stabilizing = _advance(runtime, CommandCompleted(2.0, DTaskEffect.TAKEOFF), trace)
     assert stabilizing.effect is DTaskEffect.HOVER
     _advance(runtime, Tick(4.99), trace)
-    acquiring = _advance(runtime, Tick(5.0), trace)
-    assert acquiring.state.phase is DTaskPhase.ACQUIRING
-    escort = _advance(runtime, TargetObserved(5.1, target(5.1)), trace)
+    move_right = _advance(runtime, Tick(5.0), trace)
+    assert move_right.state.phase is DTaskPhase.MOVE_RIGHT
+    assert move_right.effect is DTaskEffect.MOVE_RIGHT
+    searching = _advance(runtime, CommandCompleted(5.5, DTaskEffect.MOVE_RIGHT), trace)
+    assert searching.state.phase is DTaskPhase.SEARCHING
+    escort = _advance(runtime, TargetObserved(6.0, target(6.0)), trace)
     assert escort.effect is DTaskEffect.TRACK_TARGET
     release = _advance(runtime, VehicleObserved(20.0, vehicle(20.0, RouteStage.B)), trace)
     assert release.effect is DTaskEffect.RELEASE_PAYLOAD
@@ -50,7 +53,8 @@ def test_task1_releases_once_before_d_and_lands_home_within_90_seconds() -> None
         DTaskPhase.TAKEOFF,
         DTaskPhase.STABILIZING,
         DTaskPhase.STABILIZING,
-        DTaskPhase.ACQUIRING,
+        DTaskPhase.MOVE_RIGHT,
+        DTaskPhase.SEARCHING,
         DTaskPhase.ESCORTING,
         DTaskPhase.RELEASING,
         DTaskPhase.RETURNING_HOME,
@@ -64,11 +68,12 @@ def test_task2_tracks_descends_dwells_five_seconds_then_lands_home() -> None:
     runtime = DTaskRuntime(selection(DTaskKind.DYNAMIC_LANDING), DTaskRuntimeConfig(), payload_config())
     trace = [DTaskPhase.WAITING_START]
 
-    # When: the branch tracks, descends before D, proves dwell, retakes off, and returns H.
+    # When: the branch moves right, searches, tracks, descends before D, proves dwell, retakes off, and returns H.
     _advance(runtime, VehicleObserved(1.0, vehicle(1.0)), trace)
     _advance(runtime, CommandCompleted(2.0, DTaskEffect.TAKEOFF), trace)
-    _advance(runtime, Tick(5.0), trace)
-    _advance(runtime, TargetObserved(5.1, target(5.1)), trace)
+    _advance(runtime, Tick(5.0), trace)  # STABILIZING → MOVE_RIGHT
+    _advance(runtime, CommandCompleted(5.5, DTaskEffect.MOVE_RIGHT), trace)  # MOVE_RIGHT → SEARCHING
+    _advance(runtime, TargetObserved(6.0, target(6.0)), trace)  # SEARCHING → TRACKING
     descent = _advance(runtime, VehicleObserved(20.0, vehicle(20.0, RouteStage.B)), trace)
     dwell = _advance(runtime, CommandCompleted(20.5, DTaskEffect.DESCEND_TO_VEHICLE), trace)
     assert descent.effect is DTaskEffect.DESCEND_TO_VEHICLE

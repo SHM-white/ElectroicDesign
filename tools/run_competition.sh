@@ -176,11 +176,11 @@ build_launch_args() {
     if [[ -n "$DRY_RUN" ]]; then
         args+=("vehicle_bind_host:=0.0.0.0")
         args+=("ros_security_enable:=false")
-        args+=$DRY_RUN
+        args+=("$DRY_RUN")
     else
         args+=("vehicle_bind_host:=$NUC_IP")
     fi
-    [[ -n "$ENABLE_DISPLAY" ]] && args+=$ENABLE_DISPLAY
+    [[ -n "$ENABLE_DISPLAY" ]] && args+=("$ENABLE_DISPLAY")
     printf '%s ' "${args[@]}"
 }
 
@@ -208,7 +208,12 @@ main() {
     fi
 
     # 确保热点子网 192.168.20.x 可用 (CAR/HMI 通信)
-    [[ "$WITH_HOTSPOT" -eq 1 ]] && hotspot_ensure
+    # dry-run 自动跳过热点 (无小车/地面站不需要)
+    if [[ -n "$DRY_RUN" && "$WITH_HOTSPOT" -eq 1 ]]; then
+        ok "dry-run 模式: 跳过热点检查 (无小车/地面站)"
+    elif [[ "$WITH_HOTSPOT" -eq 1 ]]; then
+        hotspot_ensure
+    fi
 
     echo ""
     echo -e "${C}══════════════════════════════════════════════════════════${N}"
@@ -254,9 +259,11 @@ main() {
 
     # Ctrl+C/TERM: 转发信号给 ros2 launch 并等待其完整回收子进程,
     # 否则 vehicle_bridge 等子节点残留占住 42000 端口
+    _SHUTDOWN_REQUESTED=0
     _forward_and_wait() {
         local sig="$1"
-        trap - INT TERM EXIT
+        _SHUTDOWN_REQUESTED=1
+        trap - INT TERM
         echo ""
         warn "收到 $sig, 正在关闭 ROS 链路 ..."
         kill -"$sig" "$LAUNCH_PID" 2>/dev/null || true
@@ -270,16 +277,22 @@ main() {
             pkill -9 -P "$LAUNCH_PID" 2>/dev/null || true
             kill -9 "$LAUNCH_PID" 2>/dev/null || true
         fi
-        # 清理模拟器
-        [[ -n "${SIM_PID:-}" ]] && kill "$SIM_PID" 2>/dev/null && wait "$SIM_PID" 2>/dev/null || true
+        [[ -n "${SIM_PID:-}" ]] && kill "$SIM_PID" 2>/dev/null || true
         wait "$LAUNCH_PID" 2>/dev/null || true
         ok "ROS 链路已关闭"
         exit 0
     }
     trap '_forward_and_wait INT' INT
     trap '_forward_and_wait TERM' TERM
-    wait "$LAUNCH_PID" && EXIT_CODE=0 || EXIT_CODE=$?
-    [[ -n "${SIM_PID:-}" ]] && kill "$SIM_PID" 2>/dev/null && wait "$SIM_PID" 2>/dev/null || true
+
+    # 用轮询代替 wait: wait 在子 shell (后台 & 调用) 中不被 SIGINT 中断,
+    # 导致 trap 永远不触发, 所有子进程残留. 轮询 sleep 1 可被 trap 打断.
+    EXIT_CODE=0
+    while kill -0 "$LAUNCH_PID" 2>/dev/null; do
+        sleep 1
+    done
+    wait "$LAUNCH_PID" 2>/dev/null && EXIT_CODE=0 || EXIT_CODE=$?
+    [[ -n "${SIM_PID:-}" ]] && kill "$SIM_PID" 2>/dev/null || true
     exit "$EXIT_CODE"
 }
 

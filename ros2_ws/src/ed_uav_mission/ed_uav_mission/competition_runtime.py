@@ -48,6 +48,7 @@ class DTaskEffectError(RuntimeError):
 class CompetitionCallbacks:
     execute_takeoff: Callable[[ExecuteMission.Feedback], Awaitable[None]]
     send_hover: Callable[[float], Awaitable[None]]
+    move_right: Callable[[ExecuteMission.Feedback, float], Awaitable[None]]
     track_target: Callable[[TargetSnapshot, VehicleSnapshot, float], Awaitable[None]]
     release_payload: Callable[[TargetSnapshot, VehicleSnapshot], Awaitable[None]]
     descend_to_vehicle: Callable[[TargetSnapshot, VehicleSnapshot], Awaitable[None]]
@@ -106,6 +107,7 @@ class CompetitionRuntime:
             vehicle_freshness_s=params.vehicle_freshness_s,
             target_freshness_s=params.target_freshness_s,
             maximum_relative_error_m=params.maximum_relative_error_m,
+            right_offset_m=params.right_offset_m,
         )
         runtime = DTaskRuntime(selection, config, self._payload_config)
         latest_target: TargetSnapshot | None = None
@@ -181,6 +183,8 @@ class CompetitionRuntime:
                 await self._callbacks.execute_takeoff(feedback)
             case DTaskEffect.HOVER:
                 await self._callbacks.send_hover(config.stable_s)
+            case DTaskEffect.MOVE_RIGHT:
+                await self._callbacks.move_right(feedback, config.right_offset_m)
                 self._callbacks.capture_home()
             case DTaskEffect.TRACK_TARGET:
                 target_value, vehicle_value = self._required_tracking(target, vehicle)

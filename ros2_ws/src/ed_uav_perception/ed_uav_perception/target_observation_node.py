@@ -55,14 +55,6 @@ except ImportError:  # pragma: no cover
 
 VEHICLE_TOPIC = "/d_task/vehicle/telemetry"
 ANNOTATED_IMAGE_TOPIC = "/d_task/target_observation/annotated_image"
-# 发布 QoS 必须兼容 mission_executor / mission_display 的 RELIABLE 订阅,
-# 否则视觉结果收不到 (黑屏)。图像仍用 sensor_data (BEST_EFFORT) 避免丢帧阻塞。
-TARGET_OBSERVATION_QOS = QoSProfile(
-    history=HistoryPolicy.KEEP_LAST,
-    depth=10,
-    reliability=ReliabilityPolicy.RELIABLE,
-    durability=DurabilityPolicy.VOLATILE,
-)
 VEHICLE_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=10,
@@ -329,7 +321,7 @@ class TargetObservationNode(Node):
 
         # ── Publishers ──────────────────────────────────────────────────
         self._publisher = self.create_publisher(
-            TargetObservation, "/d_task/target_observation", TARGET_OBSERVATION_QOS
+            TargetObservation, "/d_task/target_observation", qos_profile_sensor_data
         )
         self._annotated_publisher = self.create_publisher(
             Image, ANNOTATED_IMAGE_TOPIC, qos_profile_sensor_data
@@ -625,18 +617,6 @@ class TargetObservationNode(Node):
         msg.rejection_reason = reason.value
         self._publisher.publish(msg)
 
-        # 无检测时也发布相机帧, 保证地面站始终有画面 (黑屏修复):
-        # 与 AcceptedObservation 路径一致, best-effort 发布
-        # 注意: acquisition_stamp 是 builtin_interfaces/Time, 不能整体赋给
-        # header (rclpy 类型校验 AssertionError), 必须写 header.stamp.
-        try:
-            ann_msg = self._bridge.cv2_to_imgmsg(decoded, encoding="bgr8")
-            ann_msg.header.stamp = msg.acquisition_stamp
-            ann_msg.header.frame_id = f"camera_{role}_optical_frame"
-            self._annotated_publisher.publish(ann_msg)
-        except Exception:
-            pass  # annotation is best-effort
-
         self._last_result = RejectedObservation(
             acquisition_sec=float(msg.acquisition_stamp.sec)
             + float(msg.acquisition_stamp.nanosec) * 1e-9,
@@ -737,6 +717,4 @@ def main(args: list[str] | None = None) -> None:
         pass
     finally:
         node.destroy_node()
-        # SIGINT 时 rclpy 可能已 shutdown, 避免重复调用报 rcl_shutdown already called
-        if rclpy.ok():
-            rclpy.shutdown()
+        rclpy.shutdown()

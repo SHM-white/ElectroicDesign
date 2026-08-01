@@ -57,9 +57,9 @@ from launch_ros.actions import Node
 NUC_IP = "192.168.20.1"
 CAR_IP = "192.168.20.2"
 HMI_IP = "192.168.20.3"
-CAR_SENDER_ID = "1128419121"   # 0x43415231 "CAR1"
-HMI_SENDER_ID = "1213024561"   # 0x484D4931 "HMI1"
-BRIDGE_SENDER_ID = "1381122353"  # 0x524F5331 "ROS1"
+CAR_SENDER_ID = 0x43415231   # "CAR1"
+HMI_SENDER_ID = 0x484D4931   # "HMI1"
+BRIDGE_SENDER_ID = 0x524F5331  # "ROS1"
 
 # Target revision for AprilTag detection
 _TARGET_REVISION = "d2026-apriltag-v1"
@@ -115,7 +115,7 @@ def _resolve_serial_ports(context, *args, **kwargs):
                 "串口自动检测失败 (%s), 使用默认路径", exc
             )
 
-    logging.getLogger("launch").info("飞控串口: %s, H7 GPIO 串口: %s", fcu_port, h7_port)
+    logging.getLogger("launch").info(f"飞控串口: {fcu_port}, H7 GPIO 串口: {h7_port}")
     return _build_nodes(context, fcu_port, h7_port)
 
 

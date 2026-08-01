@@ -109,6 +109,7 @@ class CompetitionParams(BaseModel):
     altitude_m: FiniteFloat = Field(default=1.5, gt=0.0)
     stability_params: StabilityParams | None = None
     forward_distance_m: FiniteFloat = Field(default=2.0, gt=0.0, le=50.0)
+    right_offset_m: FiniteFloat = Field(default=0.75, gt=0.0, le=5.0)
     stable_sec: FiniteFloat = Field(default=3.0, ge=3.0, le=3.0)
     start_deadline_s: FiniteFloat = Field(default=15.0, gt=0.0, le=15.0)
     b_deadline_s: FiniteFloat = Field(default=45.0, gt=15.0, lt=75.0)

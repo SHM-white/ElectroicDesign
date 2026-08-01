@@ -90,7 +90,24 @@ class CompetitionPlanner:
             label="d2026_target_track",
         )
         await self._send_move(waypoint)
-    
+
+    async def move_right_offset(self, offset_m: float, altitude_m: float) -> None:
+        """Move right by *offset_m* in the map frame from the current pose.
+
+        'Right' is defined as the drone body-frame +Y direction, which maps to
+        ``map yaw − π/2``.  The move is issued as a single map-frame waypoint.
+        """
+        current = self._capture_map_pose()
+        right_yaw = current.yaw_rad - math.pi / 2.0
+        waypoint = Waypoint(
+            x_m=current.x_m + offset_m * math.cos(right_yaw),
+            y_m=current.y_m + offset_m * math.sin(right_yaw),
+            altitude_m=altitude_m,
+            heading_rad=current.yaw_rad,
+            label="d2026_move_right",
+        )
+        await self._send_move(waypoint)
+
     async def precision_land_on_target(
         self,
         target: TargetSnapshot,

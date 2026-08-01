@@ -11,6 +11,8 @@ def mission_status_state(phase: DTaskPhase) -> int:
         DTaskPhase.WAITING_START: MissionStatus.STATE_PRE_ARM,
         DTaskPhase.TAKEOFF: MissionStatus.STATE_TAKEOFF,
         DTaskPhase.STABILIZING: MissionStatus.STATE_TAKEOFF,
+        DTaskPhase.MOVE_RIGHT: MissionStatus.STATE_TAKEOFF,
+        DTaskPhase.SEARCHING: MissionStatus.STATE_SEARCHING,
         DTaskPhase.ACQUIRING: MissionStatus.STATE_SEARCHING,
         DTaskPhase.ESCORTING: MissionStatus.STATE_ACCOMPANYING,
         DTaskPhase.TRACKING: MissionStatus.STATE_ACCOMPANYING,

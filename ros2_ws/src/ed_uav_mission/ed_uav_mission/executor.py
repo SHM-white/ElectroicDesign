@@ -298,6 +298,7 @@ class MissionExecutorNode(Node):
                 CompetitionCallbacks(
                     execute_takeoff=self._execute_takeoff,
                     send_hover=self._send_hover,
+                    move_right=self._move_right_task1,
                     track_target=self._track_d_task_target,
                     release_payload=self._release_d_task_payload,
                     descend_to_vehicle=self._descend_to_vehicle,
@@ -557,6 +558,10 @@ class MissionExecutorNode(Node):
             self._fsm.transition(MissionState.TAKEOFF, "D-task start observed")
         elif phase is DTaskPhase.STABILIZING and self._fsm.state == MissionState.TAKEOFF:
             self._fsm.transition(MissionState.EXECUTING, "takeoff complete")
+        elif phase is DTaskPhase.MOVE_RIGHT and self._fsm.state == MissionState.EXECUTING:
+            pass  # stay in EXECUTING; MOVE_RIGHT is a sub-step
+        elif phase is DTaskPhase.SEARCHING and self._fsm.state == MissionState.EXECUTING:
+            pass  # stay in EXECUTING; SEARCHING is a sub-step
         elif phase is DTaskPhase.STABILITY_PRE_HOVER and self._fsm.state == MissionState.TAKEOFF:
             self._fsm.transition(MissionState.EXECUTING, "stability trajectory started")
         elif phase in (DTaskPhase.RETURNING_HOME, DTaskPhase.SAFE_RETURN):
@@ -577,6 +582,20 @@ class MissionExecutorNode(Node):
         if self._competition_planner is None:
             raise RuntimeError("competition planner unavailable")
         await self._competition_planner.track_target(target, vehicle, altitude_m)
+
+    async def _move_right_task1(
+        self,
+        feedback: ExecuteMission.Feedback,
+        offset_m: float,
+    ) -> None:
+        if self._competition_planner is None:
+            raise RuntimeError("competition planner unavailable")
+        config = self._mission_config
+        if config is None or config.competition is None:
+            raise RuntimeError("competition params unavailable")
+        await self._competition_planner.move_right_offset(
+            offset_m, config.competition.altitude_m,
+        )
 
     async def _release_d_task_payload(
         self,

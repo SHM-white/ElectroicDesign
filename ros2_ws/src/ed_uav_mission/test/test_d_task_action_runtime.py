@@ -70,6 +70,10 @@ class FakeActionSurface:
         self.effects.append(f"hover:{duration_s:.1f}")
         self.now += duration_s
 
+    async def move_right(self, feedback: ExecuteMission.Feedback, offset_m: float) -> None:
+        self.effects.append(f"move_right:{offset_m:.2f}")
+        self.now += 0.1
+
     async def track(self, target_value, vehicle_value, altitude_m: float) -> None:
         self.effects.append(f"track:{altitude_m:.1f}")
         self.now += 0.1
@@ -101,6 +105,7 @@ class FakeActionSurface:
         return CompetitionCallbacks(
             execute_takeoff=self.takeoff,
             send_hover=self.hover,
+            move_right=self.move_right,
             track_target=self.track,
             release_payload=self.release,
             descend_to_vehicle=self.descend,
@@ -144,6 +149,7 @@ def test_task1_fake_action_surface_records_release_and_home_teardown() -> None:
     assert surface.effects == [
         "takeoff",
         "hover:3.0",
+        "move_right:0.75",
         "capture_home",
         "track:1.5",
         "release",
@@ -179,6 +185,7 @@ def test_task2_fake_action_surface_records_dense_dwell_and_home_teardown() -> No
 
     assert "descend" in surface.effects
     assert surface.effects.count("takeoff") == 2
+    assert "move_right:0.75" in surface.effects
     assert surface.effects[-2:] == ["return_home", "land_home"]
     assert surface.phases[-1] is DTaskPhase.SUCCEEDED
 

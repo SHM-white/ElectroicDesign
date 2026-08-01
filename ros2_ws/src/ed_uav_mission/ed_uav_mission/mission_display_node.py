@@ -145,6 +145,7 @@ class _DisplaySnapshot:
     fcu_armed: bool
     fcu_comm_ok: bool
     fcu_position_m: tuple[float, float]
+    lidar_odom_position_m: tuple[float, float] | None
     task3_control_allowed: bool
     emergency_lock_active: bool
     fcu_cmd_id: str
@@ -484,6 +485,8 @@ class MissionDisplayNode(Node):
         self._fcu_comm_ok: bool = False
         self._fcu_pos_x: float = 0.0
         self._fcu_pos_y: float = 0.0
+        self._lidar_odom_x: float | None = None
+        self._lidar_odom_y: float | None = None
         self._task3_control_allowed: bool = False
         self._emergency_lock_active: bool = False
         self._fcu_cmd_id: str = ""
@@ -522,6 +525,15 @@ class MissionDisplayNode(Node):
             "/fcu/state",
             self._on_fcu_state,
             20,
+        )
+        # 激光雷达里程计 (FAST-LIO → source_supervisor → /localization/odom)
+        # 当飞控光流不可用时 (dry-run/无飞控), 用激光雷达位置替代 POS 显示
+        from nav_msgs.msg import Odometry as OdometryMsg
+        self._lidar_odom_sub = self.create_subscription(
+            OdometryMsg,
+            "/localization/odom",
+            self._on_lidar_odom,
+            10,
         )
         self._feedback_sub = self.create_subscription(
             FlightCommand.Feedback,

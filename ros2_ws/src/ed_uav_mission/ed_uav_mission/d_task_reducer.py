@@ -105,11 +105,12 @@ class DTaskRuntime:
         if elapsed_s >= self.config.mission_deadline_s:
             return DTaskFault.MISSION_DEADLINE_MISSED
         if (
-            self.state.phase in (DTaskPhase.ESCORTING, DTaskPhase.TRACKING)
+            self.state.phase in (DTaskPhase.ESCORTING, DTaskPhase.TRACKING, DTaskPhase.SEARCHING)
             and elapsed_s >= self.config.b_deadline_s
         ):
             return DTaskFault.B_DEADLINE_MISSED
         if self.state.phase in (
+            DTaskPhase.SEARCHING,
             DTaskPhase.RELEASING,
             DTaskPhase.DESCENDING,
             DTaskPhase.VEHICLE_DWELL,
@@ -122,7 +123,7 @@ class DTaskRuntime:
             self.state.phase is DTaskPhase.STABILIZING
             and now_s - self.state.phase_started_at_s + 1e-9 >= self.config.stable_s
         ):
-            return self._transition(DTaskPhase.ACQUIRING, now_s)
+            return self._transition(DTaskPhase.MOVE_RIGHT, now_s, DTaskEffect.MOVE_RIGHT)
         return DTaskTransition(state=self.state)
 
     def _on_vehicle(self, now_s: float, vehicle: VehicleSnapshot, payload_state: PayloadState) -> DTaskTransition:
@@ -177,12 +178,21 @@ class DTaskRuntime:
                 else DTaskPhase.TRACKING
             )
             return self._transition(phase, now_s, DTaskEffect.TRACK_TARGET)
+        if self.state.phase is DTaskPhase.SEARCHING:
+            phase = (
+                DTaskPhase.ESCORTING
+                if self.state.task is DTaskKind.PAYLOAD_DROP
+                else DTaskPhase.TRACKING
+            )
+            return self._transition(phase, now_s, DTaskEffect.TRACK_TARGET)
         return DTaskTransition(state=self.state, effect=DTaskEffect.TRACK_TARGET)
 
     def _on_command_completed(self, now_s: float, effect: DTaskEffect) -> DTaskTransition:
         phase = self.state.phase
         if phase is DTaskPhase.TAKEOFF and effect is DTaskEffect.TAKEOFF:
             return self._transition(DTaskPhase.STABILIZING, now_s, DTaskEffect.HOVER)
+        if phase is DTaskPhase.MOVE_RIGHT and effect is DTaskEffect.MOVE_RIGHT:
+            return self._transition(DTaskPhase.SEARCHING, now_s)
         if phase is DTaskPhase.RELEASING and effect is DTaskEffect.RELEASE_PAYLOAD:
             state = replace(self.state, release_attempted=True)
             self.state = state
