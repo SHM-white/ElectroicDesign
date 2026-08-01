@@ -190,14 +190,14 @@ class BridgeAuthority:
         self,
         identity: Task3FlightTestIdentity | None = None,
     ) -> AuthorityDecision:
-        """No-car mode start: the HMI selection commit itself is the start.
+        """Immediate start: the HMI selection commit itself is the start.
 
-        No car telemetry and no FCU aux gate exist in this mode; the
-        ground-station task command directly dispatches the mission.
+        Used when no car telemetry / AUX gate should gate the dispatch
+        (simulated flight, or debug with immediate_start). The caller decides
+        when this path applies; this authority no longer requires the
+        construction-time no_car_mode flag.
         """
         with self._lock:
-            if not self._no_car_mode:
-                return self._result(False, "NO_CAR_MODE_REQUIRED")
             if self._committed is None:
                 return self._result(False, RejectCode.NO_COMMITTED_SELECTION)
             if self._state is not AuthorityState.SELECTED:

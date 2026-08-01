@@ -11,6 +11,7 @@ from ed_uav_perception.target_detector import DetectionFailure, REVISION_APRILTA
 from ed_uav_perception.target_pose import estimate_target_pose
 from ed_uav_perception.target_types import (
     AcceptedObservation,
+    CorrespondenceSet,
     ObservationRequest,
     ObservationResult,
     PoseEstimate,
@@ -111,8 +112,11 @@ def observe_target(request: ObservationRequest) -> ObservationResult:
         )
         motion = replace(motion, heading_rad=predicted_heading)
     detection = detect_target(request.image, request.frame.target_revision)
-    if isinstance(detection, DetectionFailure):
-        return _reject(request, detection.reason)
+    if not isinstance(detection, CorrespondenceSet):
+        # 正向检查: detect_target 可能返回不同模块的 DetectionFailure 类
+        # (apriltag_detector / target_detector), 反向 isinstance 会漏判
+        reason = getattr(detection, "reason", RejectReason.PNP_FAILED)
+        return _reject(request, reason)
     pose = estimate_target_pose(detection, request.camera, motion, request.limits)
     if not isinstance(pose, PoseEstimate):
         return RejectedObservation(

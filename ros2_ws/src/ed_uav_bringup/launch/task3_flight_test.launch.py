@@ -149,6 +149,7 @@ def _build_actions(context):
                     "mission_timeout_seconds": 90.0,
                     "telemetry_stale_seconds": 0.75,
                     "task3_flight_test_mode": True,
+                    "task3_immediate_start": LaunchConfiguration("task3_immediate_start").perform(context),
                     "task3_mission_id": task3_identity,
                     "task3_field_profile_id": field_profile_id,
                     "task3_mission_profile_id": _TASK3_MISSION_PROFILE_ID,
@@ -158,6 +159,18 @@ def _build_actions(context):
             ],
         )
     )
+
+    # 2.5 Dry-run vehicle telemetry simulator — no real car on the bench, so
+    #     feed the perception/display chain synthetic telemetry
+    if dry_run:
+        actions.append(
+            Node(
+                package="ed_uav_vehicle_bridge",
+                executable="dry_run_telemetry",
+                name="dry_run_telemetry",
+                output="screen",
+            )
+        )
 
     # 3. H7 GPIO bridge (electromagnet/laser) — skipped in dry-run when the
     #    board is not attached (node exits on serial open failure by design)
@@ -351,6 +364,11 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("ros_security_strategy", default_value="Enforce"),
             DeclareLaunchArgument("ros_security_keystore", description="SROS2 keystore directory"),
             DeclareLaunchArgument("enable_display", default_value="false", description="Enable mission display window"),
+            DeclareLaunchArgument(
+                "task3_immediate_start",
+                default_value="false",
+                description="地面站选择提交后立即启动任务, 不等待小车 START / AUX gate (调试用)",
+            ),
             DeclareLaunchArgument(
                 "dry_run",
                 default_value="false",

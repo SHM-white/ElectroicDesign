@@ -32,6 +32,9 @@ HMAC_KEY_FILE=""
 MID360_DRIVER_CONFIG=""
 FAST_LIO_LAUNCH=""
 TASK3_IDENTITY=""
+TASK3_IMMEDIATE_START="false"
+H7_SERIAL_PORT="/dev/ttyUSB1"
+LIDAR_IP="192.168.1.3"
 ENABLE_DISPLAY="false"
 ROS_SECURITY_KEYSTORE="${ROS_SECURITY_KEYSTORE:-}"
 
@@ -40,7 +43,7 @@ usage() {
     cat <<'EOF'
 Usage: ./tools/run_task3_flight_test.sh [OPTIONS]
 
-Task3 stability flight-test launcher with AUX5 gating and hard-lock emergency.
+Task3 stability flight-test launcher with AUX6 start gating and hard-lock emergency.
 
 Required:
   --mission-config PATH        Task3 mission YAML
@@ -52,6 +55,17 @@ Required:
   --mid360-driver-config PATH  MID-360 driver JSON config
   --fast-lio-launch PATH       FAST-LIO launch file path
   --task3-identity STR         Task3 mission identity
+
+Start gating (real flight, AUX semantics per drone/ tools):
+  --wait-car                   (default) wait for car START + AUX6 (>1700us)
+                               start switch (drone/monitor_aux6.py threshold
+                               1700; AUX1..AUX5 not used for start)
+  --immediate-start            skip car START / AUX gate, start on GCS selection
+                               (debug only)
+
+Options:
+  --h7-serial-port PATH        H7 GPIO (electromagnet/laser) serial (default /dev/ttyUSB1)
+  --lidar-ip IP                MID-360 IP (default 192.168.1.3)
 
 Environment:
   ROS_SECURITY_KEYSTORE        SROS2 keystore directory (required)
@@ -78,6 +92,10 @@ while [[ $# -gt 0 ]]; do
         --mid360-driver-config) MID360_DRIVER_CONFIG="$2"; shift 2 ;;
         --fast-lio-launch)      FAST_LIO_LAUNCH="$2"; shift 2 ;;
         --task3-identity)       TASK3_IDENTITY="$2"; shift 2 ;;
+        --immediate-start)      TASK3_IMMEDIATE_START="true"; shift ;;
+        --wait-car)             TASK3_IMMEDIATE_START="false"; shift ;;
+        --h7-serial-port)       H7_SERIAL_PORT="$2"; shift 2 ;;
+        --lidar-ip)             LIDAR_IP="$2"; shift 2 ;;
         --enable-display)       ENABLE_DISPLAY="true"; shift ;;
         -h|--help)              usage ;;
         *)                      die "Unknown argument: $1" ;;
@@ -136,6 +154,9 @@ LAUNCH_CMD=(
     "mid360_driver_config_path:=$MID360_DRIVER_CONFIG"
     "fast_lio_launch_path:=$FAST_LIO_LAUNCH"
     "task3_identity:=$TASK3_IDENTITY"
+    "task3_immediate_start:=$TASK3_IMMEDIATE_START"
+    "h7_serial_port:=$H7_SERIAL_PORT"
+    "lidar_ip:=$LIDAR_IP"
     "ros_security_enable:=true"
     "ros_security_strategy:=Enforce"
     "ros_security_keystore:=$ROS_SECURITY_KEYSTORE"

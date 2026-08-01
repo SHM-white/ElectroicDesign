@@ -35,6 +35,8 @@ class DirectUvcNode(Node):
         self.declare_parameter("frames_per_second", 20)
         self.declare_parameter("camera_info_url", "")
         self.declare_parameter("frame_id", "camera_optical_frame")
+        self.declare_parameter("publish_width", 0)
+        self.declare_parameter("publish_height", 0)
 
         self._device = str(self.get_parameter("video_device").value)
         self._width = int(self.get_parameter("width").value)
@@ -42,6 +44,15 @@ class DirectUvcNode(Node):
         self._fps = int(self.get_parameter("frames_per_second").value)
         self._frame_id = str(self.get_parameter("frame_id").value)
         info_url = str(self.get_parameter("camera_info_url").value)
+
+        # 发布分辨率: 0 = 采集原尺寸; 降采样时同步缩放 camera_info 内参 (K/2)
+        self._publish_width = int(self.get_parameter("publish_width").value)
+        self._publish_height = int(self.get_parameter("publish_height").value)
+        if (self._publish_width > 0) != (self._publish_height > 0):
+            self.get_logger().warn(
+                "publish_width/publish_height must be set together; keeping capture size"
+            )
+            self._publish_width = self._publish_height = 0
 
         self._image_pub = self.create_publisher(Image, "image_raw", qos_profile_sensor_data)
         info_qos = QoSProfile(
@@ -54,6 +65,7 @@ class DirectUvcNode(Node):
         self._camera_info = self._load_camera_info(info_url) if info_url else None
         if self._camera_info is None:
             self.get_logger().warn("camera_info unavailable; publishing zero matrices")
+        self._scale_intrinsics()
 
         self._capture = cv2.VideoCapture(self._device, cv2.CAP_V4L2)
         if not self._capture.isOpened():
@@ -102,12 +114,33 @@ class DirectUvcNode(Node):
             message.p = [fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0]
         return message
 
+    def _scale_intrinsics(self) -> None:
+        """Scale CameraInfo to the publish resolution so PnP stays valid."""
+        if self._camera_info is None or self._publish_width <= 0:
+            return
+        scale_x = self._publish_width / float(self._camera_info.width)
+        scale_y = self._publish_height / float(self._camera_info.height)
+        for index in (0, 2, 4, 5, 6, 7):
+            self._camera_info.k[index] *= scale_x if index in (0, 2, 6) else scale_y
+        for index in (0, 2, 3, 4, 5, 6, 7, 8, 10, 11):
+            self._camera_info.p[index] *= scale_x if index in (0, 2, 3, 6, 7, 8) else scale_y
+        self._camera_info.width = self._publish_width
+        self._camera_info.height = self._publish_height
+
     def _capture_loop(self) -> None:
         while not self._stop.is_set() and rclpy.ok():
             ok, frame = self._capture.read()
             if not ok or frame is None:
                 continue
             stamp = self.get_clock().now().to_msg()
+            if self._publish_width > 0 and (
+                frame.shape[1] != self._publish_width or frame.shape[0] != self._publish_height
+            ):
+                frame = cv2.resize(
+                    frame,
+                    (self._publish_width, self._publish_height),
+                    interpolation=cv2.INTER_LINEAR,
+                )
             image = Image()
             image.header.stamp = stamp
             image.header.frame_id = self._frame_id

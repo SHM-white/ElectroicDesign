@@ -1,16 +1,18 @@
-"""Mission display node — real-time annotated camera feed with HUD overlays.
+"""Mission display node — real-time dual-camera feed with mission HUD.
 
-Subscribes to the annotated image from the perception pipeline and mission
-status topics, then renders a heads-up display overlay with:
-  - AprilTag target detection bounding boxes (from perception pipeline)
-  - Planned movement direction arrow (from target observation pose)
-  - Key mission parameters as floating text (top-left HUD panel)
+Subscribes to both camera image topics (narrow + wide), mission status, FCU
+state, target observations and the FlightCommand action feedback/result, then
+renders a side-by-side view: narrow | center status panel | wide.
 
-Uses a dedicated daemon thread for cv2.imshow to prevent slow X11 rendering
-from blocking the main mission loop (critical for remote SSH sessions).
+Camera frames are rotated for display only (image-top -> nose orientation):
+  - narrow: 90 degrees clockwise
+  - wide:   90 degrees counter-clockwise
+(mirrors field_test_node so the two side views face the same direction)
 
-Threading model follows the _PreviewWorker pattern from the deprecated
-drone/vision.py: daemon thread + Queue(maxsize=1) + non-blocking submit.
+Threading: in display mode cv2.namedWindow / cv2.imshow / cv2.waitKey run on
+the MAIN thread via _spin_with_display (GTK3 requires the event loop on the
+main thread); the worker thread is only started in headless mode for periodic
+status logging.
 """
 
 from __future__ import annotations
@@ -27,12 +29,21 @@ import numpy as np
 
 import rclpy
 from cv_bridge import CvBridge, CvBridgeError
+from ed_uav_interfaces.action import FlightCommand
 from ed_uav_interfaces.msg import FcuState, MissionStatus, TargetObservation
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 
 _WINDOW_NAME: Final = "Task3 Mission Display — [Q/ESC] quit [S] screenshot"
+
+# Camera topics (raw frames; perception annotations are fused into the HUD)
+_CAMERA_TOPICS: Final = {
+    "narrow": "/camera/narrow/image_raw",
+    "wide": "/camera/wide/image_raw",
+}
+_FEEDBACK_TOPIC: Final = "/fcu/flight_command/_action/feedback"
+_RESULT_TOPIC: Final = "/fcu/flight_command/_action/result"
 
 # ── HUD color palette (BGR) ────────────────────────────────────────────────
 _COLOR_WHITE: Final = (255, 255, 255)
@@ -42,9 +53,8 @@ _COLOR_RED: Final = (60, 60, 240)
 _COLOR_ORANGE: Final = (0, 165, 255)
 _COLOR_CYAN: Final = (255, 200, 0)
 _COLOR_PANEL_BG: Final = (12, 18, 24)
-_COLOR_ARROW: Final = (0, 255, 200)
-_COLOR_TARGET_BOX: Final = (0, 255, 0)
-_COLOR_TARGET_CENTER: Final = (0, 0, 255)
+_COLOR_CMD_ACTIVE: Final = (0, 255, 200)
+_COLOR_MAGENTA: Final = (255, 0, 200)
 
 # ── Mission state label mapping ────────────────────────────────────────────
 _STATE_LABELS: Final[dict[int, str]] = {
@@ -70,14 +80,56 @@ _FCU_MODE_LABELS: Final[dict[int, str]] = {
     FcuState.MODE_PROGRAM: "PROGRAM",
 }
 
+# ── FlightCommand action state/result mapping ─────────────────────────────
+_CMD_STATE_LABELS: Final[dict[int, str]] = {
+    FlightCommand.Feedback.STATE_QUEUED: "QUEUED",
+    FlightCommand.Feedback.STATE_SENT: "SENT",
+    FlightCommand.Feedback.STATE_ACKNOWLEDGED: "ACK",
+    FlightCommand.Feedback.STATE_EXECUTING: "EXECUTING",
+    FlightCommand.Feedback.STATE_TERMINAL: "TERMINAL",
+}
+_CMD_RESULT_LABELS: Final[dict[int, str]] = {
+    FlightCommand.Result.RESULT_SUCCEEDED: "SUCCEEDED",
+    FlightCommand.Result.RESULT_REJECTED: "REJECTED",
+    FlightCommand.Result.RESULT_TIMEOUT: "TIMEOUT",
+    FlightCommand.Result.RESULT_FCU_ERROR: "FCU_ERROR",
+}
+
+# correlation_id (set by mission_executor) -> friendly command name
+_CMD_NAME_MAP: Final[dict[str, str]] = {
+    "mission_takeoff": "TAKEOFF",
+    "mission_move": "MOVE",
+    "mission_hover": "HOVER",
+    "landing_descend": "LAND DESCEND",
+    "landing_land": "LAND",
+    "landing_disarm": "DISARM",
+    "d2026_target_track": "TARGET TRACK",
+    "d2026_precision_land": "PRECISION LAND",
+    "d2026_return_home": "RETURN HOME",
+}
+
+
+def _pretty_cmd_id(correlation_id: str) -> str:
+    """Map a FlightCommand correlation_id to a short display name."""
+    if correlation_id in _CMD_NAME_MAP:
+        return _CMD_NAME_MAP[correlation_id]
+    if correlation_id.startswith("stability_square_"):
+        return f"SQUARE {correlation_id.rsplit('_', 1)[-1]}"
+    if correlation_id.startswith("stability_circle_"):
+        return f"CIRCLE {correlation_id.rsplit('_', 1)[-1]}"
+    if correlation_id.startswith("d2026_"):
+        return correlation_id.removeprefix("d2026_").replace("_", " ").upper()
+    return correlation_id.replace("_", " ").upper() if correlation_id else "---"
+
 
 # ── Frame snapshot for the display thread ──────────────────────────────────
 
 @dataclass(frozen=True)
 class _DisplaySnapshot:
-    """Immutable snapshot of one frame plus all HUD metadata."""
+    """Immutable snapshot of both camera frames plus all HUD metadata."""
 
-    frame: np.ndarray
+    narrow_frame: np.ndarray | None
+    wide_frame: np.ndarray | None
     mission_state: str
     mission_reason: str
     mission_complete: bool
@@ -93,6 +145,13 @@ class _DisplaySnapshot:
     fcu_armed: bool
     fcu_comm_ok: bool
     fcu_position_m: tuple[float, float]
+    task3_control_allowed: bool
+    emergency_lock_active: bool
+    fcu_cmd_id: str
+    fcu_cmd_state: str
+    fcu_cmd_active: bool
+    fcu_cmd_result: str
+    fcu_cmd_result_reason: str
     fps: float
 
 
@@ -129,10 +188,13 @@ class _DisplayWorker:
     def start(self) -> None:
         if not self._started:
             self._started = True
-            self._thread.start()
+            # GTK3 事件循环必须在主线程: 非 headless 时窗口由 main() 的
+            # _spin_with_display 驱动, 线程只用于 headless 日志模式
+            if self._headless:
+                self._thread.start()
 
     def submit(self, snapshot: _DisplaySnapshot) -> None:
-        """Non-blocking overwrite — always tracks the latest frame."""
+        """Non-blocking overwrite — always tracks the latest snapshot."""
         if self._stop.is_set():
             return
         try:
@@ -172,12 +234,11 @@ class _DisplayWorker:
             now = time.monotonic()
             if now - self._last_headless_log >= self.headless_log_interval:
                 self._last_headless_log = now
-                # Import here to avoid circular dependency at module level
                 import logging
                 logger = logging.getLogger("ed_uav_mission.display")
                 logger.info(
                     "[DISPLAY] state=%s alt=%.1fm bat=%.1fV tgt=%s "
-                    "pos=(%.2f,%.2f)m qual=%.3f fps=%.1f",
+                    "pos=(%.2f,%.2f)m qual=%.3f cam=(%s,%s) cmd=%s[%s] fps=%.1f",
                     snap.mission_state,
                     snap.fcu_altitude_m,
                     snap.fcu_battery_v,
@@ -185,6 +246,10 @@ class _DisplayWorker:
                     snap.fcu_position_m[0],
                     snap.fcu_position_m[1],
                     snap.target_quality,
+                    "N" if snap.narrow_frame is not None else "-",
+                    "W" if snap.wide_frame is not None else "-",
+                    snap.fcu_cmd_id,
+                    snap.fcu_cmd_state,
                     snap.fps,
                 )
 
@@ -192,7 +257,7 @@ class _DisplayWorker:
         """Display mode — cv2.imshow in daemon thread."""
         try:
             cv2.namedWindow(_WINDOW_NAME, cv2.WINDOW_NORMAL)
-            cv2.resizeWindow(_WINDOW_NAME, 960, 540)
+            cv2.resizeWindow(_WINDOW_NAME, 1280, 540)
         except Exception:
             # Fallback to headless if window creation fails
             self._headless = True
@@ -210,17 +275,7 @@ class _DisplayWorker:
                     break
                 continue
 
-            display = _render_hud(snap)
-
-            # Scale down for remote sessions
-            if 0 < self.max_width < display.shape[1]:
-                scale = self.max_width / display.shape[1]
-                display = cv2.resize(
-                    display,
-                    (self.max_width, max(1, int(round(display.shape[0] * scale)))),
-                    interpolation=cv2.INTER_AREA,
-                )
-
+            display = _render_layout(snap, self.max_width)
             cv2.imshow(_WINDOW_NAME, display)
             key = cv2.waitKey(1) & 0xFF
             if key in (ord("q"), 27):  # Q or ESC
@@ -239,151 +294,163 @@ class _DisplayWorker:
 
 # ── HUD rendering ──────────────────────────────────────────────────────────
 
-def _render_hud(snap: _DisplaySnapshot) -> np.ndarray:
-    """Render the full HUD overlay onto a copy of the frame."""
-    out = snap.frame.copy()
+def _render_camera_view(frame: np.ndarray | None, role: str) -> np.ndarray:
+    """Render one camera's (already rotated) view with a minimal overlay."""
+    if frame is None:
+        out = np.zeros((360, 640, 3), dtype=np.uint8)
+        cv2.putText(
+            out, f"{role.upper()} NO SIGNAL", (int(640 * 0.28), 185),
+            cv2.FONT_HERSHEY_SIMPLEX, 1.0, _COLOR_RED, 2, cv2.LINE_AA,
+        )
+        return out
+
+    out = frame.copy()
     h, w = out.shape[:2]
-    scale = max(0.5, min(1.0, w / 1280.0))
-    line = max(1, int(round(2 * scale)))
+    sc = max(0.8, min(1.8, min(w, h) / 400.0))
+    ln = max(2, int(round(3 * sc)))
+    font = cv2.FONT_HERSHEY_SIMPLEX
 
-    # ── Target detection circle + center marker ──
-    if snap.target_valid:
-        cx, cy = w // 2, h // 2
-        # Draw target offset arrow from center
-        # target_x_m: right positive (optical X), target_y_m: down positive (optical Y)
-        # Scale: roughly 200px per meter at typical altitude
-        arrow_scale_px = max(80, int(200 * scale))
-        tx = int(cx + snap.target_x_m * arrow_scale_px)
-        ty = int(cy + snap.target_y_m * arrow_scale_px)
-        tx = max(0, min(w - 1, tx))
-        ty = max(0, min(h - 1, ty))
+    # Camera label
+    cv2.putText(out, f"[{role.upper()}]", (12, int(35 * sc)),
+                font, 0.8 * sc, _COLOR_CYAN, ln + 1, cv2.LINE_AA)
 
-        # Arrow from center toward target
-        cv2.arrowedLine(
-            out, (cx, cy), (tx, ty),
-            _COLOR_ARROW, max(2, int(3 * scale)),
-            cv2.LINE_AA, tipLength=0.15,
-        )
-        # Target circle at the end of arrow
-        cv2.circle(out, (tx, ty), max(12, int(20 * scale)), _COLOR_TARGET_CENTER, line + 1, cv2.LINE_AA)
-        cv2.drawMarker(
-            out, (tx, ty), _COLOR_TARGET_CENTER,
-            cv2.MARKER_TILTED_CROSS, max(16, int(28 * scale)), line,
-        )
-        # Distance label
-        dist_m = snap.target_z_m
-        cv2.putText(
-            out, f"D={dist_m:.2f}m",
-            (tx + 14, max(20, ty - 14)),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.5 * scale, _COLOR_TARGET_CENTER, line, cv2.LINE_AA,
-        )
-
-    # ── Top-left HUD panel ──
-    hud_lines = _build_hud_lines(snap)
-    panel_h = int((24 + len(hud_lines) * 26) * scale)
-    panel_w = min(w - 8, max(320, int(480 * scale)))
-
-    panel_overlay = out.copy()
-    cv2.rectangle(panel_overlay, (4, 4), (4 + panel_w, 4 + panel_h), _COLOR_PANEL_BG, -1)
-    out = cv2.addWeighted(panel_overlay, 0.80, out, 0.20, 0)
-
-    for i, (text, color) in enumerate(hud_lines):
-        y_pos = int((22 + i * 26) * scale)
-        cv2.putText(
-            out, text, (12, y_pos),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.50 * scale, color, line, cv2.LINE_AA,
-        )
-
-    # ── Bottom status bar ──
-    bottom_text = "[Q/ESC] quit  [S] save"
-    if snap.mission_complete:
-        bottom_text += "  *** MISSION COMPLETE ***"
-    cv2.putText(
-        out, bottom_text, (8, h - 10),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.42 * scale, (200, 200, 200), line,
-    )
+    # Aircraft center (image center) crosshair
+    img_cx, img_cy = w // 2, h // 2
+    cv2.drawMarker(out, (img_cx, img_cy), _COLOR_YELLOW,
+                   cv2.MARKER_CROSS, max(20, int(28 * sc)), ln + 1)
+    cv2.putText(out, "AC", (img_cx + 14, img_cy - 14),
+                font, 0.5 * sc, _COLOR_YELLOW, ln, cv2.LINE_AA)
 
     return out
 
 
-def _build_hud_lines(snap: _DisplaySnapshot) -> list[tuple[str, tuple[int, int, int]]]:
-    """Build (text, color) pairs for the HUD panel."""
-    lines: list[tuple[str, tuple[int, int, int]]] = []
+def _render_center_panel(snap: _DisplaySnapshot) -> np.ndarray:
+    """Render the mission status / flight command panel between the cameras."""
+    out = np.zeros((640, 400, 3), dtype=np.uint8)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    sc = 1.0
+    ln = 2
+    y = 30
+    line_h = 27
+
+    def line(text: str, color: tuple[int, int, int]) -> None:
+        nonlocal y
+        cv2.putText(out, text, (12, y), font, 0.5 * sc, color, ln, cv2.LINE_AA)
+        y += line_h
 
     # Mission state
     state_color = _COLOR_WHITE
-    if snap.mission_state in ("SUCCEEDED",):
+    if snap.mission_state == "SUCCEEDED":
         state_color = _COLOR_GREEN
-    elif snap.mission_state in ("ABORTED",):
+    elif snap.mission_state == "ABORTED":
         state_color = _COLOR_RED
     elif snap.mission_state in ("TAKEOFF", "SEARCHING"):
         state_color = _COLOR_YELLOW
-    lines.append((f"STATE  {snap.mission_state}", state_color))
-
+    line(f"STATE  {snap.mission_state}", state_color)
     if snap.mission_reason:
-        lines.append((f"  >> {snap.mission_reason[:48]}", (180, 180, 180)))
+        line(f"  >> {snap.mission_reason[:44]}", (180, 180, 180))
 
     # FCU status
     armed_str = "ARMED" if snap.fcu_armed else "DISARMED"
     comm_str = "OK" if snap.fcu_comm_ok else "LOST"
-    lines.append((
-        f"FCU  {snap.fcu_mode}  {armed_str}  COMM={comm_str}",
-        _COLOR_GREEN if snap.fcu_comm_ok else _COLOR_RED,
-    ))
+    line(f"FCU  {snap.fcu_mode}  {armed_str}  COMM={comm_str}",
+        _COLOR_GREEN if snap.fcu_comm_ok else _COLOR_RED)
 
-    # Altitude & battery — color reflects the most critical warning
+    # Task3 control authority / emergency lock
+    ctrl_str = "CTRL=OK" if snap.task3_control_allowed else "CTRL=DENIED"
+    lock_str = "LOCK" if snap.emergency_lock_active else "unlock"
+    line(f"TASK3  {ctrl_str}  {lock_str}",
+        _COLOR_GREEN if snap.task3_control_allowed else _COLOR_RED)
+
+    # Altitude & battery
     if snap.fcu_altitude_m <= 0.3 or snap.fcu_battery_v <= 10.5:
         telemetry_color = _COLOR_RED
     elif snap.fcu_battery_v <= 11.0:
         telemetry_color = _COLOR_YELLOW
     else:
         telemetry_color = _COLOR_GREEN
-    lines.append((
-        f"ALT  {snap.fcu_altitude_m:.2f}m   "
-        f"BAT  {snap.fcu_battery_v:.1f}V",
-        telemetry_color,
-    ))
+    line(f"ALT  {snap.fcu_altitude_m:.2f}m   BAT  {snap.fcu_battery_v:.1f}V",
+        telemetry_color)
 
     # Position (optical flow)
-    lines.append((
-        f"POS  X={snap.fcu_position_m[0]:+.2f}m  Y={snap.fcu_position_m[1]:+.2f}m",
-        _COLOR_CYAN,
-    ))
+    line(f"POS  X={snap.fcu_position_m[0]:+.2f}m  Y={snap.fcu_position_m[1]:+.2f}m",
+        _COLOR_CYAN)
 
     # Target info
     if snap.target_valid:
-        lines.append((
-            f"TGT  X={snap.target_x_m:+.3f}m Y={snap.target_y_m:+.3f}m Z={snap.target_z_m:.3f}m",
-            _COLOR_GREEN,
-        ))
-        lines.append((
-            f"     conf={snap.target_confidence:.3f}  qual={snap.target_quality:.3f}",
-            _COLOR_GREEN,
-        ))
+        line(f"TGT  X={snap.target_x_m:+.3f}m Y={snap.target_y_m:+.3f}m Z={snap.target_z_m:.3f}m",
+            _COLOR_GREEN)
+        line(f"     conf={snap.target_confidence:.3f}  qual={snap.target_quality:.3f}",
+            _COLOR_GREEN)
     else:
-        lines.append(("TGT  NO TARGET", _COLOR_RED))
+        line("TGT  NO TARGET", _COLOR_RED)
+
+    # Flight command being sent (from FlightCommand action feedback)
+    cmd_color = _COLOR_CMD_ACTIVE if snap.fcu_cmd_active else _COLOR_WHITE
+    line(f"CMD  {_pretty_cmd_id(snap.fcu_cmd_id)} [{snap.fcu_cmd_state}]", cmd_color)
+    if snap.fcu_cmd_result:
+        result_color = _COLOR_GREEN if snap.fcu_cmd_result == "SUCCEEDED" else _COLOR_RED
+        suffix = f": {snap.fcu_cmd_result_reason[:36]}" if snap.fcu_cmd_result_reason else ""
+        line(f"LAST {snap.fcu_cmd_result}{suffix}", result_color)
 
     # FPS
-    lines.append((f"FPS  {snap.fps:.1f}", (170, 170, 170)))
+    line(f"FPS  {snap.fps:.1f}", (170, 170, 170))
 
-    return lines
+    # Bottom bar
+    bottom = "[Q/ESC] quit  [S] save"
+    if snap.mission_complete:
+        bottom += "   *** MISSION COMPLETE ***"
+    cv2.putText(out, bottom, (12, 628), font, 0.42, (150, 150, 150), 1, cv2.LINE_AA)
+
+    return out
+
+
+def _render_layout(snap: _DisplaySnapshot, max_width: int) -> np.ndarray:
+    """Compose narrow | center panel | wide side-by-side and scale down."""
+    narrow_view = _render_camera_view(snap.narrow_frame, "narrow")
+    center_view = _render_center_panel(snap)
+    wide_view = _render_camera_view(snap.wide_frame, "wide")
+
+    h = max(narrow_view.shape[0], center_view.shape[0], wide_view.shape[0])
+
+    def pad_to(img: np.ndarray, target_h: int) -> np.ndarray:
+        if img.shape[0] < target_h:
+            pad = np.zeros((target_h - img.shape[0], img.shape[1], 3), dtype=np.uint8)
+            return np.vstack([img, pad])
+        return img
+
+    narrow_view = pad_to(narrow_view, h)
+    center_view = pad_to(center_view, h)
+    wide_view = pad_to(wide_view, h)
+
+    display = np.hstack([narrow_view, center_view, wide_view])
+
+    if 0 < max_width < display.shape[1]:
+        scale = max_width / display.shape[1]
+        display = cv2.resize(
+            display,
+            (max_width, max(1, int(round(display.shape[0] * scale)))),
+            interpolation=cv2.INTER_AREA,
+        )
+    return display
 
 
 # ── ROS 2 Node ─────────────────────────────────────────────────────────────
 
 class MissionDisplayNode(Node):
-    """ROS 2 node that renders annotated camera frames with mission HUD.
+    """ROS 2 node that renders both camera feeds with mission HUD.
 
     Subscribes:
-      /d_task/target_observation/annotated_image  (sensor_msgs/Image)
-      /d_task/mission_status                      (MissionStatus)
-      /fcu/state                                  (FcuState)
+      /camera/{narrow,wide}/image_raw       (sensor_msgs/Image)
+      /d_task/mission_status                (MissionStatus)
+      /d_task/target_observation            (TargetObservation)
+      /fcu/state                            (FcuState)
+      /fcu/flight_command/_action/feedback  (FlightCommand.FeedbackMessage)
+      /fcu/flight_command/_action/result    (FlightCommand.ResultMessage)
 
-    Displays a real-time OpenCV window with:
-      - Perception pipeline's AprilTag annotations
-      - Target offset direction arrow
-      - Mission state HUD panel
-      - FCU telemetry overlay
+    Displays a real-time OpenCV window with both cameras side by side,
+    mission state panel, FCU telemetry overlay and the flight command
+    currently being sent.
     """
 
     def __init__(self) -> None:
@@ -396,6 +463,9 @@ class MissionDisplayNode(Node):
 
         self._bridge = CvBridge()
         self._worker = _DisplayWorker(max_width, headless_interval)
+
+        # Latest frames per camera (rotated for display)
+        self._latest_frames: dict[str, np.ndarray | None] = {"narrow": None, "wide": None}
 
         # Latest state from subscriptions
         self._mission_state: str = "PRE_ARM"
@@ -414,19 +484,27 @@ class MissionDisplayNode(Node):
         self._fcu_comm_ok: bool = False
         self._fcu_pos_x: float = 0.0
         self._fcu_pos_y: float = 0.0
+        self._task3_control_allowed: bool = False
+        self._emergency_lock_active: bool = False
+        self._fcu_cmd_id: str = ""
+        self._fcu_cmd_state: str = "---"
+        self._fcu_cmd_active: bool = False
+        self._fcu_cmd_result: str = ""
+        self._fcu_cmd_result_reason: str = ""
 
-        # FPS tracking
+        # FPS tracking (any camera frame arrival counts)
         self._frame_count: int = 0
         self._fps_start: float = time.monotonic()
         self._fps: float = 0.0
 
         # Subscriptions
-        self._image_sub = self.create_subscription(
-            Image,
-            "/d_task/target_observation/annotated_image",
-            self._on_image,
-            qos_profile_sensor_data,
-        )
+        for role, topic in _CAMERA_TOPICS.items():
+            self.create_subscription(
+                Image,
+                topic,
+                lambda msg, r=role: self._on_image(msg, r),
+                qos_profile_sensor_data,
+            )
         self._target_sub = self.create_subscription(
             TargetObservation,
             "/d_task/target_observation",
@@ -443,6 +521,18 @@ class MissionDisplayNode(Node):
             FcuState,
             "/fcu/state",
             self._on_fcu_state,
+            20,
+        )
+        self._feedback_sub = self.create_subscription(
+            FlightCommand.FeedbackMessage,
+            _FEEDBACK_TOPIC,
+            self._on_feedback,
+            20,
+        )
+        self._result_sub = self.create_subscription(
+            FlightCommand.ResultMessage,
+            _RESULT_TOPIC,
+            self._on_result,
             20,
         )
 
@@ -465,23 +555,16 @@ class MissionDisplayNode(Node):
 
     # ── Callbacks ──────────────────────────────────────────────────────────
 
-    def _on_image(self, msg: Image) -> None:
-        try:
-            frame = self._bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-        except CvBridgeError:
-            return
+    def _rotate_frame(self, frame: np.ndarray, role: str) -> np.ndarray:
+        """Rotate image for display only (image-top -> nose orientation)."""
+        if role == "narrow":
+            return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
-        # Update FPS
-        self._frame_count += 1
-        now = time.monotonic()
-        elapsed = now - self._fps_start
-        if elapsed >= 1.0:
-            self._fps = self._frame_count / elapsed
-            self._frame_count = 0
-            self._fps_start = now
-
-        snap = _DisplaySnapshot(
-            frame=frame,
+    def _build_snapshot(self) -> _DisplaySnapshot:
+        return _DisplaySnapshot(
+            narrow_frame=self._latest_frames["narrow"],
+            wide_frame=self._latest_frames["wide"],
             mission_state=self._mission_state,
             mission_reason=self._mission_reason,
             mission_complete=self._mission_complete,
@@ -497,12 +580,36 @@ class MissionDisplayNode(Node):
             fcu_armed=self._fcu_armed,
             fcu_comm_ok=self._fcu_comm_ok,
             fcu_position_m=(self._fcu_pos_x, self._fcu_pos_y),
+            task3_control_allowed=self._task3_control_allowed,
+            emergency_lock_active=self._emergency_lock_active,
+            fcu_cmd_id=self._fcu_cmd_id,
+            fcu_cmd_state=self._fcu_cmd_state,
+            fcu_cmd_active=self._fcu_cmd_active,
+            fcu_cmd_result=self._fcu_cmd_result,
+            fcu_cmd_result_reason=self._fcu_cmd_result_reason,
             fps=self._fps,
         )
-        self._worker.submit(snap)
+
+    def _on_image(self, msg: Image, role: str) -> None:
+        try:
+            frame = self._bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        except CvBridgeError:
+            return
+
+        self._latest_frames[role] = self._rotate_frame(frame, role)
+
+        # Update FPS (any camera)
+        self._frame_count += 1
+        now = time.monotonic()
+        elapsed = now - self._fps_start
+        if elapsed >= 1.0:
+            self._fps = self._frame_count / elapsed
+            self._frame_count = 0
+            self._fps_start = now
+
+        self._worker.submit(self._build_snapshot())
 
     def _on_target_observation(self, msg: TargetObservation) -> None:
-        """Update target pose from the perception pipeline."""
         self._target_valid = bool(msg.valid and msg.status == TargetObservation.STATUS_VALID)
         if self._target_valid:
             pos = msg.pose.pose.position
@@ -517,9 +624,6 @@ class MissionDisplayNode(Node):
         self._mission_reason = msg.reason
         self._mission_complete = msg.complete
 
-        # Extract target info from TargetObservation if available via mission status
-        # (TargetObservation comes from the annotated image subscriber)
-
     def _on_fcu_state(self, msg: FcuState) -> None:
         self._fcu_altitude_m = msg.altitude_m
         self._fcu_battery_v = msg.battery_voltage_v
@@ -528,6 +632,24 @@ class MissionDisplayNode(Node):
         self._fcu_comm_ok = msg.communication_ok
         self._fcu_pos_x = msg.optical_flow_position_m.x
         self._fcu_pos_y = msg.optical_flow_position_m.y
+        self._task3_control_allowed = msg.task3_control_allowed
+        self._emergency_lock_active = msg.emergency_lock_active
+
+    def _on_feedback(self, msg: FlightCommand.FeedbackMessage) -> None:
+        fb = msg.feedback
+        self._fcu_cmd_id = fb.correlation_id
+        self._fcu_cmd_state = _CMD_STATE_LABELS.get(
+            fb.execution_state, f"STATE({fb.execution_state})"
+        )
+        self._fcu_cmd_active = fb.execution_state != FlightCommand.Feedback.STATE_TERMINAL
+
+    def _on_result(self, msg: FlightCommand.ResultMessage) -> None:
+        res = msg.result
+        self._fcu_cmd_result = _CMD_RESULT_LABELS.get(
+            res.result_code, f"CODE({res.result_code})"
+        )
+        self._fcu_cmd_result_reason = res.reason
+        self._fcu_cmd_active = False
 
     def _check_quit(self) -> None:
         if self._worker.quit_requested.is_set():
@@ -544,13 +666,66 @@ class MissionDisplayNode(Node):
 def main(args: list[str] | None = None) -> None:
     rclpy.init(args=args)
     node = MissionDisplayNode()
+    ros_thread: Thread | None = None
     try:
-        rclpy.spin(node)
+        if node._worker.is_headless:
+            rclpy.spin(node)
+        else:
+            # 显示与处理解耦: ROS 回调在独立线程全速运行 (订阅/队列提交
+            # 不被慢速 X11 渲染拖累); 主线程只负责取帧渲染。
+            ros_thread = Thread(
+                target=rclpy.spin, args=(node,), daemon=True,
+                name="mission-display-ros",
+            )
+            ros_thread.start()
+            _spin_with_display(node)
     except KeyboardInterrupt:
         pass
     finally:
         node.destroy_node()
         rclpy.try_shutdown()
+        if ros_thread is not None:
+            ros_thread.join(timeout=2.0)
+
+
+def _spin_with_display(node: MissionDisplayNode) -> None:
+    """Drive the OpenCV window from the main thread — GTK3 requires it.
+
+    Mirrors field_test_node._spin_with_display; the display worker thread is
+    not started in display mode, so cv2.imshow/cv2.waitKey stay on the thread
+    that created the window.
+    """
+    worker = node._worker
+    os.environ.setdefault("GDK_SCALE", "1")
+    os.environ.setdefault("GTK_CSD", "0")
+    os.environ.setdefault("GDK_BACKEND", "x11")
+    cv2.namedWindow(_WINDOW_NAME, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(_WINDOW_NAME, 1280, 540)
+
+    while rclpy.ok() and not worker.quit_requested.is_set():
+        rclpy.spin_once(node, timeout_sec=0.0)
+
+        try:
+            snap = worker._queue.get_nowait()
+        except Empty:
+            snap = None
+
+        if snap is not None:
+            display = _render_layout(snap, worker.max_width)
+            cv2.imshow(_WINDOW_NAME, display)
+
+        key = cv2.waitKey(1) & 0xFF
+        if key in (ord("q"), 27):
+            worker.quit_requested.set()
+        elif key == ord("s") and snap is not None:
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            path = f"/tmp/task3_display_{ts}.png"
+            cv2.imwrite(path, display)
+
+    try:
+        cv2.destroyWindow(_WINDOW_NAME)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

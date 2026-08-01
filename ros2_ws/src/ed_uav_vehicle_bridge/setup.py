@@ -25,6 +25,7 @@ setup(
         "console_scripts": [
             "vehicle_bridge = ed_uav_vehicle_bridge.entrypoint:main",
             "fake_vehicle_source = ed_uav_vehicle_bridge.fake_source:main",
+            "dry_run_telemetry = ed_uav_vehicle_bridge.dry_run_telemetry:main",
         ],
     },
 )

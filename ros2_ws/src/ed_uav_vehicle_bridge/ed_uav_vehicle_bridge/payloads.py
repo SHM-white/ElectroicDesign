@@ -18,13 +18,15 @@ from .models import (
     QualityFlag,
     RouteEvent,
     SelectionId,
+    TaskMode,
     TurnClass,
     VehicleTelemetryValue,
 )
 
 
 CAR_TELEMETRY: Final = struct.Struct("<BBBHHihhH")
-TASK_SELECTION: Final = struct.Struct("<IIB")
+TASK_SELECTION: Final = struct.Struct("<IIBB")  # +mode: 1=实飞, 2=模拟飞
+TASK_SELECTION_LEGACY: Final = struct.Struct("<IIB")
 MISSION_STATUS: Final = struct.Struct("<IIIBBHH")
 KNOWN_MISSION_STATUS_FLAGS: Final = int(
     MissionStatusFlag.DRONE_LINK_OK
@@ -82,17 +84,27 @@ def encode_task_selection(value: MissionSelectionValue) -> bytes:
     _require_uint8(int(value.task), "task", 3)
     if int(value.task) not in (1, 2, 3):
         raise ProtocolError(ProtocolErrorCode.BAD_PAYLOAD, "task must be 1, 2, or 3")
-    return TASK_SELECTION.pack(value.selection_id, value.car_boot_id, int(value.task))
+    return TASK_SELECTION.pack(
+        value.selection_id, value.car_boot_id, int(value.task), int(value.mode)
+    )
 
 
 def decode_task_selection(payload: bytes) -> MissionSelectionValue:
-    selection_id, car_boot_id, raw_task = _unpack_exact(payload, TASK_SELECTION)
+    # 兼容旧帧: 12B (无 mode) 按实飞处理
+    if len(payload) == TASK_SELECTION_LEGACY.size:
+        selection_id, car_boot_id, raw_task = _unpack_exact(payload, TASK_SELECTION_LEGACY)
+        raw_mode = int(TaskMode.REAL)
+    else:
+        selection_id, car_boot_id, raw_task, raw_mode = _unpack_exact(payload, TASK_SELECTION)
     if raw_task not in (1, 2, 3):
         raise ProtocolError(ProtocolErrorCode.BAD_PAYLOAD, "task must be 1, 2, or 3")
+    if raw_mode not in (int(TaskMode.REAL), int(TaskMode.SIMULATED)):
+        raise ProtocolError(ProtocolErrorCode.BAD_PAYLOAD, "mode must be 1 or 2")
     return MissionSelectionValue(
         selection_id=SelectionId(selection_id),
         car_boot_id=BootId(car_boot_id),
         task=DTask(raw_task),
+        mode=TaskMode(raw_mode),
     )
 
 

@@ -36,6 +36,7 @@ from .models import (
     Sequence,
     Task3FcuAuxGate,
     Task3FlightTestIdentity,
+    TaskMode,
     VehicleTelemetryValue,
 )
 from .payloads import (
@@ -89,6 +90,7 @@ class VehicleBridgeNode(Node):
             )
         )
         self._no_car_mode = bool(self.get_parameter("no_car_mode").value)
+        self._immediate_start = bool(self.get_parameter("task3_immediate_start").value)
         self._authority = BridgeAuthority(
             provision.mission_timeout_seconds,
             no_car_mode=self._no_car_mode,
@@ -207,9 +209,12 @@ class VehicleBridgeNode(Node):
         if not self._mission_idle:
             self._send_rejection(selection.selection_id, selection.car_boot_id, "MISSION_NOT_IDLE")
             return
-        if self._no_car_mode:
-            # 无小车模式: 无 CAR 会话, 地面站选择即会话; 任务类型由 executor 的
-            # selection contract 校验, 此处不做 task3 专有 gate。
+        if selection.mode is TaskMode.SIMULATED:
+            # 模拟飞 (no-car): 无 CAR 会话, 地面站选择即启动; 任务类型由 executor
+            # 的 selection contract 校验, 此处不做 task3 专有 gate。
+            self._car_epoch = selection.car_boot_id
+        elif self._no_car_mode:
+            # 兼容旧配置: 启动参数 no_car_mode=true 等价于始终模拟飞
             self._car_epoch = selection.car_boot_id
         elif self._task3_flight_test_mode:
             if selection.task is not DTask.STABILITY_TEST:
@@ -261,9 +266,9 @@ class VehicleBridgeNode(Node):
             self._send_mission_status(decision.acknowledgement)
         else:
             self._send_rejection(selection.selection_id, selection.car_boot_id, decision.reason)
-        if self._no_car_mode and decision.acknowledgement is not None:
-            # 无小车模式: 地面站 TASK 指令提交即开始任务, 无需小车 START 事件
-            # 或飞控 AUX gate。
+        if (self._no_car_mode or selection.mode is TaskMode.SIMULATED or self._immediate_start) and decision.acknowledgement is not None:
+            # 立即启动: 地面站 TASK 指令提交即开始任务 — 模拟飞 (no_car_sim 应答),
+            # 或调试阶段 task3_immediate_start 开关 (跳过小车 START / AUX gate 等待)。
             start = self._authority.observe_no_car_start(self._task3_identity)
             if start.execute_command is not None:
                 self._apply_start(start)

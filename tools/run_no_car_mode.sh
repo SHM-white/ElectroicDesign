@@ -154,49 +154,66 @@ echo "════════════════════════�
 
 if [[ -n "$DAEMON" ]]; then
     mkdir -p "$LOG_DIR"
-    setsid bash -lc "$ROS_SETUP_LINE && exec $NO_CAR_SIM_CMD" >> "$LOG_DIR/no_car_sim.log" 2>&1 &
-    echo "no_car_sim  pid=$! 日志=$LOG_DIR/no_car_sim.log"
+    ED_GUARDIAN_LOG_DIR="$LOG_DIR" \
+    ED_GUARDIAN_WATCH_NAME="no_car_sim" \
+    ED_GUARDIAN_START_CMD="$ROS_SETUP_LINE && $NO_CAR_SIM_CMD" \
+        setsid bash "$REPO_ROOT/tools/ed_guardian.sh" >> "$LOG_DIR/guardian_no_car_sim.log" 2>&1 &
+    echo "no_car_sim  guardian pid=$! 日志=$LOG_DIR/no_car_sim.log"
     sleep 1
-    setsid bash -lc "$ROS_SETUP_LINE && exec $EXECUTOR_CMD" >> "$LOG_DIR/mission_executor.log" 2>&1 &
-    echo "executor    pid=$! 日志=$LOG_DIR/mission_executor.log"
+    ED_GUARDIAN_LOG_DIR="$LOG_DIR" \
+    ED_GUARDIAN_WATCH_NAME="mission_executor" \
+    ED_GUARDIAN_START_CMD="$ROS_SETUP_LINE && $EXECUTOR_CMD" \
+        setsid bash "$REPO_ROOT/tools/ed_guardian.sh" >> "$LOG_DIR/guardian_executor.log" 2>&1 &
+    echo "executor     guardian pid=$! 日志=$LOG_DIR/mission_executor.log"
     sleep 2
-ED_GUARDIAN_WATCH_NAME="vehicle_bridge" \
-ED_GUARDIAN_START_CMD="$ROS_SETUP_LINE && $BRIDGE_CMD" \
-    setsid bash "$REPO_ROOT/tools/ed_guardian.sh" >> "$LOG_DIR/guardian.log" 2>&1 &
-    echo "guardian    pid=$! 日志=$LOG_DIR/guardian.log"
-    echo "完成: 地面站向 ${HMI_IP}:42002 发送 TASK 指令即可开始任务"
+    ED_GUARDIAN_LOG_DIR="$LOG_DIR" \
+    ED_GUARDIAN_WATCH_NAME="vehicle_bridge" \
+    ED_GUARDIAN_START_CMD="$ROS_SETUP_LINE && $BRIDGE_CMD" \
+        setsid bash "$REPO_ROOT/tools/ed_guardian.sh" >> "$LOG_DIR/guardian.log" 2>&1 &
+    echo "guardian     pid=$! 日志=$LOG_DIR/guardian.log"
+    echo "完成: 地面站向 ${HMI_IP}:${BIND_PORT} 发送 TASK 指令即可开始任务"
     exit 0
 fi
 
 # ─── 前台模式 ───────────────────────────────────────────────────────────────
-GUARDIAN_PID=""
-WATCH_PID_FILE="$LOG_DIR/vehicle_bridge.pid"
+GUARDIAN_PIDS=()
+WATCH_PID_FILES=("$LOG_DIR/no_car_sim.pid" "$LOG_DIR/mission_executor.pid" "$LOG_DIR/vehicle_bridge.pid")
 
 _cleanup() {
     echo ""
     echo "清理无小车模式进程..."
-    [[ -n "$GUARDIAN_PID" ]] && kill "$GUARDIAN_PID" 2>/dev/null || true
-    [[ -f "$WATCH_PID_FILE" ]] && kill "$(cat "$WATCH_PID_FILE")" 2>/dev/null || true
-    pkill -f "ed_uav_bringup no_car_sim" 2>/dev/null || true
-    pkill -f "ed_uav_mission mission_executor" 2>/dev/null || true
+    for pid in "${GUARDIAN_PIDS[@]}"; do
+        kill "$pid" 2>/dev/null || true
+    done
+    for pid_file in "${WATCH_PID_FILES[@]}"; do
+        [[ -f "$pid_file" ]] && kill "$(cat "$pid_file")" 2>/dev/null || true
+    done
 }
 trap _cleanup EXIT INT TERM
 
-bash -lc "$ROS_SETUP_LINE && exec $NO_CAR_SIM_CMD" >> "$LOG_DIR/no_car_sim.log" 2>&1 &
-echo "no_car_sim  pid=$! 日志=$LOG_DIR/no_car_sim.log"
+ED_GUARDIAN_LOG_DIR="$LOG_DIR" \
+ED_GUARDIAN_WATCH_NAME="no_car_sim" \
+ED_GUARDIAN_START_CMD="$ROS_SETUP_LINE && $NO_CAR_SIM_CMD" \
+    bash "$REPO_ROOT/tools/ed_guardian.sh" &
+GUARDIAN_PIDS+=($!)
+echo "no_car_sim  guardian pid=$! 日志=$LOG_DIR/no_car_sim.log"
 sleep 1
 
-bash -lc "$ROS_SETUP_LINE && exec $EXECUTOR_CMD" >> "$LOG_DIR/mission_executor.log" 2>&1 &
-echo "executor    pid=$! 日志=$LOG_DIR/mission_executor.log"
+ED_GUARDIAN_LOG_DIR="$LOG_DIR" \
+ED_GUARDIAN_WATCH_NAME="mission_executor" \
+ED_GUARDIAN_START_CMD="$ROS_SETUP_LINE && $EXECUTOR_CMD" \
+    bash "$REPO_ROOT/tools/ed_guardian.sh" &
+GUARDIAN_PIDS+=($!)
+echo "executor     guardian pid=$! 日志=$LOG_DIR/mission_executor.log"
 sleep 2
 
 ED_GUARDIAN_LOG_DIR="$LOG_DIR" \
 ED_GUARDIAN_WATCH_NAME="vehicle_bridge" \
 ED_GUARDIAN_START_CMD="$ROS_SETUP_LINE && $BRIDGE_CMD" \
     bash "$REPO_ROOT/tools/ed_guardian.sh" &
-GUARDIAN_PID=$!
-echo "guardian    pid=$GUARDIAN_PID (托管 vehicle_bridge, 崩溃自动拉起)"
+GUARDIAN_PIDS+=($!)
+echo "guardian     pid=$! (托管 vehicle_bridge, 崩溃自动拉起)"
 echo ""
-echo "地面站向 ${HMI_IP}:42002 发送 TASK 指令即可开始任务 (Ctrl+C 退出)"
+echo "地面站向 ${HMI_IP}:${BIND_PORT} 发送 TASK 指令即可开始任务 (Ctrl+C 退出)"
 echo "实时日志: tail -f $LOG_DIR/vehicle_bridge.log $LOG_DIR/mission_executor.log"
-wait "$GUARDIAN_PID"
+wait "${GUARDIAN_PIDS[0]}"

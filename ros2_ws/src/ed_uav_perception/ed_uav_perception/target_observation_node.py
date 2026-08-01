@@ -625,6 +625,18 @@ class TargetObservationNode(Node):
         msg.rejection_reason = reason.value
         self._publisher.publish(msg)
 
+        # 无检测时也发布相机帧, 保证地面站始终有画面 (黑屏修复):
+        # 与 AcceptedObservation 路径一致, best-effort 发布
+        # 注意: acquisition_stamp 是 builtin_interfaces/Time, 不能整体赋给
+        # header (rclpy 类型校验 AssertionError), 必须写 header.stamp.
+        try:
+            ann_msg = self._bridge.cv2_to_imgmsg(decoded, encoding="bgr8")
+            ann_msg.header.stamp = msg.acquisition_stamp
+            ann_msg.header.frame_id = f"camera_{role}_optical_frame"
+            self._annotated_publisher.publish(ann_msg)
+        except Exception:
+            pass  # annotation is best-effort
+
         self._last_result = RejectedObservation(
             acquisition_sec=float(msg.acquisition_stamp.sec)
             + float(msg.acquisition_stamp.nanosec) * 1e-9,

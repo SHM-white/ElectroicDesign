@@ -92,6 +92,8 @@ def _camera_node(
                     "frames_per_second": camera.mode.frames_per_second,
                     "camera_info_url": camera.calibration.camera_info_url,
                     "frame_id": camera.frame_id,
+                    "publish_width": 640,
+                    "publish_height": 360,
                 }
             ],
         )

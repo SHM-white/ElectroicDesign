@@ -100,6 +100,13 @@ class DTask(IntEnum):
     STABILITY_TEST = 3
 
 
+class TaskMode(IntEnum):
+    """地面站选择任务时的执行模式: 1=实飞, 2=模拟飞 (no-car)."""
+
+    REAL = 1
+    SIMULATED = 2
+
+
 @unique
 class AuthorityState(StringEnum):
     BOOT_LOCKED = "BOOT_LOCKED"
@@ -169,6 +176,7 @@ class MissionSelectionValue:
     selection_id: SelectionId
     car_boot_id: BootId
     task: DTask
+    mode: TaskMode = TaskMode.REAL
 
 
 @dataclass(frozen=True, slots=True)
