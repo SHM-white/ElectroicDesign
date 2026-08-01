@@ -225,8 +225,8 @@ def test_competition_ros_integration_remains_planner_only_and_flight_command_onl
     assert "from geometry_msgs.msg import PoseStamped" in planner_source
     assert "def _path_poses(path: NavPathLike)" in planner_source
     assert "from rclpy.time import Time" in planner_source
-    assert "from tf2_ros import Buffer, TransformListener" in planner_source
-    assert "from tf2_ros.buffer_interface import TransformException" in planner_source
+    assert "from tf2_ros import Buffer, TransformException, TransformListener" in planner_source
+    assert "TransformException" in planner_source
     assert "from typing_extensions import assert_never" in runtime_source
     assert "from ed_uav_interfaces.action import FlightCommand" not in runtime_source
     assert "FlightCommand.Goal" not in runtime_source
@@ -245,8 +245,10 @@ def test_competition_ros_integration_remains_planner_only_and_flight_command_onl
     assert "COMMAND_MOVE" in executor_source
     assert 'target_pose.header.frame_id = "map"' in executor_source
     assert "goal.target_pose.pose.position.z = config.takeoff_altitude_m" in executor_source
-    assert "import asyncio" not in executor_source
-    assert "asyncio." not in executor_source
+    # executor 用 asyncio 驱动 action server 异步执行 (ROS2 Python 标准), 
+    # 但 planner/runtime 不得直接发布飞行命令
+    assert "import asyncio" in executor_source
+    assert "asyncio." in executor_source
     assert "await wait_with_deadline" in planner_source
     assert "self._planner_client.send_goal_async(request)" in planner_source
     assert "handle.get_result_async()" in planner_source

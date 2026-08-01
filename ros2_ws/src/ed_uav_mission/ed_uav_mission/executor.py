@@ -158,6 +158,7 @@ class MissionExecutorNode(Node):
         self.declare_parameter("calibration_file", "")
         self.declare_parameter("simulation_only", False)
         self.declare_parameter("payload_config_path", "")
+        self.declare_parameter("payload_actuator", "fake")
         self.declare_parameter("programmable_capability_report", "")
         self.declare_parameter("fcu_device_identity", "")
         self.declare_parameter("task3_mission_profile_id", "")
@@ -213,9 +214,20 @@ class MissionExecutorNode(Node):
         )
         self._payload_config = load_payload_boundary_config(payload_path)
         self._payload_plugin = PayloadPlugin(ReleaseLatch())
-        self._payload_actuator = FakePayloadActuator(
-            outcomes=(ActuatorAcknowledged(acknowledgement_id="simulation-payload-ack"),)
-        )
+        actuator_kind = str(self.get_parameter("payload_actuator").value)
+        if actuator_kind == "h7":
+            # 真实电磁铁: 通过 /h7_gpio/command 发布到 h7_gpio_bridge (串口)
+            from ed_uav_mission.plugins.payload_h7 import H7GpioActuator
+
+            self._payload_actuator = H7GpioActuator(self)
+            self.get_logger().info(
+                "payload actuator: H7 GPIO electromagnet (/h7_gpio/command, pin=1)"
+            )
+        else:
+            self._payload_actuator = FakePayloadActuator(
+                outcomes=(ActuatorAcknowledged(acknowledgement_id="simulation-payload-ack"),)
+            )
+            self.get_logger().info("payload actuator: fake (simulation; set payload_actuator:=h7 for real electromagnet)")
 
         cb_group = MutuallyExclusiveCallbackGroup()
         self._action_server = ActionServer(
@@ -883,17 +895,17 @@ def main(args: list[str] | None = None) -> None:
             return
         except (KeyboardInterrupt, ExternalShutdownException):
             return
-        except Exception:  # noqa: BLE001 - daemon contract: never exit on errors
-            if node is not None:
-                node.get_logger().error(
+        except Exception as error:  # noqa: BLE001 - daemon contract: never exit on errors
+            get_logger = getattr(node, "get_logger", None) if node is not None else None
+            if get_logger is not None:
+                get_logger().error(
                     f"mission_executor 异常退出, {backoff:.1f}s 后重建节点"
-                    "(守护契约: 进程不退出)",
-                    exc_info=True,
+                    f"(守护契约: 进程不退出): {type(error).__name__}: {error}",
                 )
             else:
                 print(
                     f"mission_executor 初始化异常, {backoff:.1f}s 后重建节点"
-                    "(守护契约: 进程不退出)",
+                    f"(守护契约: 进程不退出): {type(error).__name__}: {error}",
                     file=sys.stderr,
                 )
                 traceback.print_exc()

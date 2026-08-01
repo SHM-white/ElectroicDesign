@@ -1,0 +1,16 @@
+# 99-brcmfmac-reset.rules
+# BCM43569 USB 无线网卡 (0a5c:0bdc) 开机后驱动恢复规则
+#
+# 问题: 该网卡开机时先进入 "Remote Download" 引导模式（仅有 Interrupt 端点），
+#        brcmfmac 立即 probe 会失败: "No TX (out) Bulk EP found"，导致无网卡接口。
+# 解决: 检测到该设备后延迟 3 秒，再重置 USB 端口，设备会以正常模式重新枚举，
+#        brcmfmac 第二次 probe 即可成功。
+#
+# 安装: sudo cp tools/hotspot/99-brcmfmac-reset.rules /etc/udev/rules.d/
+#       sudo cp tools/hotspot/brcmfmac-reset.sh /usr/local/bin/
+#       sudo chmod +x /usr/local/bin/brcmfmac-reset.sh
+#       sudo udevadm control --reload-rules && sudo udevadm trigger
+# 卸载: sudo rm /etc/udev/rules.d/99-brcmfmac-reset.rules /usr/local/bin/brcmfmac-reset.sh
+#
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0a5c", ATTR{idProduct}=="0bdc", \
+  RUN+="/usr/local/bin/brcmfmac-reset.sh"

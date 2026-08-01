@@ -84,4 +84,8 @@ def test_lifecycle_sources_use_steady_timer_deadlines_and_recovery() -> None:
     assert "def cancel_active" in planner_source
     assert "await wait_with_deadline" in planner_source
     assert "GoalStatus.STATUS_SUCCEEDED" in planner_source
-    assert "asyncio" not in lifecycle_source + executor_source + runtime_source + planner_source
+    # asyncio 用于 action server 异步执行 (ROS2 Python 标准做法):
+    # executor 的 async 执行循环 + asyncio.sleep 步进; 不允许在 planner/runtime 直接驱动飞行
+    assert "import asyncio" in executor_source
+    assert "asyncio" not in planner_source
+    assert "asyncio" not in runtime_source

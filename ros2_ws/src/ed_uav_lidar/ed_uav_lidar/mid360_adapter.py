@@ -6,7 +6,7 @@ import struct
 import time
 from array import array
 
-from .contracts import MissingPointTiming, PointTimeRegression, normalize_mid360, normalize_mid360_raw
+from .contracts import PacketShapeError, normalize_mid360_raw
 from .health import HealthState, evaluate_health
 
 
@@ -23,7 +23,9 @@ def main() -> None:
     custom_topic = node.declare_parameter("custom_topic", "/livox/lidar").value
     monitoring_topic = node.declare_parameter("monitoring_topic", "/lidar/points").value
     imu_topic = node.declare_parameter("imu_topic", "/lidar/imu").value
-    deadline_ns = node.declare_parameter("health_deadline_ns", 150_000_000).value
+    # MID-360 点云帧率约 10Hz (帧间隔 ~100ms), 低速/批量到达可能更长;
+    # 500ms 超时避免正常运行时误报 LIDAR_DRIVER_TIMEOUT (150ms 过紧)
+    deadline_ns = node.declare_parameter("health_deadline_ns", 500_000_000).value
     qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
     point_publisher = node.create_publisher(PointCloud2, monitoring_topic, qos)
     imu_publisher = node.create_publisher(Imu, imu_topic, qos)
@@ -42,13 +44,13 @@ def main() -> None:
     def publish_monitor(message: CustomMsg) -> None:
         nonlocal last_point_steady_ns
         try:
-            normalized = normalize_mid360(message)
-        except MissingPointTiming as error:
-            node.get_logger().error(f"LIDAR_POINT_TIME_MISSING: {error}")
-            return
-        except PointTimeRegression as error:
-            node.get_logger().warn(f"LIDAR_POINT_TIME_REGRESSION: {error}")
+            # MID-360 的 offset_time 是"帧内相对偏移"(每帧从 0 开始),
+            # 跨点不保证单调递增, 帧间回绕是正常现象 — 监控直接使用原始偏移,
+            # 仅在校验形状 (point_num 一致) 后转发
             normalized = normalize_mid360_raw(message)
+        except PacketShapeError as error:
+            node.get_logger().error(f"LIDAR_POINT_SHAPE: {error}")
+            return
         monitored = PointCloud2()
         monitored.header = message.header
         monitored.height = 1
@@ -102,6 +104,10 @@ def main() -> None:
     node.create_timer(0.05, check_health)
     try:
         rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        # SIGINT 时 rclpy 可能已 shutdown, 避免重复调用报 rcl_shutdown already called
+        if rclpy.ok():
+            rclpy.shutdown()

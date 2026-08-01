@@ -213,10 +213,10 @@ class _DisplayWorker:
 
     def stop(self, timeout: float = 1.0) -> None:
         self._stop.set()
-        if self._started:
+        # 仅在 headless 模式线程真正启动过时才 join (非 headless 窗口在
+        # main 线程驱动, _thread 未 start, join 未启动线程会抛 RuntimeError)
+        if self._started and self._thread.is_alive():
             self._thread.join(timeout=timeout)
-            if self._thread.is_alive():
-                pass  # X11 may be blocked; non-fatal
 
     def _run(self) -> None:
         if self._headless:
@@ -524,13 +524,13 @@ class MissionDisplayNode(Node):
             20,
         )
         self._feedback_sub = self.create_subscription(
-            FlightCommand.FeedbackMessage,
+            FlightCommand.Feedback,
             _FEEDBACK_TOPIC,
             self._on_feedback,
             20,
         )
         self._result_sub = self.create_subscription(
-            FlightCommand.ResultMessage,
+            FlightCommand.Result,
             _RESULT_TOPIC,
             self._on_result,
             20,

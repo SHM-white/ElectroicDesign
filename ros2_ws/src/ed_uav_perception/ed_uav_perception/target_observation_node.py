@@ -737,4 +737,6 @@ def main(args: list[str] | None = None) -> None:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        # SIGINT 时 rclpy 可能已 shutdown, 避免重复调用报 rcl_shutdown already called
+        if rclpy.ok():
+            rclpy.shutdown()

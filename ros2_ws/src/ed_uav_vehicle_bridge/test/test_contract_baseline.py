@@ -83,6 +83,11 @@ def test_bridge_protocol_uses_current_d_task_wire_contract() -> None:
     assert "MAX_PAYLOAD_BYTES: Final = 64" in protocol
     assert "HMAC_TAG_BYTES: Final = 8" in protocol
     assert 'CAR_TELEMETRY: Final = struct.Struct("<BBBHHihhH")' in payloads
-    assert 'TASK_SELECTION: Final = struct.Struct("<IIB")' in payloads
+    # TASK_SELECTION 含 mode 字节: <IIBB = selection_id + car_boot_id + task + mode
+    # (1=实飞, 2=模拟飞); 旧 12B 帧由 TASK_SELECTION_LEGACY 兼容
+    assert 'TASK_SELECTION: Final = struct.Struct("<IIBB")' in payloads
+    assert 'TASK_SELECTION_LEGACY: Final = struct.Struct("<IIB")' in payloads
+    assert "encode_task_selection" in payloads
+    assert "mode must be 1 or 2" in payloads
     assert 'MISSION_STATUS: Final = struct.Struct("<IIIBBHH")' in payloads
     assert "SelectionAckValue" not in models

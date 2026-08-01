@@ -150,8 +150,10 @@ class VehicleBridgeNode(Node):
         """
         try:
             action()
-        except Exception:  # noqa: BLE001 - daemon contract: log and continue
-            self.get_logger().error(f"{label} 异常(已隔离, 通信模块继续运行)", exc_info=True)
+        except Exception as error:  # noqa: BLE001 - daemon contract: log and continue
+            self.get_logger().error(
+                f"{label} 异常(已隔离, 通信模块继续运行): {type(error).__name__}: {error}"
+            )
 
     def _drain_udp(self) -> None:
         while True:
@@ -165,8 +167,10 @@ class VehicleBridgeNode(Node):
             )
         try:
             packets = self._socket.receive(32)
-        except Exception:  # noqa: BLE001 - socket faults must not kill the daemon
-            self.get_logger().error("udp.receive 异常(已隔离)", exc_info=True)
+        except Exception as error:  # noqa: BLE001 - socket faults must not kill the daemon
+            self.get_logger().error(
+                f"udp.receive 异常(已隔离): {type(error).__name__}: {error}"
+            )
             packets = ()
         for packet in packets:
             self._guard("udp_packet", lambda packet=packet: self._handle_packet_safely(packet))
@@ -290,7 +294,8 @@ class VehicleBridgeNode(Node):
         datagram: AuthenticatedDatagram,
     ) -> None:
         now = self.get_clock().now().to_msg()
-        if value.start_event:
+        # 小车 START 信号: RouteEvent.START 事件 (models.py 无 start_event 字段)
+        if value.event is RouteEvent.START:
             self._start_stamp = now
         self._last_telemetry = value
         self._last_sequence = datagram.frame.sequence
@@ -376,8 +381,10 @@ class VehicleBridgeNode(Node):
                 MessageType.MISSION_STATUS,
                 encode_mission_status_for_hmi(status),
             )
-        except Exception:  # noqa: BLE001 - a UDP send fault must not kill the daemon
-            self.get_logger().error("hmi.send 异常(已隔离)", exc_info=True)
+        except Exception as error:  # noqa: BLE001 - a UDP send fault must not kill the daemon
+            self.get_logger().error(
+                f"hmi.send 异常(已隔离): {type(error).__name__}: {error}"
+            )
 
     def destroy_node(self) -> None:
         self._socket.close()

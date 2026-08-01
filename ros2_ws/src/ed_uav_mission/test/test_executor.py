@@ -161,7 +161,8 @@ def test_d_task_ros_surface_uses_typed_inputs_status_and_selection_service() -> 
     ):
         assert contract in boundary_source
     assert '"/vehicle/telemetry"' in boundary_source
-    assert '"/target/observation"' in boundary_source
+    # 目标观测话题带 d_task 前缀 (感知节点发布 /d_task/target_observation)
+    assert '"/d_task/target_observation"' in boundary_source
     assert '"/payload/contact_state"' in boundary_source
     assert '"/mission/status"' in boundary_source
     assert '"/mission/select_d_task"' in boundary_source

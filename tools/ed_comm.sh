@@ -48,6 +48,44 @@ check_tools() {
     command -v ping    >/dev/null || die "需要 ping (iputils-ping)"
 }
 
+# ─── 单网卡确认 ─────────────────────────────────────────────────────────────
+# 单网卡模式下等待用户确认或等待插入第二个无线网卡。
+# 返回 0: 用户按任意键确认继续（接受断开当前 Wi-Fi）
+# 返回 1: 等待期间检测到第二个无线接口，调用方应重新执行 detect_iface
+confirm_single_nic() {
+    local timeout="${ED_HOTSPOT_CONFIRM_TIMEOUT:-30}"
+    local start_time
+    start_time=$(date +%s)
+
+    echo ""
+    warn "仅检测到 1 个无线接口 ($IFACE)"
+    echo -e "${Y}  继续将把 $IFACE 设为热点并断开当前 Wi-Fi。${N}"
+    echo -e "${Y}  如需保持互联网：请在 ${timeout}s 内插入第二个 USB 无线网卡（自动检测并切换双网卡），${N}"
+    echo -e "${Y}  或按任意键确认继续（接受断开 Wi-Fi）。超时未操作将自动退出。${N}"
+    echo ""
+
+    while true; do
+        # 1) 等待期间持续重新检测网卡，插入第二个网卡则直接继续
+        local -a now_ifaces
+        mapfile -t now_ifaces < <(nmcli -t -f DEVICE,TYPE device status 2>/dev/null | grep ':wifi$' | cut -d: -f1)
+        if [[ ${#now_ifaces[@]} -ge 2 ]]; then
+            ok "检测到新的无线接口: ${now_ifaces[*]}，自动切换双网卡模式"
+            return 1
+        fi
+
+        # 2) 超时检查（退出前本轮已重新检测过网卡）
+        if (( $(date +%s) - start_time >= timeout )); then
+            die "${timeout}s 内未确认且未检测到新网卡，自动退出。请插入第二个 USB 网卡后重试。"
+        fi
+
+        # 3) 非阻塞等待按键（1s 轮询，兼顾超时与网卡检测）
+        if read -r -t 1 -n 1 key; then
+            ok "已确认，继续（$IFACE 将设为热点，断开当前 Wi-Fi）"
+            return 0
+        fi
+    done
+}
+
 detect_iface() {
     [[ -n "$IFACE" ]] && return
     local -a wifi_ifaces
@@ -95,7 +133,14 @@ detect_iface() {
         [[ -n "$IFACE" ]] || die "无法确定 AP 接口"
     else
         IFACE="${wifi_ifaces[0]}"
-        warn "仅检测到 1 个无线接口 ($IFACE)，热点会断开当前 Wi-Fi"
+        if confirm_single_nic; then
+            warn "仅检测到 1 个无线接口 ($IFACE)，热点会断开当前 Wi-Fi"
+        else
+            # 等待期间插入了第二个无线网卡，重新执行角色分配
+            IFACE=""
+            STA_IFACE=""
+            detect_iface
+        fi
     fi
 }
 
@@ -378,6 +423,7 @@ main() {
             echo "  ED_HOTSPOT_PASSWORD   WPA2 密码 (留空=开放)"
             echo "  ED_HOTSPOT_CHANNEL    信道 (默认: 6)"
             echo "  ED_HOTSPOT_IFACE      无线接口 (自动检测)"
+            echo "  ED_HOTSPOT_CONFIRM_TIMEOUT  单网卡确认超时秒数 (默认: 30)"
             echo "  ED_CAR_MAC            小车 MAC (DHCP 固定 .2)"
             echo "  ED_HMI_MAC            地面站 MAC (DHCP 固定 .3)"
             exit 0

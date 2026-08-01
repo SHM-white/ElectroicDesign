@@ -73,6 +73,31 @@ def _lidar_reachable(ip: str) -> bool:
         return False
 
 
+def _resolve_serial(context, requested_fcu: str, requested_h7: str):
+    """串口自动检测: 复用 full_competition.launch.py 的 detect_or_fallback。
+
+    通过探测指令识别 H7 GPIO 板 (0xBB 响应) 与凌霄飞控 (V7 遥测帧),
+    无需硬编码设备路径; dry-run (无飞控) 直接回退默认值。
+    """
+    if not Path(requested_fcu).exists() or not Path(requested_h7).exists():
+        try:
+            from ed_uav_fcu_bridge.serial_detect import detect_or_fallback
+
+            detected = detect_or_fallback(
+                default_h7=requested_h7,
+                default_fcu=requested_fcu,
+                probe_timeout=1.0,
+            )
+            print(
+                f"[task3] 串口自动检测: fcu={detected['fcu']} "
+                f"h7_gpio={detected['h7_gpio']}"
+            )
+            return detected["fcu"], detected["h7_gpio"]
+        except Exception as error:  # noqa: BLE001 - fall back to requested paths
+            print(f"[task3] 串口自动检测失败 ({error}), 使用请求路径")
+    return requested_fcu, requested_h7
+
+
 def _build_actions(context):
     """Build the complete Task3 flight-test node graph."""
     mission_share = Path(get_package_share_directory("ed_uav_mission"))
@@ -96,6 +121,13 @@ def _build_actions(context):
     dry_run = LaunchConfiguration("dry_run").perform(context).lower() in ("true", "1", "yes")
     h7_serial_port = LaunchConfiguration("h7_serial_port").perform(context)
     lidar_ip = LaunchConfiguration("lidar_ip").perform(context)
+    vehicle_bind_host = LaunchConfiguration("vehicle_bind_host").perform(context)
+
+    # 串口自动检测 (仅实飞; dry-run 无飞控/H7 可跳过)
+    if not dry_run:
+        fcu_serial_port, h7_serial_port = _resolve_serial(
+            fcu_serial_port, h7_serial_port
+        )
 
     actions = [
         SetEnvironmentVariable("ROS_SECURITY_ENABLE", ros_security_enable),
@@ -136,7 +168,7 @@ def _build_actions(context):
             output="screen",
             parameters=[
                 {
-                    "bind_host": _NUC_IP,
+                    "bind_host": vehicle_bind_host,
                     "bind_port": 42000,
                     "car_peer_host": _CAR_IP,
                     "car_peer_port": 42001,
@@ -149,7 +181,13 @@ def _build_actions(context):
                     "mission_timeout_seconds": 90.0,
                     "telemetry_stale_seconds": 0.75,
                     "task3_flight_test_mode": True,
-                    "task3_immediate_start": LaunchConfiguration("task3_immediate_start").perform(context),
+                    # launch 参数是字符串 ("true"/"false"), 必须转成 BOOL,
+                    # 否则 vehicle_bridge 的 declare_parameter(BOOL) 会抛
+                    # InvalidParameterTypeException
+                    "task3_immediate_start": (
+                        LaunchConfiguration("task3_immediate_start").perform(context).lower()
+                        in ("true", "1", "yes")
+                    ),
                     "task3_mission_id": task3_identity,
                     "task3_field_profile_id": field_profile_id,
                     "task3_mission_profile_id": _TASK3_MISSION_PROFILE_ID,
@@ -208,6 +246,7 @@ def _build_actions(context):
                     "calibration_file": calibration_file,
                     "simulation_only": False,
                     "payload_config_path": str(mission_share / "config" / "payload_adapter.yaml"),
+                    "payload_actuator": "h7" if not dry_run else "fake",
                     "programmable_capability_report": "",
                     "fcu_device_identity": "",
                     "task3_mission_profile_id": _TASK3_MISSION_PROFILE_ID,
@@ -364,6 +403,11 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("ros_security_strategy", default_value="Enforce"),
             DeclareLaunchArgument("ros_security_keystore", description="SROS2 keystore directory"),
             DeclareLaunchArgument("enable_display", default_value="false", description="Enable mission display window"),
+            DeclareLaunchArgument(
+                "vehicle_bind_host",
+                default_value=_NUC_IP,
+                description="vehicle_bridge UDP bind host (dry-run 建议 0.0.0.0)",
+            ),
             DeclareLaunchArgument(
                 "task3_immediate_start",
                 default_value="false",

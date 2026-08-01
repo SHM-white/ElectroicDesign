@@ -160,9 +160,6 @@ LAUNCH_CMD=(
     "ros_security_enable:=true"
     "ros_security_strategy:=Enforce"
     "ros_security_keystore:=$ROS_SECURITY_KEYSTORE"
-    "enable_flight_commands:=true"
-    "enable_realtime_control:=true"
-    "enable_programmable_commands:=false"
     "enable_display:=$ENABLE_DISPLAY"
 )
 
@@ -174,8 +171,6 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
         "dry_run:=true"
         "ros_security_enable:=false"
         "ros_security_strategy:=Enforce"
-        "enable_flight_commands:=false"
-        "enable_realtime_control:=false"
     )
     ok "Task3 配置校验通过, 以 dry-run 模式启动非飞控全链路自检"
     ok "跳过: 飞控桥 (ed_uav_fcu_bridge); 保留: 地面站/雷达/相机/视觉/电磁铁/显示"

@@ -71,7 +71,8 @@ def test_payloads_round_trip_into_fixed_width_values() -> None:
     )
 
     # Then: the values retain their typed fields and exact widths.
-    assert tuple(map(len, encoded)) == (17, 9, 18)
+    # TASK_SELECTION 现含 mode 字节 (<IIBB = 10B), 兼容旧 9B 帧
+    assert tuple(map(len, encoded)) == (17, 10, 18)
     assert decoded == (TELEMETRY, SELECTION, STATUS)
 
 
