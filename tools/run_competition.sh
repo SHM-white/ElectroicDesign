@@ -209,11 +209,11 @@ main() {
 
     # 确保热点子网 192.168.20.x 可用 (CAR/HMI 通信)
     # dry-run 自动跳过热点 (无小车/地面站不需要)
-    if [[ -n "$DRY_RUN" && "$WITH_HOTSPOT" -eq 1 ]]; then
-        ok "dry-run 模式: 跳过热点检查 (无小车/地面站)"
-    elif [[ "$WITH_HOTSPOT" -eq 1 ]]; then
+    # if [[ -n "$DRY_RUN" && "$WITH_HOTSPOT" -eq 1 ]]; then
+    #     ok "dry-run 模式: 跳过热点检查 (无小车/地面站)"
+    # elif [[ "$WITH_HOTSPOT" -eq 1 ]]; then
         hotspot_ensure
-    fi
+    # fi
 
     echo ""
     echo -e "${C}══════════════════════════════════════════════════════════${N}"

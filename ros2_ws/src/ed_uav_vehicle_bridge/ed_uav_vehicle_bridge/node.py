@@ -89,6 +89,14 @@ class VehicleBridgeNode(Node):
                 key=self._key,
             )
         )
+        self._car_sender = HmiSender(
+            HmiSenderConfig(
+                socket=self._socket,
+                destination=provision.car_peer,
+                sender_id=provision.bridge_sender_id,
+                key=self._key,
+            )
+        )
         self._no_car_mode = bool(self.get_parameter("no_car_mode").value)
         self._immediate_start = bool(self.get_parameter("task3_immediate_start").value)
         self._authority = BridgeAuthority(
@@ -139,6 +147,7 @@ class VehicleBridgeNode(Node):
         )
         self._udp_timer = self.create_timer(0.01, self._drain_udp, callback_group=self._callbacks)
         self._freshness_timer = self.create_timer(0.05, self._check_freshness, callback_group=self._callbacks)
+        self._heartbeat_timer = self.create_timer(0.25, self._send_heartbeat, callback_group=self._callbacks)
         self.get_logger().info("vehicle_bridge.ready")
 
     def _guard(self, label: str, action: Callable[[], None]) -> None:
@@ -347,15 +356,14 @@ class VehicleBridgeNode(Node):
 
     def _on_mission_status_impl(self, message: MissionStatus) -> None:
         self._mission_idle = message.state == MissionStatus.STATE_PRE_ARM and not message.complete
-        self._hmi_sender.send(
-            MessageType.MISSION_STATUS,
-            encode_mission_status_for_hmi(
-                message,
-                self._authority.committed_selection
-                if (self._task3_flight_test_mode or self._no_car_mode)
-                else None,
-            ),
+        payload = encode_mission_status_for_hmi(
+            message,
+            self._authority.committed_selection
+            if (self._task3_flight_test_mode or self._no_car_mode)
+            else None,
         )
+        self._hmi_sender.send(MessageType.MISSION_STATUS, payload)
+        self._car_sender.send(MessageType.MISSION_STATUS, payload)
 
     def _send_rejection(
         self,
@@ -376,15 +384,27 @@ class VehicleBridgeNode(Node):
         )
 
     def _send_mission_status(self, status: MissionStatusValue) -> None:
+        payload = encode_mission_status_for_hmi(status)
         try:
-            self._hmi_sender.send(
-                MessageType.MISSION_STATUS,
-                encode_mission_status_for_hmi(status),
-            )
+            self._hmi_sender.send(MessageType.MISSION_STATUS, payload)
         except Exception as error:  # noqa: BLE001 - a UDP send fault must not kill the daemon
             self.get_logger().error(
                 f"hmi.send 异常(已隔离): {type(error).__name__}: {error}"
             )
+        try:
+            self._car_sender.send(MessageType.MISSION_STATUS, payload)
+        except Exception as error:  # noqa: BLE001 - a UDP send fault must not kill the daemon
+            self.get_logger().error(
+                f"car.send 异常(已隔离): {type(error).__name__}: {error}"
+            )
+
+    def _send_heartbeat(self) -> None:
+        """Send heartbeat to CAR and HMI at 4 Hz (250 ms)."""
+        self._guard("heartbeat", self._send_heartbeat_impl)
+
+    def _send_heartbeat_impl(self) -> None:
+        self._hmi_sender.send(MessageType.HEARTBEAT, b"")
+        self._car_sender.send(MessageType.HEARTBEAT, b"")
 
     def destroy_node(self) -> None:
         self._socket.close()

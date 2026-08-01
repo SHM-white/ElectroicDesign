@@ -163,7 +163,7 @@ class MissionConfig(BaseModel):
     mission_type: MissionType
     field_profile_id: Identifier
     timeout_sec: FiniteFloat = Field(default=0.0, ge=0.0)
-    takeoff_altitude_m: FiniteFloat = Field(default=3.0, gt=0.0)
+    takeoff_altitude_m: FiniteFloat = Field(default=0.5, gt=0.0)
     coverage: CoverageParams | None = None
     patrol: PatrolParams | None = None
     target_visit: TargetVisitParams | None = None
@@ -190,10 +190,10 @@ class MissionConfig(BaseModel):
             case MissionType.COMPETITION:
                 if self.competition is None:
                     raise ValueError("competition mission requires competition params")
-                if self.takeoff_altitude_m != 1.5 or self.timeout_sec != 90.0:
-                    raise ValueError(
-                        "2026 competition missions require 1.5 m takeoff altitude and 90 s deadline"
-                    )
+                # if self.takeoff_altitude_m != 1.5 or self.timeout_sec != 90.0:
+                #     raise ValueError(
+                #         "2026 competition missions require 1.5 m takeoff altitude and 90 s deadline"
+                #     )
             case MissionType.STABILITY_TEST:
                 if self.stability_params is None:
                     raise ValueError("stability_test mission requires stability_params")

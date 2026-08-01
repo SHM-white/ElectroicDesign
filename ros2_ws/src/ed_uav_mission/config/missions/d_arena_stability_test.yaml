@@ -3,7 +3,7 @@ mission_id: task3-stability-2026
 mission_type: stability_test
 field_profile_id: d-arena-2026
 timeout_sec: 120.0
-takeoff_altitude_m: 1.5
+takeoff_altitude_m: 0.5
 stability_params:
   altitude_m: 1.5
   # 起飞后悬停时间

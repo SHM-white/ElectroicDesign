@@ -81,7 +81,10 @@ class DTaskRuntime:
             case ContactObserved(update=update):
                 transition = self._on_contact(update)
             case SafetyInterrupted(fault=fault, reason=reason):
-                transition = self._interrupt(now_s, fault, reason)
+                if fault is DTaskFault.HARD_LOCKED:
+                    transition = self._abort(now_s, fault, reason)
+                else:
+                    transition = self._interrupt(now_s, fault, reason)
             case unreachable:
                 assert_never(unreachable)
         self.state = transition.state

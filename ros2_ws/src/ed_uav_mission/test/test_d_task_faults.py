@@ -121,6 +121,19 @@ def test_active_faults_recover_via_hover_return_land(event, fault) -> None:
     assert aborted.state.phase is DTaskPhase.ABORTED
 
 
+@pytest.mark.parametrize("task", [DTaskKind.PAYLOAD_DROP, DTaskKind.DYNAMIC_LANDING])
+def test_hard_lock_aborts_immediately_without_safe_recovery(task) -> None:
+    """AUX6 hard lock means propellers are physically locked — skip safe recovery."""
+    runtime = _airborne_runtime(task)
+
+    result = runtime.advance(SafetyInterrupted(6.0, DTaskFault.HARD_LOCKED, "physical hard lock"))
+
+    assert result.state.phase is DTaskPhase.ABORTED
+    assert result.state.fault is DTaskFault.HARD_LOCKED
+    assert result.effect is None
+    assert result.complete is True
+
+
 def test_payload_unknown_blocks_task1_at_start() -> None:
     runtime = DTaskRuntime(selection(DTaskKind.PAYLOAD_DROP), DTaskRuntimeConfig(), payload_config())
 
