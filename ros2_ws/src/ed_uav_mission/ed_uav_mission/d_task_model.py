@@ -47,7 +47,6 @@ class DTaskEffect(str, Enum):
     TAKEOFF = "takeoff"
     HOVER = "hover"
     MOVE_RIGHT = "move_right"
-    SEARCH_FORWARD = "search_forward"
     TRACK_TARGET = "track_target"
     RELEASE_PAYLOAD = "release_payload"
     DESCEND_TO_VEHICLE = "descend_to_vehicle"
@@ -73,7 +72,6 @@ class DTaskFault(str, Enum):
     CANCELLED = "cancelled"
     LOCALIZATION_LOST = "localization_lost"
     HARD_LOCKED = "hard_locked"
-    SEARCH_DISTANCE_EXCEEDED = "search_distance_exceeded"
 
 
 class RouteStage(IntEnum):

@@ -136,9 +136,6 @@ class DTaskRuntime:
             and now_s - self.state.phase_started_at_s + 1e-9 >= self.config.stable_s
         ):
             return self._transition(DTaskPhase.MOVE_RIGHT, now_s, DTaskEffect.MOVE_RIGHT)
-        if self.state.phase is DTaskPhase.SEARCHING:
-            # Start forward search when entering SEARCHING phase
-            return self._transition(DTaskPhase.SEARCHING, now_s, DTaskEffect.SEARCH_FORWARD)
         return DTaskTransition(state=self.state)
 
     def _on_vehicle(self, now_s: float, vehicle: VehicleSnapshot, payload_state: PayloadState) -> DTaskTransition:
@@ -213,9 +210,6 @@ class DTaskRuntime:
             return self._transition(DTaskPhase.STABILIZING, now_s, DTaskEffect.HOVER)
         if phase is DTaskPhase.MOVE_RIGHT and effect is DTaskEffect.MOVE_RIGHT:
             return self._transition(DTaskPhase.SEARCHING, now_s)
-        if phase is DTaskPhase.SEARCHING and effect is DTaskEffect.SEARCH_FORWARD:
-            # Search distance exceeded without finding target - abort
-            return self._interrupt(now_s, DTaskFault.SEARCH_DISTANCE_EXCEEDED, "search distance exceeded without finding target")
         if phase is DTaskPhase.RELEASING and effect is DTaskEffect.RELEASE_PAYLOAD:
             state = replace(self.state, release_attempted=True)
             self.state = state
