@@ -86,33 +86,15 @@ def _snapshot(
     )
 
 
-@pytest.mark.parametrize(
-    ("primary_channels_us", "aux1_us"),
-    (
-        ((1460, 1500, 1500, 1500), 1500),
-        ((1540, 1500, 1500, 1500), 1500),
-        ((1500, 1460, 1500, 1500), 1500),
-        ((1500, 1540, 1500, 1500), 1500),
-        ((1500, 1500, 1420, 1500), 1500),
-        ((1500, 1500, 1580, 1500), 1500),
-        ((1500, 1500, 1500, 1420), 1500),
-        ((1500, 1500, 1500, 1580), 1500),
-        ((1500, 1500, 1500, 1500), 1400),
-        ((1500, 1500, 1500, 1500), 1600),
-    ),
-)
-def test_mode_gate_uses_strict_manual_deadbands(
-    primary_channels_us: tuple[int, int, int, int],
-    aux1_us: int,
-) -> None:
-    # Given: one RC channel exactly on a local-manual deadband boundary.
+def test_manual_channels_and_aux_mode_do_not_gate_realtime_control() -> None:
+    # Given: deliberately non-centered sticks and an AUX value outside the old window.
     realtime = _module("realtime_control")
     config = realtime.RealtimeControlConfig(enable_realtime_control=True)
 
-    # When / Then: strict interior checks reject every boundary value.
-    assert not realtime.nonzero_control_allowed(
+    # When / Then: position validity and the configured backend are sufficient.
+    assert realtime.nonzero_control_allowed(
         config,
-        _snapshot(primary_channels_us=primary_channels_us, aux1_us=aux1_us),
+        _snapshot(primary_channels_us=(1200, 1800, 1100, 1900), aux1_us=1700),
     )
 
 
@@ -129,8 +111,8 @@ def test_mode_gate_accepts_values_strictly_inside_each_manual_deadband() -> None
     assert realtime.nonzero_control_allowed(config, snapshot)
 
 
-def test_hover_gate_loss_stops_and_returns_control_gated() -> None:
-    # Given: HOVER starts valid, then mode 3 arrives before the next send cycle.
+def test_hover_does_not_abort_on_obsolete_mode_gate_changes() -> None:
+    # Given: HOVER sees a mode change that used to be treated as a software lock.
     realtime = _module("realtime_control")
     clock = FakeClock()
     written: list[bytes] = []
@@ -147,13 +129,13 @@ def test_hover_gate_loss_stops_and_returns_control_gated() -> None:
         ),
     )
 
-    # When: the second HOVER cycle evaluates its telemetry gate.
-    result = controller.execute(realtime.RealtimeHoverRequest(1.0), lambda: False)
+    # When: HOVER runs for a bounded duration.
+    result = controller.execute(realtime.RealtimeHoverRequest(0.04), lambda: False)
 
-    # Then: one streamed zero is followed by exactly two terminal zero frames.
-    assert result.code is realtime.RealtimeResultCode.CONTROL_GATED
-    assert clock.sleeps == [0.02]
-    assert len(written) == 3
+    # Then: it completes normally; the independent emergency latch is tested separately.
+    assert result.code is realtime.RealtimeResultCode.SUCCEEDED
+    assert clock.sleeps == [0.02, 0.02]
+    assert len(written) == 4
 
 
 def test_move_requires_three_distinct_fresh_arrivals_at_target() -> None:

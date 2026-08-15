@@ -1,4 +1,4 @@
-"""Configuration, safety gates, and velocity policy for V7 realtime control."""
+"""Configuration and bounded velocity policy for V7 realtime control."""
 
 from __future__ import annotations
 
@@ -13,12 +13,6 @@ from .v7_codec import RealtimeControlFields
 # 需无桨确认机型/固件轴向；不得依据 0x08 位置字段盲推 SPD_Y 符号。
 REALTIME_SPD_Y_SIGN: Final = 1
 
-# 本地手册死区，均为可调常量；修改前需无桨确认遥控中位与机型/固件行为。
-RC_CENTER_US: Final = 1500
-ROLL_PITCH_DEADBAND_US: Final = 40
-THR_YAW_DEADBAND_US: Final = 80
-AUX1_MODE_2_MIN_US: Final = 1400
-AUX1_MODE_2_MAX_US: Final = 1600
 ZERO_CONTROL: Final = RealtimeControlFields(0, 0, 0, 0, 0, 0, 0)
 
 
@@ -89,37 +83,21 @@ class RealtimeResult:
     completed_steady_s: float
 
 
-def _strictly_centered(channel_us: int, deadband_us: int) -> bool:
-    return RC_CENTER_US - deadband_us < channel_us < RC_CENTER_US + deadband_us
-
-
 def nonzero_control_allowed(
     config: RealtimeControlConfig,
     snapshot: TelemetrySnapshot,
 ) -> bool:
-    """Require fresh position, mode 2, and strict local-manual RC deadbands."""
+    """Require only the configured backend and a usable position sample.
+
+    AUX mode windows and stick-centering duplicated the external pilot boundary
+    and made autonomous commands intermittently impossible.  The independent
+    emergency-lock latch remains enforced in ``RealtimeController``.
+    """
     position = snapshot.position
-    status = snapshot.status
-    aux = snapshot.aux
-    if (
-        not config.enable_realtime_control
-        or position is None
-        or not position.valid
-        or status is None
-        or not status.valid
-        or status.mode != 2
-        or aux is None
-        or not aux.valid
-        or len(aux.channels_us) != 10
-    ):
-        return False
-    roll_us, pitch_us, throttle_us, yaw_us = aux.channels_us[:4]
-    return (
-        AUX1_MODE_2_MIN_US < aux.aux1_us < AUX1_MODE_2_MAX_US
-        and _strictly_centered(roll_us, ROLL_PITCH_DEADBAND_US)
-        and _strictly_centered(pitch_us, ROLL_PITCH_DEADBAND_US)
-        and _strictly_centered(throttle_us, THR_YAW_DEADBAND_US)
-        and _strictly_centered(yaw_us, THR_YAW_DEADBAND_US)
+    return bool(
+        config.enable_realtime_control
+        and position is not None
+        and position.valid
     )
 
 

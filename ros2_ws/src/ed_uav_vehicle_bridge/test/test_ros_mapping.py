@@ -96,3 +96,21 @@ def test_mission_status_maps_to_bounded_hmi_value() -> None:
     assert value.phase is MissionPhase.PRESTART
     assert value.selected_task == 0
     assert value.reason_flags == 0
+
+
+def test_prestart_status_is_bound_to_live_car_and_hmi_epochs() -> None:
+    message = MissionStatus()
+    message.contract_version = 1
+    message.state = MissionStatus.STATE_PRE_ARM
+    message.complete = False
+
+    value = decode_mission_status(
+        encode_mission_status_for_hmi(
+            message,
+            car_boot_id=BootId(0x11112222),
+            hmi_boot_id=BootId(0x33334444),
+        )
+    )
+
+    assert value.car_boot_id == BootId(0x11112222)
+    assert value.hmi_boot_id == BootId(0x33334444)

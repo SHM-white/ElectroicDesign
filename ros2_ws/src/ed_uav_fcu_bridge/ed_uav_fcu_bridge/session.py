@@ -100,7 +100,7 @@ class NativeV7Bridge:
         return self.telemetry.snapshot(steady_now)
 
     def mission_ready(self, steady_now: float) -> bool:
-        """Require fresh position, status, link, and AUX6 start switch before mission start."""
+        """Report whether the telemetry needed for command execution is fresh."""
         snapshot = self.snapshot(steady_now)
         return (
             snapshot.position is not None
@@ -108,7 +108,6 @@ class NativeV7Bridge:
             and snapshot.status is not None
             and snapshot.status.valid
             and snapshot.link.valid
-            and self.telemetry.has_fresh_start_switch(steady_now)
         )
 
     def _commands_allowed(self) -> bool:

@@ -116,6 +116,28 @@ def test_freshness_uses_local_steady_receipt_time_once() -> None:
     assert tracker.telemetry_fault_if_stale(ReceiptSeconds(21.0), 0.75) is None
 
 
+def test_heartbeat_sequence_does_not_refresh_telemetry_freshness() -> None:
+    policy = PeerPolicy(
+        SenderId(0x43415231),
+        SOURCE,
+        frozenset({MessageType.CAR_TELEMETRY, MessageType.HEARTBEAT}),
+    )
+    tracker = SessionTracker(policy)
+    tracker.accept(DATAGRAM, SOURCE, ReceiptSeconds(20.0))
+    heartbeat = replace(
+        FRAME,
+        message_type=MessageType.HEARTBEAT,
+        sequence=Sequence(11),
+        payload=b"",
+    )
+    tracker.accept(AuthenticatedDatagram(heartbeat, 0), SOURCE, ReceiptSeconds(20.7))
+
+    fault = tracker.telemetry_fault_if_stale(ReceiptSeconds(20.751), 0.75)
+
+    assert fault is not None
+    assert fault.age_seconds == pytest.approx(0.751)
+
+
 def test_route_tracker_rejects_d_before_b_and_repeated_start() -> None:
     tracker = RouteTracker()
     tracker.accept(TELEMETRY)

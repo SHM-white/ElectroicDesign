@@ -12,8 +12,6 @@ def generate_launch_description() -> LaunchDescription:
     calibration_file = LaunchConfiguration("calibration_file")
     simulation_only = LaunchConfiguration("simulation_only")
     payload_config_path = LaunchConfiguration("payload_config_path")
-    capability_report = LaunchConfiguration("programmable_capability_report")
-    fcu_device_identity = LaunchConfiguration("fcu_device_identity")
     return LaunchDescription(
         [
             DeclareLaunchArgument("use_sim_time", default_value="false"),
@@ -42,14 +40,11 @@ def generate_launch_description() -> LaunchDescription:
                     [FindPackageShare("ed_uav_mission"), "config", "payload_adapter.yaml"]
                 ),
             ),
-            DeclareLaunchArgument("programmable_capability_report", default_value=""),
-            DeclareLaunchArgument("fcu_device_identity", default_value=""),
             Node(
                 package="ed_uav_mission",
                 executable="mission_executor",
                 name="mission_executor",
                 output="screen",
-                arguments=["--ros-args", "--enclave", "/ed_uav_mission_executor"],
                 parameters=[
                     {
                         "use_sim_time": use_sim_time,
@@ -58,8 +53,6 @@ def generate_launch_description() -> LaunchDescription:
                         "calibration_file": calibration_file,
                         "simulation_only": simulation_only,
                         "payload_config_path": payload_config_path,
-                        "programmable_capability_report": capability_report,
-                        "fcu_device_identity": fcu_device_identity,
                     }
                 ],
             ),

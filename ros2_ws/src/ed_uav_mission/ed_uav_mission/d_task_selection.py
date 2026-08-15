@@ -49,6 +49,8 @@ class DTaskSelectionContract:
     def rejection_reason(self, request: DTaskSelectionRequest, contract_version: int) -> str:
         if request.contract_version != contract_version:
             return "unsupported selection contract"
+        if request.mission_id != self.mission_id:
+            return "selection mission_id does not match loaded mission"
         if request.field_profile_id != self.field_profile_id:
             return "selection field_profile_id does not match loaded field"
         if request.mission_profile_id != self.mission_profile_id:

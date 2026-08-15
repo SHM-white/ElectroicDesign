@@ -42,6 +42,9 @@ def _case():
     rclpy.init()
     clock = _Clock()
     node = TargetObservationNode(steady_clock=clock)
+    node.set_parameters(
+        [rclpy.parameter.Parameter("target_revision", value="d2026-circle-cross-v1")]
+    )
     capture = _CapturePublisher()
     node._publisher = capture
     rendered = render_target()

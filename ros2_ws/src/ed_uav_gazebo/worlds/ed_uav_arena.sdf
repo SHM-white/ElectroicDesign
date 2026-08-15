@@ -1,34 +1,74 @@
-<?xml version="1.0" ?>
+<?xml version="1.0"?>
 <sdf version="1.8">
-  <world name="ed_uav_arena">
+  <world name="d_arena_2026">
     <gravity>0 0 -9.81</gravity>
     <physics name="fortress_physics" type="ode">
       <max_step_size>0.001</max_step_size><real_time_factor>1</real_time_factor><real_time_update_rate>1000</real_time_update_rate>
     </physics>
-    <scene><ambient>0.38 0.42 0.48 1</ambient><background>0.08 0.10 0.14 1</background><shadows>true</shadows></scene>
+    <scene><ambient>0.55 0.55 0.55 1</ambient><background>0.10 0.12 0.15 1</background><shadows>true</shadows></scene>
     <plugin filename="ignition-gazebo-physics-system" name="ignition::gazebo::systems::Physics"/>
     <plugin filename="ignition-gazebo-user-commands-system" name="ignition::gazebo::systems::UserCommands"/>
     <plugin filename="ignition-gazebo-scene-broadcaster-system" name="ignition::gazebo::systems::SceneBroadcaster"/>
     <plugin filename="ignition-gazebo-sensors-system" name="ignition::gazebo::systems::Sensors"><render_engine>ogre2</render_engine></plugin>
     <plugin filename="ignition-gazebo-imu-system" name="ignition::gazebo::systems::Imu"/>
+    <light name="ceiling_light" type="point"><pose>2 2.5 4 0 0 0</pose><cast_shadows>true</cast_shadows><diffuse>0.95 0.95 0.92 1</diffuse><specular>0.2 0.2 0.2 1</specular><attenuation><range>12</range><constant>0.5</constant><linear>0.05</linear><quadratic>0.01</quadratic></attenuation></light>
 
-    <light name="sun" type="directional"><pose>0 0 12 0.4 -0.5 0</pose><cast_shadows>true</cast_shadows><direction>-0.3 0.2 -1</direction><diffuse>0.9 0.9 0.85 1</diffuse><specular>0.2 0.2 0.2 1</specular></light>
-    <model name="ground_plane"><static>true</static><link name="link"><collision name="collision"><geometry><plane><normal>0 0 1</normal><size>60 60</size></plane></geometry></collision><visual name="visual"><geometry><plane><normal>0 0 1</normal><size>60 60</size></plane></geometry><material><ambient>0.12 0.15 0.18 1</ambient><diffuse>0.18 0.22 0.26 1</diffuse></material></visual></link></model>
+    <!-- Exact 400cm x 500cm active floor from the D-task drawing. -->
+    <model name="d_arena_floor"><static>true</static><pose>2 2.5 0 0 0 0</pose><link name="link">
+      <collision name="collision"><geometry><plane><normal>0 0 1</normal><size>8 9</size></plane></geometry></collision>
+      <visual name="active_floor"><pose>0 0 0.001 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>4 5</size></plane></geometry><material><ambient>0.72 0.72 0.69 1</ambient><diffuse>0.82 0.82 0.78 1</diffuse></material></visual>
+    </link></model>
 
-    <model name="arena_north_wall"><static>true</static><pose>0 8 1 0 0 0</pose><link name="link"><collision name="collision"><geometry><box><size>16 0.2 2</size></box></geometry></collision><visual name="visual"><geometry><box><size>16 0.2 2</size></box></geometry><material><diffuse>0.32 0.36 0.42 1</diffuse></material></visual></link></model>
-    <model name="arena_south_wall"><static>true</static><pose>0 -8 1 0 0 0</pose><link name="link"><collision name="collision"><geometry><box><size>16 0.2 2</size></box></geometry></collision><visual name="visual"><geometry><box><size>16 0.2 2</size></box></geometry><material><diffuse>0.32 0.36 0.42 1</diffuse></material></visual></link></model>
-    <model name="arena_east_wall"><static>true</static><pose>8 0 1 0 0 0</pose><link name="link"><collision name="collision"><geometry><box><size>0.2 16 2</size></box></geometry></collision><visual name="visual"><geometry><box><size>0.2 16 2</size></box></geometry><material><diffuse>0.32 0.36 0.42 1</diffuse></material></visual></link></model>
-    <model name="arena_west_wall"><static>true</static><pose>-8 0 1 0 0 0</pose><link name="link"><collision name="collision"><geometry><box><size>0.2 16 2</size></box></geometry></collision><visual name="visual"><geometry><box><size>0.2 16 2</size></box></geometry><material><diffuse>0.32 0.36 0.42 1</diffuse></material></visual></link></model>
+    <!-- 2.5m indoor walls sit just outside the flight boundary. -->
+    <model name="south_wall_2p5m"><static>true</static><pose>2 -0.06 1.25 0 0 0</pose><link name="link"><collision name="collision"><geometry><box><size>4.12 0.12 2.5</size></box></geometry></collision><visual name="visual"><geometry><box><size>4.12 0.12 2.5</size></box></geometry><material><diffuse>0.48 0.52 0.57 1</diffuse></material></visual></link></model>
+    <model name="north_wall_2p5m"><static>true</static><pose>2 5.06 1.25 0 0 0</pose><link name="link"><collision name="collision"><geometry><box><size>4.12 0.12 2.5</size></box></geometry></collision><visual name="visual"><geometry><box><size>4.12 0.12 2.5</size></box></geometry><material><diffuse>0.41 0.46 0.53 1</diffuse></material></visual></link></model>
+    <model name="west_wall_2p5m"><static>true</static><pose>-0.06 2.5 1.25 0 0 0</pose><link name="link"><collision name="collision"><geometry><box><size>0.12 5.0 2.5</size></box></geometry></collision><visual name="visual"><geometry><box><size>0.12 5.0 2.5</size></box></geometry><material><diffuse>0.52 0.49 0.44 1</diffuse></material></visual></link></model>
+    <model name="east_wall_2p5m"><static>true</static><pose>4.06 2.5 1.25 0 0 0</pose><link name="link"><collision name="collision"><geometry><box><size>0.12 5.0 2.5</size></box></geometry></collision><visual name="visual"><geometry><box><size>0.12 5.0 2.5</size></box></geometry><material><diffuse>0.44 0.50 0.45 1</diffuse></material></visual></link></model>
 
-    <model name="obstacle_block"><static>true</static><pose>2.5 1.5 0.75 0 0 0.35</pose><link name="link"><collision name="collision"><geometry><box><size>1.5 1.5 1.5</size></box></geometry></collision><visual name="visual"><geometry><box><size>1.5 1.5 1.5</size></box></geometry><material><diffuse>0.8 0.25 0.16 1</diffuse></material></visual></link></model>
-    <model name="obstacle_cylinder"><static>true</static><pose>-2.2 -1.8 0.8 0 0 0</pose><link name="link"><collision name="collision"><geometry><cylinder><radius>0.75</radius><length>1.6</length></cylinder></geometry></collision><visual name="visual"><geometry><cylinder><radius>0.75</radius><length>1.6</length></cylinder></geometry><material><diffuse>0.18 0.65 0.34 1</diffuse></material></visual></link></model>
-    <model name="marker_gate"><static>true</static><pose>-3.5 3.0 1.0 0 0 0</pose><link name="left"><visual name="visual"><geometry><cylinder><radius>0.08</radius><length>2</length></cylinder></geometry><material><diffuse>0.95 0.8 0.08 1</diffuse></material></visual></link><link name="right"><pose>2 0 0 0 0 0</pose><visual name="visual"><geometry><cylinder><radius>0.08</radius><length>2</length></cylinder></geometry><material><diffuse>0.95 0.8 0.08 1</diffuse></material></visual></link><link name="top"><pose>1 0 1 0 0 0</pose><visual name="visual"><geometry><box><size>2.1 0.12 0.12</size></box></geometry><material><diffuse>0.95 0.8 0.08 1</diffuse></material></visual></link></model>
+    <!-- Deliberately asymmetric indoor returns prevent planar LiDAR yaw/translation ambiguity. -->
+    <model name="west_lidar_panel"><static>true</static><pose>0.08 2.75 0.70 0 0 0</pose><link name="link"><collision name="collision"><geometry><box><size>0.16 0.75 1.40</size></box></geometry></collision><visual name="visual"><geometry><box><size>0.16 0.75 1.40</size></box></geometry><material><diffuse>0.70 0.23 0.18 1</diffuse></material></visual></link></model>
+    <model name="east_lidar_panel"><static>true</static><pose>3.90 3.92 0.45 0 0 0</pose><link name="link"><collision name="collision"><geometry><box><size>0.20 0.42 0.90</size></box></geometry></collision><visual name="visual"><geometry><box><size>0.20 0.42 0.90</size></box></geometry><material><diffuse>0.16 0.55 0.35 1</diffuse></material></visual></link></model>
+    <model name="north_lidar_panel"><static>true</static><pose>0.92 4.89 0.95 0 0 0.25</pose><link name="link"><collision name="collision"><geometry><box><size>0.85 0.20 1.90</size></box></geometry></collision><visual name="visual"><geometry><box><size>0.85 0.20 1.90</size></box></geometry><material><diffuse>0.78 0.62 0.13 1</diffuse></material></visual></link></model>
+    <model name="short_corner_pillar"><static>true</static><pose>3.62 0.32 0.48 0 0 0</pose><link name="link"><collision name="collision"><geometry><cylinder><radius>0.14</radius><length>0.96</length></cylinder></geometry></collision><visual name="visual"><geometry><cylinder><radius>0.14</radius><length>0.96</length></cylinder></geometry><material><diffuse>0.25 0.32 0.70 1</diffuse></material></visual></link></model>
 
-    <!-- AprilTag ground markers for target-following simulation -->
-    <include><uri>model://apriltag_marker</uri><name>tag_ground_0</name><pose>0 0 0 0 0 0</pose></include>
-    <include><uri>model://apriltag_marker</uri><name>tag_ground_1</name><pose>2.0 0 0 0 0 0</pose></include>
-    <include><uri>model://apriltag_marker</uri><name>tag_ground_2</name><pose>-1.5 2.0 0 0 0 0</pose></include>
+    <!-- H: 75cm outer / 50cm inner landing circles at (1.125, 1.125). -->
+    <model name="home_h_marking"><static>true</static><pose>1.125 1.125 0.004 0 0 0</pose><link name="link">
+      <visual name="outer_black"><geometry><cylinder><radius>0.375</radius><length>0.006</length></cylinder></geometry><material><diffuse>0.02 0.02 0.02 1</diffuse></material></visual>
+      <visual name="outer_white"><pose>0 0 0.004 0 0 0</pose><geometry><cylinder><radius>0.345</radius><length>0.004</length></cylinder></geometry><material><diffuse>0.96 0.96 0.94 1</diffuse></material></visual>
+      <visual name="inner_black"><pose>0 0 0.007 0 0 0</pose><geometry><cylinder><radius>0.25</radius><length>0.004</length></cylinder></geometry><material><diffuse>0.02 0.02 0.02 1</diffuse></material></visual>
+      <visual name="inner_white"><pose>0 0 0.010 0 0 0</pose><geometry><cylinder><radius>0.22</radius><length>0.004</length></cylinder></geometry><material><diffuse>0.96 0.96 0.94 1</diffuse></material></visual>
+      <visual name="h_left"><pose>-0.075 0 0.014 0 0 0</pose><geometry><box><size>0.028 0.23 0.004</size></box></geometry><material><diffuse>0.02 0.02 0.02 1</diffuse></material></visual>
+      <visual name="h_right"><pose>0.075 0 0.014 0 0 0</pose><geometry><box><size>0.028 0.23 0.004</size></box></geometry><material><diffuse>0.02 0.02 0.02 1</diffuse></material></visual>
+      <visual name="h_bar"><pose>0 0 0.014 0 0 0</pose><geometry><box><size>0.15 0.028 0.004</size></box></geometry><material><diffuse>0.02 0.02 0.02 1</diffuse></material></visual>
+    </link></model>
 
-    <include><uri>model://ed_quadrotor</uri><name>ed_quadrotor</name><pose>0 0 0.45 0 0 0</pose></include>
+    <!-- Capsule route: A(1.5,2.0), B(1.5,3.5), C(3.0,3.5), D(3.0,2.0), radius 0.75m. -->
+    <model name="d_task_capsule_route"><static>true</static><link name="route">
+      <visual name="left_straight"><pose>1.5 2.75 0.006 0 0 0</pose><geometry><box><size>0.03 1.50 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="right_straight"><pose>3.0 2.75 0.006 0 0 0</pose><geometry><box><size>0.03 1.50 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="top_0"><pose>1.5144 3.6463 0.006 0 0 1.3744</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="top_1"><pose>1.6264 3.9167 0.006 0 0 0.9817</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="top_2"><pose>1.8333 4.1236 0.006 0 0 0.5890</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="top_3"><pose>2.1037 4.2356 0.006 0 0 0.1963</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="top_4"><pose>2.3963 4.2356 0.006 0 0 -0.1963</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="top_5"><pose>2.6667 4.1236 0.006 0 0 -0.5890</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="top_6"><pose>2.8736 3.9167 0.006 0 0 -0.9817</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="top_7"><pose>2.9856 3.6463 0.006 0 0 -1.3744</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="bottom_0"><pose>2.9856 1.8537 0.006 0 0 -1.7671</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="bottom_1"><pose>2.8736 1.5833 0.006 0 0 -2.1598</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="bottom_2"><pose>2.6667 1.3764 0.006 0 0 -2.5525</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="bottom_3"><pose>2.3963 1.2644 0.006 0 0 -2.9452</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="bottom_4"><pose>2.1037 1.2644 0.006 0 0 -3.3379</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="bottom_5"><pose>1.8333 1.3764 0.006 0 0 -3.7306</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="bottom_6"><pose>1.6264 1.5833 0.006 0 0 -4.1233</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="bottom_7"><pose>1.5144 1.8537 0.006 0 0 -4.5160</pose><geometry><box><size>0.293 0.03 0.006</size></box></geometry><material><diffuse>0.04 0.04 0.04 1</diffuse></material></visual>
+      <visual name="point_a"><pose>1.5 2.0 0.011 0 0 0</pose><geometry><cylinder><radius>0.07</radius><length>0.006</length></cylinder></geometry><material><diffuse>0.80 0.08 0.08 1</diffuse></material></visual>
+      <visual name="point_b"><pose>1.5 3.5 0.011 0 0 0</pose><geometry><cylinder><radius>0.07</radius><length>0.006</length></cylinder></geometry><material><diffuse>0.08 0.25 0.80 1</diffuse></material></visual>
+      <visual name="point_c"><pose>3.0 3.5 0.011 0 0 0</pose><geometry><cylinder><radius>0.07</radius><length>0.006</length></cylinder></geometry><material><diffuse>0.08 0.65 0.25 1</diffuse></material></visual>
+      <visual name="point_d"><pose>3.0 2.0 0.011 0 0 0</pose><geometry><cylinder><radius>0.07</radius><length>0.006</length></cylinder></geometry><material><diffuse>0.82 0.56 0.08 1</diffuse></material></visual>
+    </link></model>
+
+    <include><uri>model://d_task_car</uri><name>d_task_car</name><pose>1.5 2.0 0.01 0 0 1.5707963</pose></include>
+    <include><uri>model://ed_quadrotor</uri><name>ed_quadrotor</name><pose>1.125 1.125 0.16 0 0 1.5707963</pose></include>
   </world>
 </sdf>

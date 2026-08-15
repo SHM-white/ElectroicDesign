@@ -32,7 +32,6 @@ class RuntimeFixture:
     camera_plan: Path
     fcu_serial: Path
     hmac_key: Path
-    keystore: Path
     mid360_driver: Path
     fast_lio_launch: Path
     unexpected_runtime: Path
@@ -153,13 +152,11 @@ def _fixture(tmp_path: Path) -> RuntimeFixture:
     fcu_serial.touch()
     hmac_key = runtime / "hmac.key.hex"
     hmac_key.write_text("01" * 32, encoding="ascii")
-    keystore = runtime / "sros-keystore"
-    keystore.mkdir()
     mid360_driver = runtime / "mid360-driver.json"
     _write_json(mid360_driver, {"driver": "field"})
     fast_lio_launch = runtime / "fast_lio.launch.py"
     fast_lio_launch.write_text("def generate_launch_description():\n    return None\n", encoding="utf-8")
-    return RuntimeFixture(root, runner, mission, field_profile, calibration, camera_plan, fcu_serial, hmac_key, keystore, mid360_driver, fast_lio_launch, unexpected_runtime)
+    return RuntimeFixture(root, runner, mission, field_profile, calibration, camera_plan, fcu_serial, hmac_key, mid360_driver, fast_lio_launch, unexpected_runtime)
 
 
 def _arguments(fixture: RuntimeFixture, dry_run: bool) -> tuple[str, ...]:
@@ -168,7 +165,7 @@ def _arguments(fixture: RuntimeFixture, dry_run: bool) -> tuple[str, ...]:
 
 
 def _run(fixture: RuntimeFixture, arguments: tuple[str, ...], extra_environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    environment = {**os.environ, "PATH": f"{fixture.root / 'fake-bin'}:{os.environ['PATH']}", "TASK3_UNEXPECTED_RUNTIME": str(fixture.unexpected_runtime), "ROS_SECURITY_ENABLE": "true", "ROS_SECURITY_STRATEGY": "Enforce", "ROS_SECURITY_KEYSTORE": str(fixture.keystore), **extra_environment}
+    environment = {**os.environ, "PATH": f"{fixture.root / 'fake-bin'}:{os.environ['PATH']}", "TASK3_UNEXPECTED_RUNTIME": str(fixture.unexpected_runtime), **extra_environment}
     return subprocess.run([str(fixture.runner), *arguments], cwd=fixture.root, env=environment, check=False, capture_output=True, text=True, timeout=5)
 
 
@@ -185,7 +182,7 @@ def test_runner_dry_run_requires_explicit_runtime_inputs(tmp_path: Path) -> None
 
 
 def test_runner_dry_run_prints_one_resolved_launch_without_side_effects(tmp_path: Path) -> None:
-    # Given: measured temporary runtime inputs and enforced temporary SROS settings.
+    # Given: measured temporary runtime inputs with no middleware-security prerequisite.
     fixture = _fixture(tmp_path)
 
     # When: the shell entry point resolves its Task3 launch in dry-run mode.
@@ -198,8 +195,9 @@ def test_runner_dry_run_prints_one_resolved_launch_without_side_effects(tmp_path
     command = shlex.split(commands[0])
     assert command[:4] == ["ros2", "launch", "ed_uav_bringup", "task3_flight_test.launch.py"]
     assert {
-        f"mission_config_path:={fixture.mission}", f"field_profile_path:={fixture.field_profile}", f"calibration_file:={fixture.calibration}", f"camera_runtime_plan:={fixture.camera_plan}", f"fcu_serial_port:={fixture.fcu_serial}", f"hmac_key_file:={fixture.hmac_key}", f"mid360_driver_config_path:={fixture.mid360_driver}", f"fast_lio_launch_path:={fixture.fast_lio_launch}", "task3_identity:=task3", "ros_security_enable:=true", "ros_security_strategy:=Enforce", f"ros_security_keystore:={fixture.keystore}", "enable_flight_commands:=true", "enable_realtime_control:=true", "enable_programmable_commands:=false",
+        f"mission_config_path:={fixture.mission}", f"field_profile_path:={fixture.field_profile}", f"calibration_file:={fixture.calibration}", f"camera_runtime_plan:={fixture.camera_plan}", f"fcu_serial_port:={fixture.fcu_serial}", f"hmac_key_file:={fixture.hmac_key}", f"mid360_driver_config_path:={fixture.mid360_driver}", f"fast_lio_launch_path:={fixture.fast_lio_launch}", "task3_identity:=task3", "task3_immediate_start:=false", "dry_run:=true",
     } <= set(command[4:])
+    assert not any("ros_security" in argument.casefold() for argument in command)
     assert not fixture.unexpected_runtime.exists()
 
 
@@ -235,7 +233,7 @@ def test_runner_interrupt_reaps_the_injected_harmless_launch_process(tmp_path: P
     ready = fixture.root / "launch-ready"
     child_pid = fixture.root / "launch-child.pid"
     environment = {"TASK3_FAKE_LAUNCH_READY": str(ready), "TASK3_FAKE_CHILD_PID": str(child_pid)}
-    full_environment = {**os.environ, "PATH": f"{fixture.root / 'fake-bin'}:{os.environ['PATH']}", "TASK3_UNEXPECTED_RUNTIME": str(fixture.unexpected_runtime), "ROS_SECURITY_ENABLE": "true", "ROS_SECURITY_STRATEGY": "Enforce", "ROS_SECURITY_KEYSTORE": str(fixture.keystore), **environment}
+    full_environment = {**os.environ, "PATH": f"{fixture.root / 'fake-bin'}:{os.environ['PATH']}", "TASK3_UNEXPECTED_RUNTIME": str(fixture.unexpected_runtime), **environment}
     process = subprocess.Popen([str(fixture.runner), *_arguments(fixture, dry_run=False)], cwd=fixture.root, env=full_environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
     try:
         for _ in range(100):

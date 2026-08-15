@@ -30,6 +30,9 @@ def test_node_consumes_typed_camera_and_vehicle_context() -> None:
 
     rclpy.init()
     node = TargetObservationNode()
+    node.set_parameters(
+        [rclpy.parameter.Parameter("target_revision", value="d2026-circle-cross-v1")]
+    )
     capture = ImageCapture()
     try:
         node._annotated_publisher = capture

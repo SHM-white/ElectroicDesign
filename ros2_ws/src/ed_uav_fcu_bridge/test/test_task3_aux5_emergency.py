@@ -88,29 +88,17 @@ def test_complete_0x40_maps_index_4_to_rc_channel_5_aux1() -> None:
     assert snapshot.aux.aux1_us != snapshot.aux.channels_us[5]
 
 
-@pytest.mark.parametrize(
-    ("aux1_us", "permitted"),
-    (
-        pytest.param(1400, False, id="lower-bound-is-not-position-mode"),
-        pytest.param(1401, True, id="just-inside-position-mode"),
-        pytest.param(1500, True, id="position-mode-center"),
-        pytest.param(1599, True, id="just-inside-position-mode-upper"),
-        pytest.param(1600, False, id="upper-bound-is-not-position-mode"),
-    ),
-)
-def test_fresh_aux1_strictly_gates_task3_realtime_mode(
-    aux1_us: int,
-    permitted: bool,
-) -> None:
-    # Given: fresh mode-2 position/status telemetry and one complete AUX1 value.
+@pytest.mark.parametrize("aux1_us", (1200, 1400, 1500, 1600, 1799))
+def test_non_emergency_aux1_values_do_not_gate_realtime_mode(aux1_us: int) -> None:
+    # Given: fresh position telemetry and a non-emergency AUX1 value.
     snapshot = _fresh_task3_snapshot(aux1_us)
     config = RealtimeControlConfig(enable_realtime_control=True)
 
-    # When: Task3 realtime permission is evaluated.
+    # When: realtime permission is evaluated.
     actual = nonzero_control_allowed(config, snapshot)
 
-    # Then: only the documented strict 1401..1599 position/realtime interval is permitted.
-    assert actual is permitted
+    # Then: AUX1 is not a mode gate; only 1800..2000 is handled by the latch below.
+    assert actual is True
 
 
 @pytest.mark.parametrize(

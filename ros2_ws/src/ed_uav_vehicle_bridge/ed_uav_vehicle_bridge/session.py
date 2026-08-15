@@ -38,7 +38,7 @@ class SessionTracker:
         self._boot_id: BootId | None = None
         self._last_sequence: int | None = None
         self._retired_boot_ids: deque[BootId] = deque(maxlen=RETIRED_EPOCH_LIMIT)
-        self._last_receipt: float | None = None
+        self._last_telemetry_receipt: float | None = None
         self._stale_reported = False
 
     def accept(
@@ -72,6 +72,7 @@ class SessionTracker:
                 self._retired_boot_ids.append(self._boot_id)
             self._boot_id = frame.boot_id
             self._last_sequence = None
+            self._last_telemetry_receipt = None
 
         if self._last_sequence is not None:
             delta = (frame.sequence - self._last_sequence) & 0xFFFFFFFF
@@ -83,16 +84,21 @@ class SessionTracker:
                     "sequence is older than accepted head",
                 )
         self._last_sequence = frame.sequence
-        self._last_receipt = receipt_time
-        self._stale_reported = False
+        if frame.message_type is MessageType.CAR_TELEMETRY:
+            self._last_telemetry_receipt = receipt_time
+            self._stale_reported = False
         return AcceptedPacket(datagram=datagram, session_changed=session_changed)
 
     def telemetry_fault_if_stale(
         self, now: ReceiptSeconds, stale_after_seconds: float
     ) -> TelemetryFault | None:
-        if self._last_receipt is None or self._boot_id is None or self._stale_reported:
+        if (
+            self._last_telemetry_receipt is None
+            or self._boot_id is None
+            or self._stale_reported
+        ):
             return None
-        age = now - self._last_receipt
+        age = now - self._last_telemetry_receipt
         if age <= stale_after_seconds:
             return None
         self._stale_reported = True

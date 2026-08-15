@@ -9,6 +9,7 @@ from ed_uav_vehicle_bridge.models import (
     MissionStatusValue,
     RejectCode,
     SelectionId,
+    Task3FlightTestIdentity,
 )
 
 
@@ -40,6 +41,40 @@ def test_happy_select_ack_arm_start_dispatches_exactly_once() -> None:
     assert started.execute_command.mission_id == "d-task-payload_drop"
     assert started.execute_command.field_profile_id == "d-task-payload_drop"
     assert replayed.reason == RejectCode.START_ALREADY_CONSUMED
+
+
+def test_car_start_dispatches_the_launch_loaded_mission_identity() -> None:
+    authority = BridgeAuthority()
+    authority.observe_car_epoch(EPOCH, fcu_armed=False)
+    authority.request_selection(SELECTION, fcu_armed=False)
+    authority.commit_selection(SelectionId(44), True, "approved", False)
+    authority.observe_arm(True)
+    identity = Task3FlightTestIdentity(
+        mission_id="d-arena-competition-2026",
+        field_profile_id="d-arena-2026",
+        mission_profile_id="d2026-competition",
+        deployment_preset_id="field-2026",
+        target_revision="d2026-apriltag-v1",
+        timeout_seconds=120.0,
+    )
+
+    started = authority.observe_car_start(EPOCH, identity)
+
+    assert started.execute_command is not None
+    assert started.execute_command.mission_id == identity.mission_id
+    assert started.execute_command.field_profile_id == identity.field_profile_id
+
+
+def test_acknowledgement_tracks_current_hmi_boot_epoch() -> None:
+    authority = BridgeAuthority()
+    authority.observe_car_epoch(EPOCH, fcu_armed=False)
+    authority.observe_hmi_epoch(BootId(0xAABBCCDD))
+    authority.request_selection(SELECTION, fcu_armed=False)
+
+    acknowledged = authority.commit_selection(SelectionId(44), True, "approved", False)
+
+    assert acknowledged.acknowledgement is not None
+    assert acknowledged.acknowledgement.hmi_boot_id == BootId(0xAABBCCDD)
 
 
 def test_start_without_committed_selection_has_exact_reason() -> None:

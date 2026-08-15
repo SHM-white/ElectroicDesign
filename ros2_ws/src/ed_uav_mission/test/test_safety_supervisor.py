@@ -274,16 +274,6 @@ def test_low_voltage_triggers_land() -> None:
     assert sup.state == SupervisorState.LOCALIZATION_LOST_LANDING
 
 
-def test_stale_aux_triggers_land() -> None:
-    """AUX switch goes stale during mission → initiate land."""
-    sup = SafetySupervisor()
-    sup.start_monitoring(timestamp_s=400.0)
-
-    verdict = sup.evaluate_stale_aux(aux_active=False)
-    assert verdict.action == SupervisorAction.LAND
-    assert sup.state == SupervisorState.LOCALIZATION_LOST_LANDING
-
-
 def test_mission_timeout_triggers_land() -> None:
     """Mission duration exceeds timeout → initiate land."""
     sup = SafetySupervisor()
@@ -311,5 +301,4 @@ def test_supervisor_ignores_when_not_monitoring() -> None:
     assert sup.evaluate_localization(all_lost=True, timestamp_s=0.0).action is None
     assert sup.evaluate_comm_loss(comm_ok=False, timestamp_s=0.0).action is None
     assert sup.evaluate_low_voltage(voltage_v=5.0, timestamp_s=0.0).action is None
-    assert sup.evaluate_stale_aux(aux_active=False).action is None
     assert sup.evaluate_mission_timeout(timestamp_s=999.0).action is None

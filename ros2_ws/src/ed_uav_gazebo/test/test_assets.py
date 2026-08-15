@@ -104,7 +104,9 @@ def test_bridge_exposes_frozen_simulator_topics() -> None:
         "/lidar/imu",
         "/rangefinder/range",
         "/simulation/ground_truth/odom",
+        "/simulation/car/odom",
         "/simulation/cmd_vel",
+        "/simulation/car/cmd_vel",
         "/simulation/enable",
         "/clock",
     }
@@ -230,6 +232,10 @@ def test_fast_lio_simulation_launch_isolated_tf_and_calibrated_adapter() -> None
         '("/tf", "/fast_lio/tf")',
         'package="ed_uav_localization"',
         'executable="lio_adapter"',
+        '"output_topic": "/localization/lio/planar_raw"',
+        'executable="planar_odom_fuser"',
+        '"altitude_topic": "/simulation/ground_truth/odom"',
+        '"output_topic": "/localization/lio/odom"',
         '"calibration_file": calibration_file',
         '"use_sim_time": use_sim_time',
     )
@@ -238,6 +244,7 @@ def test_fast_lio_simulation_launch_isolated_tf_and_calibrated_adapter() -> None
     assert "TransformBroadcaster" not in launch
     setup = (PACKAGE_ROOT / "setup.py").read_text(encoding="utf-8")
     assert "gazebo_pointcloud_normalizer = ed_uav_gazebo.gazebo_pointcloud_normalizer:main" in setup
+    assert "planar_odom_fuser = ed_uav_gazebo.planar_odom_fuser:main" in setup
 
 
 def test_sim_launch_defaults_to_fast_lio_with_explicit_ground_truth_fallback() -> None:
@@ -294,7 +301,7 @@ def test_gazebo_sensor_poses_and_sim_fcu_tf_gate_match_synthetic_calibration() -
     assert "if self.get_parameter(\"publish_odom_to_base_link_tf\").value:" in fcu_source
 
 
-def test_world_is_local_and_contains_arena_and_vehicle() -> None:
+def test_world_matches_d_task_drawing_and_contains_both_vehicles() -> None:
     # Given: the simulator world asset.
     world = ElementTree.parse(PACKAGE_ROOT / "worlds" / "ed_uav_arena.sdf")
     xml = world.getroot()
@@ -306,10 +313,62 @@ def test_world_is_local_and_contains_arena_and_vehicle() -> None:
         plugin.attrib["name"] for plugin in xml.findall(".//world/plugin")
     }
 
-    # Then: only the local vehicle is included and the arena has real obstacles.
-    assert includes == ["model://ed_quadrotor"]
-    assert "ground_plane" in world_text
-    assert "obstacle_block" in world_text
-    assert "obstacle_cylinder" in world_text
+    # Then: the checked-in 4x5m D-task arena includes its route, indoor walls,
+    # target car, and local quadrotor without any network model dependency.
+    assert includes == ["model://d_task_car", "model://ed_quadrotor"]
+    for token in (
+        "d_arena_floor",
+        "south_wall_2p5m",
+        "north_wall_2p5m",
+        "west_wall_2p5m",
+        "east_wall_2p5m",
+        "d_task_capsule_route",
+        "home_h_marking",
+        "point_a",
+        "point_b",
+        "point_c",
+        "point_d",
+    ):
+        assert token in world_text
     assert "https://fuel.gazebosim.org" not in world_text
     assert "ignition::gazebo::systems::Imu" in plugin_names
+
+
+def test_planar_lidar_and_downward_sensors_match_the_simulation_contract() -> None:
+    model = ElementTree.parse(
+        PACKAGE_ROOT / "models" / "ed_quadrotor" / "model.sdf"
+    ).getroot()
+    sensors = {sensor.attrib["name"]: sensor for sensor in model.findall(".//sensor")}
+
+    lidar = sensors["lidar"]
+    assert lidar.findtext("./ray/scan/vertical/samples") == "1"
+    assert lidar.findtext("./ray/scan/vertical/min_angle") == "0"
+    assert lidar.findtext("./ray/scan/vertical/max_angle") == "0"
+    assert sensors["narrow_camera"].findtext("pose") == "0.08 0 -0.08 0 1.5708 0"
+    assert sensors["wide_camera"].findtext("pose") == "-0.04 0 -0.08 0 1.5708 0"
+    assert sensors["rangefinder"].findtext("pose") == "0 0 -0.08 0 1.5708 0"
+
+
+def test_car_target_has_centered_fifteen_centimeter_tag36h11_zero() -> None:
+    car_path = PACKAGE_ROOT / "models" / "d_task_car" / "model.sdf"
+    car = ElementTree.parse(car_path).getroot()
+    tag = next(
+        visual
+        for visual in car.findall(".//visual")
+        if visual.attrib.get("name") == "center_apriltag_id_0"
+    )
+    assert tag.findtext("pose") == "0 0 0.163 0 0 0"
+    assert tag.findtext("./geometry/plane/size") == "0.15 0.15"
+    assert (
+        tag.findtext("./material/pbr/albedo_map")
+        == "model://apriltag_marker/materials/textures/tag36h11_0.png"
+    )
+    texture = (
+        PACKAGE_ROOT
+        / "models"
+        / "apriltag_marker"
+        / "materials"
+        / "textures"
+        / "tag36h11_0.png"
+    )
+    assert texture.is_file()

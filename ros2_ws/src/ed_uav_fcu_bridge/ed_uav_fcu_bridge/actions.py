@@ -189,7 +189,6 @@ class FlightActionController:
         self._command_allowed = command_allowed if command_allowed is not None else lambda: True
         self.pending: PendingCommand | None = None
         self.last_result: CommandResult | None = None
-        self._used_ack_signatures: set[tuple[int, int, int]] = set()
 
     def start(self, request: CommandRequest, steady_now: float, timeout_s: float) -> PendingCommand:
         """Transmit a command and begin awaiting its checksum-bound V7 acknowledgement."""
@@ -198,11 +197,6 @@ class FlightActionController:
         if self.pending is not None:
             raise CommandRejectedError("another FCU command is already awaiting acknowledgement")
         raw = request.to_frame()
-        signature = (raw[2], raw[-2], raw[-1])
-        if signature in self._used_ack_signatures:
-            raise CommandRejectedError(
-                "V7 protocol cannot correlate repeated identical command acknowledgements"
-            )
         if not self._arbiter.try_acquire():
             raise CommandRejectedError("another FCU command is already active")
         started = False
@@ -230,7 +224,6 @@ class FlightActionController:
                     "serial transport did not accept the complete V7 command"
                 )
             self.pending = PendingCommand(request.command, raw, steady_now + timeout_s)
-            self._used_ack_signatures.add(signature)
             started = True
             return self.pending
         finally:

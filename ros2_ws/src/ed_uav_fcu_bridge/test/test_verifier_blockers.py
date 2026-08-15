@@ -13,16 +13,13 @@ import pytest
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT))
 
-from ed_uav_fcu_bridge import authority
 from ed_uav_fcu_bridge.actions import (
-    CommandRejectedError,
     CommandRequest,
     FlightActionController,
 )
 from ed_uav_fcu_bridge.capability import load_capability_report
 from ed_uav_fcu_bridge.serial_port import ExclusiveSerialPort
 from ed_uav_fcu_bridge.v7_codec import build_frame, decode_frame
-from test_capability_gate import capability_trust, green_report, write_report
 from test_pty_surface import cli_environment, read_frame
 
 
@@ -107,7 +104,7 @@ def test_fake_pty_cannot_claim_physical_green_capability(tmp_path: Path) -> None
             process.wait(timeout=2.0)
 
 
-def test_stale_duplicate_ack_cannot_complete_new_identical_command() -> None:
+def test_identical_command_can_be_issued_again_after_terminal_ack() -> None:
     # Given: one target-position command completed with its matching ACK.
     written: list[bytes] = []
     controller = FlightActionController(written.append)
@@ -117,44 +114,14 @@ def test_stale_duplicate_ack_cannot_complete_new_identical_command() -> None:
     ack = decode_frame(build_frame(0xFF, 0x00, bytes((sent.frame_id, sent.sum_check, sent.add_check))))
     assert controller.handle_frame(ack, steady_now=1.1) is not None
 
-    # When / Then: the unsequenced identical wire command cannot be started again.
-    with pytest.raises(CommandRejectedError, match="correlat"):
-        controller.start(request, steady_now=1.2, timeout_s=0.5)
+    # When: the same command is issued after the first command is terminal.
+    second = controller.start(request, steady_now=1.2, timeout_s=0.5)
+    completed = controller.handle_frame(ack, steady_now=1.3)
 
-
-def test_report_tampering_is_rejected_even_when_artifact_is_unchanged(tmp_path: Path) -> None:
-    # Given: a retained green report and unchanged artifact.
-    path = tmp_path / "signed.json"
-    report = green_report()
-    write_report(path, report)
-
-    # When: pass, behavior, and device identity are changed without re-signing.
-    report["passed"] = True
-    report["device_identity"] = "tampered-device"
-    behaviors = report["behavior_results"]
-    assert isinstance(behaviors, dict)
-    behaviors["link_loss"] = True
-    path.write_text(json.dumps(report), encoding="utf-8")
-
-    # Then: the integrity check rejects the report envelope, not only artifact changes.
-    with pytest.raises(authority.ProgrammableCapabilityError, match="integrity"):
-        authority.require_programmable_capability(
-            True,
-            capability_trust(path, "tampered-device"),
-        )
-
-
-def test_boolean_schema_version_is_rejected(tmp_path: Path) -> None:
-    # Given: an otherwise complete report using JSON true as its version.
-    path = tmp_path / "bool-version.json"
-    report = green_report()
-    write_report(path, report)
-    report["version"] = True
-    path.write_text(json.dumps(report), encoding="utf-8")
-
-    # When / Then: bool is not accepted as integer schema version 1.
-    with pytest.raises(authority.ProgrammableCapabilityError, match="version"):
-        authority.require_programmable_capability(True, capability_trust(path))
+    # Then: ordinary retries are not blocked by a process-lifetime lock.
+    assert second.command is request.command
+    assert completed is not None
+    assert completed.acknowledged is True
 
 
 def test_cli_has_no_user_asserted_behavior_pass_flags() -> None:

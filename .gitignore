@@ -9,6 +9,7 @@ __pycache__/
 MVS/
 tmp/
 *.png
+!ros2_ws/src/ed_uav_gazebo/models/apriltag_marker/materials/textures/tag36h11_0.png
 飞控程序/
 视觉代码1.0/
 log/

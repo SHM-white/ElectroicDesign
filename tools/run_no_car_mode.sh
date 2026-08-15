@@ -11,7 +11,6 @@
 #   ./tools/run_no_car_mode.sh --daemon     # 后台守护运行 (guardian 托管 bridge)
 #
 # 环境变量:
-#   ROS_SECURITY_KEYSTORE   (可选) SROS2 keystore; 无小车模式默认不启用安全层
 #   ED_LOG_DIR              日志目录 (默认 /var/log/ed-uav, 不可写则 /tmp/ed-uav-guardian)
 #   ED_BIND_HOST            bridge 绑定地址 (默认 0.0.0.0)
 #   ED_BIND_PORT / ED_HMI_PEER_PORT  端口覆盖 (默认 42000/42002, 端口冲突时可改)
@@ -133,7 +132,6 @@ BRIDGE_CMD="ros2 run ed_uav_vehicle_bridge vehicle_bridge \
   -p car_sender_id:=1128419121 -p hmi_sender_id:=1213024561 -p bridge_sender_id:=1381122353 \
   -p hmac_key_file:=${HMAC_KEY} \
   -p mission_timeout_seconds:=90.0 -p telemetry_stale_seconds:=0.75 \
-  -p task3_flight_test_mode:=true \
   -p no_car_mode:=true \
   -p task3_mission_id:=${TASK3_IDENTITY} \
   -p task3_field_profile_id:=${FIELD_PROFILE_ID} \

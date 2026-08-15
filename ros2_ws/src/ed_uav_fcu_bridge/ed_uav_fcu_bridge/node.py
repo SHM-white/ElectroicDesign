@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 from pathlib import Path
@@ -19,13 +18,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import BatteryState
 
 from .action_execution import FlightGoalHandle, execute_goal
-from .authority import (
-    FlightCommandAuthorityError,
-    ProgrammableCapabilityError,
-    capability_trust_from_environment,
-    require_flight_command_authority,
-    require_programmable_capability,
-)
+from .authority import require_flight_command_authority
 from .realtime_control import RealtimeControlConfig
 from .ros_messages import (
     battery_message,
@@ -39,10 +32,7 @@ from .telemetry import FreshnessPolicy, TelemetrySnapshot
 
 __all__ = (
     "FcuBridgeNode",
-    "FlightCommandAuthorityError",
-    "ProgrammableCapabilityError",
     "require_flight_command_authority",
-    "require_programmable_capability",
 )
 
 
@@ -66,25 +56,10 @@ class FcuBridgeNode(Node):
         self.declare_parameter("realtime_proportional_gain_cmps_per_m", 100.0)
         self.declare_parameter("enable_experimental_0x32_0x33", False)
         self.declare_parameter("enable_flight_commands", False)
-        self.declare_parameter("enable_programmable_commands", False)
-        self.declare_parameter("programmable_capability_report", "")
-        self.declare_parameter("fcu_device_identity", "")
         commands_enabled = require_flight_command_authority(
             bool(self.get_parameter("enable_flight_commands").value),
-            os.environ,
+            {},
         )
-        programmable_enabled = bool(
-            self.get_parameter("enable_programmable_commands").value
-        )
-        if programmable_enabled:
-            require_programmable_capability(
-                True,
-                capability_trust_from_environment(
-                Path(str(self.get_parameter("programmable_capability_report").value)),
-                str(self.get_parameter("fcu_device_identity").value),
-                os.environ,
-                ),
-            )
         policy = FreshnessPolicy(
             float(self.get_parameter("position_max_age_s").value),
             float(self.get_parameter("aux_status_max_age_s").value),
@@ -140,10 +115,7 @@ class FcuBridgeNode(Node):
                 callback_group=group,
             )
             self.get_logger().info("action.server /fcu/flight_command ready")
-        # AUX / 链路边沿检测状态 (仅在变化时打 log)
-        self._last_aux1_us: int | None = None
-        self._last_task3_gate: bool | None = None
-        self._last_aux6: bool | None = None
+        # 只保留紧急锁桨和链路边沿日志；AUX 任务门禁已移除。
         self._last_emergency: bool | None = None
         self._last_link_ok: bool | None = None
 
@@ -167,25 +139,7 @@ class FcuBridgeNode(Node):
         self._publish(snapshot)
 
     def _log_edge_transitions(self, snapshot: TelemetrySnapshot) -> None:
-        """Log AUX1/AUX6/硬锁/链路状态变化 (仅边沿, 避免刷屏)."""
-        aux1 = snapshot.aux1_us if snapshot.aux1_valid else None
-        if aux1 is not None and aux1 != self._last_aux1_us:
-            self.get_logger().info(f"aux1_us={aux1}")
-            self._last_aux1_us = aux1
-        gate = snapshot.task3_control_allowed
-        if gate != self._last_task3_gate:
-            if gate:
-                self.get_logger().info("aux.gate TASK3_CONTROL_ALLOWED (AUX1 1400~1600us)")
-            else:
-                self.get_logger().info(f"aux.gate task3_control_lost (aux1={snapshot.aux1_us}us)")
-            self._last_task3_gate = gate
-        aux6 = snapshot.aux is not None and snapshot.aux.valid and snapshot.aux.aux6_us > 1700
-        if aux6 != self._last_aux6:
-            if aux6:
-                self.get_logger().info("aux6.start_switch ON (>1700us)")
-            else:
-                self.get_logger().info(f"aux6.start_switch OFF (aux6={snapshot.aux.aux6_us if snapshot.aux else 0}us)")
-            self._last_aux6 = aux6
+        """Log the emergency motor lock and FCU link on state edges."""
         if snapshot.emergency_lock_active != self._last_emergency:
             if snapshot.emergency_lock_active:
                 self.get_logger().warning("emergency_lock LATCHED (AUX1>=1800us)")

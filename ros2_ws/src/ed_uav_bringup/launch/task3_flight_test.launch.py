@@ -2,8 +2,9 @@
 
 Composes the live-flight chain with FCU bridge, mission executor, vehicle bridge,
 localization, lidar (mid360), camera (dual_uvc), and AprilTag target observation.
-Requires enforced SROS2, calibrated sensors, and explicit runtime inputs.
-No simulation mode, no RViz, no programmable competition commands.
+Requires calibrated sensors and explicit runtime inputs.  Network isolation is
+owned by deployment; this launch does not impose an SROS2 admission gate.
+No simulation mode and no RViz.
 
 ``dry_run:=true`` starts every module except the flight controller — vehicle
 bridge (ground station), lidar odometry chain, dual cameras, AprilTag tracking,
@@ -104,8 +105,6 @@ def _build_actions(context):
     camera_share = Path(get_package_share_directory("ed_uav_camera"))
     perception_share = Path(get_package_share_directory("ed_uav_perception"))
     lidar_share = Path(get_package_share_directory("ed_uav_lidar"))
-    fcu_bridge_share = Path(get_package_share_directory("ed_uav_fcu_bridge"))
-
     fcu_serial_port = LaunchConfiguration("fcu_serial_port").perform(context)
     calibration_file = LaunchConfiguration("calibration_file").perform(context)
     fast_lio_launch_path = LaunchConfiguration("fast_lio_launch_path").perform(context)
@@ -114,9 +113,6 @@ def _build_actions(context):
     hmac_key_file = LaunchConfiguration("hmac_key_file").perform(context)
     task3_identity = LaunchConfiguration("task3_identity").perform(context)
     camera_runtime_plan = LaunchConfiguration("camera_runtime_plan").perform(context)
-    ros_security_keystore = LaunchConfiguration("ros_security_keystore").perform(context)
-    ros_security_enable = LaunchConfiguration("ros_security_enable").perform(context)
-    ros_security_strategy = LaunchConfiguration("ros_security_strategy").perform(context)
     mid360_driver_config_path = LaunchConfiguration("mid360_driver_config_path").perform(context)
     dry_run = LaunchConfiguration("dry_run").perform(context).lower() in ("true", "1", "yes")
     h7_serial_port = LaunchConfiguration("h7_serial_port").perform(context)
@@ -129,11 +125,7 @@ def _build_actions(context):
             fcu_serial_port, h7_serial_port
         )
 
-    actions = [
-        SetEnvironmentVariable("ROS_SECURITY_ENABLE", ros_security_enable),
-        SetEnvironmentVariable("ROS_SECURITY_STRATEGY", ros_security_strategy),
-        SetEnvironmentVariable("ROS_SECURITY_KEYSTORE", ros_security_keystore),
-    ]
+    actions = []
 
     # 1. FCU bridge — skipped in dry-run (no flight control)
     if not dry_run:
@@ -143,14 +135,12 @@ def _build_actions(context):
                 executable="ed_uav_fcu_bridge",
                 name="ed_uav_fcu_bridge",
                 output="screen",
-                arguments=["--ros-args", "--enclave", "/ed_uav_fcu_bridge"],
                 parameters=[
                     {
                         "serial_port": fcu_serial_port,
                         "baudrate": 500000,
                         "enable_flight_commands": True,
                         "enable_realtime_control": True,
-                        "enable_programmable_commands": False,
                     }
                 ],
             )
@@ -180,7 +170,6 @@ def _build_actions(context):
                     "hmac_key_file": hmac_key_file,
                     "mission_timeout_seconds": 90.0,
                     "telemetry_stale_seconds": 0.75,
-                    "task3_flight_test_mode": True,
                     # launch 参数是字符串 ("true"/"false"), 必须转成 BOOL,
                     # 否则 vehicle_bridge 的 declare_parameter(BOOL) 会抛
                     # InvalidParameterTypeException
@@ -238,7 +227,6 @@ def _build_actions(context):
             executable="mission_executor",
             name="mission_executor",
             output="screen",
-            arguments=["--ros-args", "--enclave", "/ed_uav_mission_executor"],
             parameters=[
                 {
                     "profile_path": field_profile_path,
@@ -247,8 +235,6 @@ def _build_actions(context):
                     "simulation_only": False,
                     "payload_config_path": str(mission_share / "config" / "payload_adapter.yaml"),
                     "payload_actuator": "h7" if not dry_run else "fake",
-                    "programmable_capability_report": "",
-                    "fcu_device_identity": "",
                     "task3_mission_profile_id": _TASK3_MISSION_PROFILE_ID,
                     "task3_deployment_preset_id": _TASK3_DEPLOYMENT_PRESET_ID,
                     "task3_target_revision": _TARGET_REVISION,
@@ -370,7 +356,6 @@ def _build_actions(context):
                 executable="mission_display",
                 name="mission_display",
                 output="screen",
-                arguments=["--ros-args", "--enclave", "/ed_uav_mission_display"],
                 parameters=[
                     {
                         "max_display_width": 960,
@@ -399,9 +384,6 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("mid360_driver_config_path", description="MID-360 driver JSON config"),
             DeclareLaunchArgument("fast_lio_launch_path", description="FAST-LIO launch file path"),
             DeclareLaunchArgument("task3_identity", description="Task3 mission identity string"),
-            DeclareLaunchArgument("ros_security_enable", default_value="true"),
-            DeclareLaunchArgument("ros_security_strategy", default_value="Enforce"),
-            DeclareLaunchArgument("ros_security_keystore", description="SROS2 keystore directory"),
             DeclareLaunchArgument("enable_display", default_value="false", description="Enable mission display window"),
             DeclareLaunchArgument(
                 "vehicle_bind_host",
@@ -411,7 +393,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument(
                 "task3_immediate_start",
                 default_value="false",
-                description="地面站选择提交后立即启动任务, 不等待小车 START / AUX gate (调试用)",
+                description="地面站选择提交后立即启动任务, 不等待小车 START (调试用)",
             ),
             DeclareLaunchArgument(
                 "dry_run",

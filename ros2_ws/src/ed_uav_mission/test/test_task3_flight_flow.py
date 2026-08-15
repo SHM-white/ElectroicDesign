@@ -69,7 +69,7 @@ class _GoalHarness:
 
 
 class _PreflightHarness:
-    def __init__(self, aux_start_active: bool | None) -> None:
+    def __init__(self) -> None:
         fcu = FcuState()
         fcu.communication_ok = True
         fcu.source = FcuState.SOURCE_SIMULATOR
@@ -80,10 +80,8 @@ class _PreflightHarness:
         self._latest_fcu = fcu
         self._latest_localization = localization
         self._simulation_only = True
-        self._aux_start_active = aux_start_active
         self._profile = _Profile()
         self._calibration_valid = True
-        self._capability_ready = True
         self._mission_config = _stability_config()
 
 
@@ -201,16 +199,15 @@ def test_stability_goal_accepts_committed_task3_selection() -> None:
 @pytest.mark.parametrize(
     ("gate", "expected"),
     [
-        ("aux_start_active", PreflightCode.STALE_AUX),
         ("fcu_communication_ok", PreflightCode.NO_FCU_LINK),
-        ("fcu_motors_armed", PreflightCode.CALIBRATION_MISSING),
+        ("fcu_motors_armed", PreflightCode.MOTORS_NOT_ARMED),
         ("localization_active", PreflightCode.LOCALIZATION_LOST),
         ("map_to_odom_valid", PreflightCode.LOCALIZATION_LOST),
         ("profile_loaded", PreflightCode.PROFILE_INVALID),
         ("calibration_valid", PreflightCode.CALIBRATION_MISSING),
     ],
 )
-def test_task3_preflight_requires_every_safety_gate(
+def test_task3_preflight_requires_core_flight_state(
     gate: str,
     expected: PreflightCode,
 ) -> None:
@@ -220,7 +217,6 @@ def test_task3_preflight_requires_every_safety_gate(
         "fcu_source": FcuState.SOURCE_SIMULATOR,
         "fcu_motors_armed": True,
         "simulation_only": True,
-        "aux_start_active": True,
         "localization_active": True,
         "map_to_odom_valid": True,
         "profile_loaded": True,
@@ -231,22 +227,19 @@ def test_task3_preflight_requires_every_safety_gate(
     # When: the pure preflight boundary evaluates the gate set.
     result = validate_preflight(**preflight)
 
-    # Then: no missing gate authorizes Task3 execution.
+    # Then: no missing flight-state input authorizes Task3 execution.
     assert result.code is expected
 
 
-@pytest.mark.parametrize("aux_start_active", [False, None], ids=["off", "absent"])
-def test_task3_executor_preflight_uses_fresh_aux_permission(
-    aux_start_active: bool | None,
-) -> None:
-    # Given: FCU, motors, localization, profile, and calibration are valid but AUX is off or absent.
-    executor = _PreflightHarness(aux_start_active)
+def test_task3_executor_preflight_does_not_require_aux_permission() -> None:
+    # Given: FCU, motors, localization, profile, and calibration are valid.
+    executor = _PreflightHarness()
 
     # When: the executor wires observed state into its preflight check.
     result = MissionExecutorNode._run_preflight(executor)
 
-    # Then: it rejects instead of replacing the freshness gate with a constant true value.
-    assert result.code is PreflightCode.STALE_AUX
+    # Then: the common mission preflight accepts without an AUX start gate.
+    assert result.code is PreflightCode.OK
 
 
 def test_task3_runtime_runs_without_competition_params() -> None:

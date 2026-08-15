@@ -8,6 +8,7 @@ from typing_extensions import assert_never
 
 from .models import (
     AuthenticatedDatagram,
+    BootId,
     CarState,
     ExecuteMissionCommand,
     MissionPhase,
@@ -113,6 +114,9 @@ def to_execute_goal(command: ExecuteMissionCommand) -> ExecuteMission.Goal:
 def encode_mission_status_for_hmi(
     message: MissionStatus | MissionStatusValue,
     selection: MissionSelectionValue | None = None,
+    *,
+    car_boot_id: BootId = BootId(0),
+    hmi_boot_id: BootId = BootId(0),
 ) -> bytes:
     match message:
         case MissionStatusValue():
@@ -127,8 +131,8 @@ def encode_mission_status_for_hmi(
                 }.get(message.state, MissionPhase.CAR_RUNNING)
             value = MissionStatusValue(
                 selection_id=0 if selection is None else selection.selection_id,
-                car_boot_id=0 if selection is None else selection.car_boot_id,
-                hmi_boot_id=0,
+                car_boot_id=car_boot_id if selection is None else selection.car_boot_id,
+                hmi_boot_id=hmi_boot_id,
                 phase=phase,
                 selected_task=0 if selection is None else int(selection.task),
                 reason_flags=0,

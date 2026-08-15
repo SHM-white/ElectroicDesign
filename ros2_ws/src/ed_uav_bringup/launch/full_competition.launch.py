@@ -19,10 +19,8 @@
     无需硬编码设备路径。如需手动指定, 设 auto_detect_serial:=false
     并通过 fcu_serial_port / h7_serial_port 传入。
 
-实飞门控 (语义完全按 drone/ 工具):
-    启动开关: AUX6 (第10通道) >1700us (drone/monitor_aux6.py, AUX1~AUX5 不可用)
-    程控门控: AUX1 (第5通道) 1400~1600us (fcu_bridge 模式2 位置控制)
-    硬锁    : AUX1 (第5通道) >=1800us (fcu_bridge 紧急停止)
+实飞紧急锁浆:
+    AUX1 (第5通道) >=1800us 会直接抢占动作并锁浆；不受任务状态影响，且不可软件解锁。
 
 用法:
     ros2 launch ed_uav_bringup full_competition.launch.py
@@ -127,6 +125,8 @@ def _build_nodes(context, fcu_port: str, h7_port: str):
     lidar_share = Path(get_package_share_directory("ed_uav_lidar"))
     localization_share = Path(get_package_share_directory("ed_uav_localization"))
     description_share = Path(get_package_share_directory("ed_uav_description"))
+    bringup_share = Path(get_package_share_directory("ed_uav_bringup"))
+    navigation_share = Path(get_package_share_directory("ed_uav_navigation"))
 
     # Resolve launch configurations
     hmac_key_file = LaunchConfiguration("hmac_key_file").perform(context)
@@ -136,25 +136,42 @@ def _build_nodes(context, fcu_port: str, h7_port: str):
     camera_runtime_plan = LaunchConfiguration("camera_runtime_plan").perform(context)
     fast_lio_launch_path = LaunchConfiguration("fast_lio_launch_path").perform(context)
     mid360_driver_config_path = LaunchConfiguration("mid360_driver_config_path").perform(context)
-    ros_security_keystore = LaunchConfiguration("ros_security_keystore").perform(context)
-    ros_security_enable = LaunchConfiguration("ros_security_enable").perform(context)
-    ros_security_strategy = LaunchConfiguration("ros_security_strategy").perform(context)
     simulation_only = LaunchConfiguration("simulation_only").perform(context).lower() in ("true", "1", "yes")
     dry_run = LaunchConfiguration("dry_run").perform(context).lower() in ("true", "1", "yes")
+    enable_fcu = LaunchConfiguration("enable_fcu").perform(context).lower() in ("true", "1", "yes")
+    enable_h7 = LaunchConfiguration("enable_h7").perform(context).lower() in ("true", "1", "yes")
     enable_display = LaunchConfiguration("enable_display").perform(context).lower() in ("true", "1", "yes")
     task3_immediate_start = LaunchConfiguration("task3_immediate_start").perform(context).lower() in ("true", "1", "yes")
     lidar_ip = LaunchConfiguration("lidar_ip").perform(context)
     vehicle_bind_host = LaunchConfiguration("vehicle_bind_host").perform(context)
 
-    actions = [
-        SetEnvironmentVariable("ROS_SECURITY_ENABLE", ros_security_enable),
-        SetEnvironmentVariable("ROS_SECURITY_STRATEGY", ros_security_strategy),
-        SetEnvironmentVariable("ROS_SECURITY_KEYSTORE", ros_security_keystore),
-    ]
+    actions = []
+
+    calibration_document = yaml.safe_load(Path(calibration_file).read_text(encoding="utf-8"))
+    sensor_serials = calibration_document.get("sensor_serials", {})
+    actions.append(
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(str(bringup_share / "launch" / "bringup.launch.py")),
+            launch_arguments={
+                "profile": "competition",
+                "calibration_file": calibration_file,
+                "camera_narrow_serial": str(sensor_serials.get("camera_narrow", "UNSET")),
+                "camera_wide_serial": str(sensor_serials.get("camera_wide", "UNSET")),
+                "lidar_serial": str(sensor_serials.get("lidar", "UNSET")),
+                "use_sim_time": str(simulation_only).lower(),
+            }.items(),
+        )
+    )
 
     # ── 1. 车辆/地面站 UDP 桥 ─────────────────────────────────────────────
     profile_document = yaml.safe_load(Path(profile_path).read_text(encoding="utf-8"))
     field_profile_id = str(profile_document["profile_id"])
+    mission_document = yaml.safe_load(Path(mission_config_path).read_text(encoding="utf-8"))
+    mission_id = str(mission_document["mission_id"])
+    competition = mission_document.get("competition") or {}
+    mission_profile_id = str(competition.get("mission_profile_id", _TASK3_MISSION_PROFILE_ID))
+    deployment_preset_id = str(competition.get("deployment_preset_id", _TASK3_DEPLOYMENT_PRESET_ID))
+    target_revision = str(competition.get("target_revision", _TARGET_REVISION))
 
     actions.append(
         Node(
@@ -176,16 +193,24 @@ def _build_nodes(context, fcu_port: str, h7_port: str):
                     "hmac_key_file": hmac_key_file,
                     "mission_timeout_seconds": 90.0,
                     "telemetry_stale_seconds": 0.75,
-                    "task3_flight_test_mode": not simulation_only,
+                    # Tasks 1/2/3 use the same authenticated selection and car
+                    # START path; there is no task-specific AUX admission gate.
                     "simulate_car": dry_run,
                     "task3_immediate_start": task3_immediate_start,
-                    "task3_mission_id": _TASK3_MISSION_PROFILE_ID,
+                    "task3_mission_id": mission_id,
                     "task3_field_profile_id": field_profile_id,
-                    "task3_mission_profile_id": _TASK3_MISSION_PROFILE_ID,
-                    "task3_deployment_preset_id": _TASK3_DEPLOYMENT_PRESET_ID,
-                    "task3_target_revision": _TARGET_REVISION,
+                    "task3_mission_profile_id": mission_profile_id,
+                    "task3_deployment_preset_id": deployment_preset_id,
+                    "task3_target_revision": target_revision,
                 }
             ],
+        )
+    )
+
+    actions.append(
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(str(navigation_share / "launch" / "planner_only.launch.py")),
+            launch_arguments={"use_sim_time": str(simulation_only).lower()}.items(),
         )
     )
 
@@ -201,21 +226,19 @@ def _build_nodes(context, fcu_port: str, h7_port: str):
         )
 
     # ── 2. 飞控串口桥 (FlightCommand action server) — dry-run 跳过 ──────
-    if not dry_run:
+    if enable_fcu and not dry_run:
         actions.append(
             Node(
                 package="ed_uav_fcu_bridge",
                 executable="ed_uav_fcu_bridge",
                 name="ed_uav_fcu_bridge",
                 output="screen",
-                arguments=["--ros-args", "--enclave", "/ed_uav_fcu_bridge"],
                 parameters=[
                     {
                         "serial_port": fcu_port,
                         "baudrate": 500000,
                         "enable_flight_commands": True,
                         "enable_realtime_control": True,
-                        "enable_programmable_commands": False,
                     }
                 ],
             )
@@ -223,7 +246,7 @@ def _build_nodes(context, fcu_port: str, h7_port: str):
 
     # ── 3. H7 GPIO 桥 (电磁铁/激光, 0xAA 协议) ────────────────────────
     h7_device_present = Path(h7_port).exists()
-    if h7_device_present:
+    if enable_h7 and h7_device_present:
         actions.append(
             Node(
                 package="ed_uav_fcu_bridge",
@@ -243,7 +266,6 @@ def _build_nodes(context, fcu_port: str, h7_port: str):
             executable="mission_executor",
             name="mission_executor",
             output="screen",
-            arguments=["--ros-args", "--enclave", "/ed_uav_mission_executor"],
             parameters=[
                 {
                     "use_sim_time": simulation_only,
@@ -253,11 +275,9 @@ def _build_nodes(context, fcu_port: str, h7_port: str):
                     "simulation_only": simulation_only,
                     "payload_config_path": str(mission_share / "config" / "payload_adapter.yaml"),
                     "payload_actuator": "fake" if simulation_only else "h7",
-                    "programmable_capability_report": "",
-                    "fcu_device_identity": "",
-                    "task3_mission_profile_id": _TASK3_MISSION_PROFILE_ID,
-                    "task3_deployment_preset_id": _TASK3_DEPLOYMENT_PRESET_ID,
-                    "task3_target_revision": _TARGET_REVISION,
+                    "task3_mission_profile_id": mission_profile_id,
+                    "task3_deployment_preset_id": deployment_preset_id,
+                    "task3_target_revision": target_revision,
                 }
             ],
             remappings=[
@@ -296,14 +316,13 @@ def _build_nodes(context, fcu_port: str, h7_port: str):
         )
     if lidar_chain_up:
         repo_root = Path(__file__).resolve().parents[4]
-        extrinsics = repo_root / "ros2_ws" / "src" / "ed_uav_lidar" / "config" / "fields" / "field_extrinsics.yaml"
         actions.append(
             Node(
                 package="ed_uav_localization",
                 executable="lio_adapter",
                 name="lio_adapter",
                 output="screen",
-                parameters=[{"calibration_file": str(extrinsics)}],
+                parameters=[{"calibration_file": calibration_file}],
             )
         )
         mid360_driver_config_path = Path(mid360_driver_config_path)
@@ -354,7 +373,8 @@ def _build_nodes(context, fcu_port: str, h7_port: str):
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(str(perception_share / "launch" / _TARGET_OBSERVATION_LAUNCH)),
             launch_arguments={
-                "target_revision": _TARGET_REVISION,
+                "use_sim_time": str(simulation_only).lower(),
+                "target_revision": target_revision,
                 "vehicle_topic": "/d_task/vehicle/telemetry",
             }.items(),
         )
@@ -368,7 +388,6 @@ def _build_nodes(context, fcu_port: str, h7_port: str):
                 executable="mission_display",
                 name="mission_display",
                 output="screen",
-                arguments=["--ros-args", "--enclave", "/ed_uav_mission_display"],
                 parameters=[{"max_display_width": 960, "headless_log_interval_sec": 5.0}],
                 remappings=[("/mission/status", "/d_task/mission_status")],
             )
@@ -390,7 +409,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("namespace", default_value=""),
             DeclareLaunchArgument(
                 "mission_config_path",
-                default_value=str(mission_share / "config" / "missions" / "d_arena_stability_test.yaml"),
+                default_value=str(mission_share / "config" / "missions" / "d_arena_competition.yaml"),
             ),
             DeclareLaunchArgument(
                 "profile_path",
@@ -398,7 +417,7 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "calibration_file",
-                default_value=str(description_share / "config" / "example_uncalibrated.yaml"),
+                default_value=str(repo_root / "calibration_data" / "field_calibrated_v1.yaml"),
             ),
             DeclareLaunchArgument(
                 "camera_runtime_plan",
@@ -411,9 +430,8 @@ def generate_launch_description() -> LaunchDescription:
                 default_value=str(mission_share / "config" / "payload_adapter.yaml"),
             ),
             DeclareLaunchArgument("hmac_key_file", default_value=str(repo_root / "config" / "hmac.key.hex")),
-            DeclareLaunchArgument("ros_security_enable", default_value="true"),
-            DeclareLaunchArgument("ros_security_strategy", default_value="Enforce"),
-            DeclareLaunchArgument("ros_security_keystore", default_value=str(repo_root / "keystore")),
+            DeclareLaunchArgument("enable_fcu", default_value="true"),
+            DeclareLaunchArgument("enable_h7", default_value="true"),
             DeclareLaunchArgument(
                 "mid360_driver_config_path",
                 default_value=str(repo_root / "ros2_ws" / "src" / "ed_uav_lidar" / "config" / "fields" / "mid360_field_manifest.local.json"),

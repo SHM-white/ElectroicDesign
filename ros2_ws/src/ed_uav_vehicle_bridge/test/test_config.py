@@ -31,16 +31,22 @@ def test_local_key_and_exact_peer_provisioning_are_required(tmp_path: Path) -> N
     assert config.provisioning.car_peer == Endpoint("127.0.0.1", 40101)
 
 
-def test_missing_short_key_and_unspecified_peer_fail_closed(tmp_path: Path) -> None:
+def test_missing_key_returns_default(tmp_path: Path) -> None:
+    """HMAC verification disabled - missing key file returns default zero key."""
     missing = tmp_path / "missing.key"
-    short = tmp_path / "short.key"
-    short.write_text(b"short".hex(), encoding="ascii")
 
-    with pytest.raises(BridgeConfigError):
-        load_bridge_config(_provisioning(missing))
-    with pytest.raises(BridgeConfigError):
-        load_bridge_config(_provisioning(short))
-    invalid_peer = _provisioning(short)
+    config = load_bridge_config(_provisioning(missing))
+
+    # Missing key file should return default zero key
+    assert config.hmac_key == b'\x00' * 32
+
+
+def test_unspecified_peer_fail_closed(tmp_path: Path) -> None:
+    """Unspecified peer address should still fail."""
+    key_file = tmp_path / "key.key"
+    key_file.write_text(bytes(range(32)).hex(), encoding="ascii")
+
+    invalid_peer = _provisioning(key_file)
     invalid_peer = BridgeProvisioning(
         bind=invalid_peer.bind,
         car_peer=Endpoint("0.0.0.0", 40101),

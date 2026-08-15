@@ -189,11 +189,6 @@ class RealtimeController:
                         now,
                     )
                 return terminal
-            if not nonzero_control_allowed(
-                self.config,
-                self._dependencies.snapshot(now),
-            ):
-                return self._gated("HOVER", now)
             # 保持当前航向并持续输出零速度，直到悬停时间结束
             self._write(ZERO_CONTROL)
             self._dependencies.sleeper(self.config.stream_period_s)

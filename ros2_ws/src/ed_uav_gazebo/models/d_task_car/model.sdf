@@ -1,0 +1,72 @@
+<?xml version="1.0"?>
+<sdf version="1.8">
+  <model name="d_task_car">
+    <static>false</static>
+    <self_collide>false</self_collide>
+    <canonical_link>base_link</canonical_link>
+    <link name="base_link">
+      <inertial>
+        <mass>5.0</mass>
+        <inertia><ixx>0.08</ixx><iyy>0.10</iyy><izz>0.12</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <collision name="body_collision">
+        <pose>0 0 0.07 0 0 0</pose>
+        <geometry><box><size>0.48 0.38 0.14</size></box></geometry>
+        <surface><friction><ode><mu>0.8</mu><mu2>0.8</mu2></ode></friction></surface>
+      </collision>
+      <visual name="body_visual">
+        <pose>0 0 0.07 0 0 0</pose>
+        <geometry><box><size>0.48 0.38 0.14</size></box></geometry>
+        <material><ambient>0.04 0.12 0.22 1</ambient><diffuse>0.08 0.28 0.52 1</diffuse></material>
+      </visual>
+
+      <!-- 50cm outer circle, 30cm inner circle and cross from the D-task drawing. -->
+      <visual name="target_outer_black">
+        <pose>0 0 0.145 0 0 0</pose><geometry><cylinder><radius>0.25</radius><length>0.006</length></cylinder></geometry>
+        <material><ambient>0.02 0.02 0.02 1</ambient><diffuse>0.02 0.02 0.02 1</diffuse></material>
+      </visual>
+      <visual name="target_outer_white">
+        <pose>0 0 0.149 0 0 0</pose><geometry><cylinder><radius>0.23</radius><length>0.004</length></cylinder></geometry>
+        <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+      </visual>
+      <visual name="target_inner_black">
+        <pose>0 0 0.152 0 0 0</pose><geometry><cylinder><radius>0.15</radius><length>0.004</length></cylinder></geometry>
+        <material><ambient>0.02 0.02 0.02 1</ambient><diffuse>0.02 0.02 0.02 1</diffuse></material>
+      </visual>
+      <visual name="target_inner_white">
+        <pose>0 0 0.155 0 0 0</pose><geometry><cylinder><radius>0.13</radius><length>0.004</length></cylinder></geometry>
+        <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+      </visual>
+      <visual name="target_cross_x">
+        <pose>0 0 0.159 0 0 0</pose><geometry><box><size>0.44 0.025 0.004</size></box></geometry>
+        <material><ambient>0.02 0.02 0.02 1</ambient><diffuse>0.02 0.02 0.02 1</diffuse></material>
+      </visual>
+      <visual name="target_cross_y">
+        <pose>0 0 0.159 0 0 0</pose><geometry><box><size>0.025 0.44 0.004</size></box></geometry>
+        <material><ambient>0.02 0.02 0.02 1</ambient><diffuse>0.02 0.02 0.02 1</diffuse></material>
+      </visual>
+
+      <!-- Exactly 15x15cm tag36h11 ID 0, centered over the target cross. -->
+      <visual name="center_apriltag_id_0">
+        <pose>0 0 0.163 0 0 0</pose>
+        <geometry><plane><normal>0 0 1</normal><size>0.15 0.15</size></plane></geometry>
+        <material>
+          <ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse>
+          <pbr><metal><albedo_map>model://apriltag_marker/materials/textures/tag36h11_0.png</albedo_map><metalness>0</metalness><roughness>1</roughness></metal></pbr>
+        </material>
+      </visual>
+
+      <visual name="wheel_fl"><pose>0.16 0.20 0.045 1.5708 0 0</pose><geometry><cylinder><radius>0.065</radius><length>0.035</length></cylinder></geometry><material><diffuse>0.03 0.03 0.03 1</diffuse></material></visual>
+      <visual name="wheel_fr"><pose>0.16 -0.20 0.045 1.5708 0 0</pose><geometry><cylinder><radius>0.065</radius><length>0.035</length></cylinder></geometry><material><diffuse>0.03 0.03 0.03 1</diffuse></material></visual>
+      <visual name="wheel_rl"><pose>-0.16 0.20 0.045 1.5708 0 0</pose><geometry><cylinder><radius>0.065</radius><length>0.035</length></cylinder></geometry><material><diffuse>0.03 0.03 0.03 1</diffuse></material></visual>
+      <visual name="wheel_rr"><pose>-0.16 -0.20 0.045 1.5708 0 0</pose><geometry><cylinder><radius>0.065</radius><length>0.035</length></cylinder></geometry><material><diffuse>0.03 0.03 0.03 1</diffuse></material></visual>
+    </link>
+    <plugin filename="ignition-gazebo-velocity-control-system" name="ignition::gazebo::systems::VelocityControl">
+      <topic>/d_task_car/cmd_vel</topic>
+    </plugin>
+    <plugin filename="ignition-gazebo-odometry-publisher-system" name="ignition::gazebo::systems::OdometryPublisher">
+      <odom_topic>/simulation/car/odom</odom_topic>
+      <odom_frame>world</odom_frame><robot_base_frame>d_task_car</robot_base_frame><dimensions>3</dimensions><odom_publish_frequency>30</odom_publish_frequency>
+    </plugin>
+  </model>
+</sdf>

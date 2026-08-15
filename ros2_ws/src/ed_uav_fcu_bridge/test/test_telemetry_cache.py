@@ -18,7 +18,7 @@ def position_frame(x_cm: int, y_cm: int) -> bytes:
 
 
 def aux_frame(
-    aux6_us: int,
+    channel10_us: int = 1500,
     *,
     aux1_us: int = 1500,
     primary_channels_us: tuple[int, int, int, int] = (1500, 1500, 1500, 1500),
@@ -26,7 +26,7 @@ def aux_frame(
     channels = [1500] * 10
     channels[:4] = primary_channels_us
     channels[4] = aux1_us
-    channels[9] = aux6_us
+    channels[9] = channel10_us
     return build_frame(0xFF, 0x40, struct.pack("<10h", *channels))
 
 
@@ -67,22 +67,8 @@ def test_stale_0x08_position_becomes_invalid_using_steady_age() -> None:
     assert stale.position.steady_age_s > 0.20
 
 
-def test_aux_start_permission_requires_a_fresh_rc_frame() -> None:
-    # Given: a high AUX6 switch value and a 0.50 second AUX/status policy.
-    cache = TelemetryCache(FreshnessPolicy())
-    cache.ingest_raw(aux_frame(1800), steady_now=4.0)
-
-    # When: start permission is queried on either side of its deadline.
-    fresh = cache.has_fresh_start_switch(steady_now=4.50)
-    stale = cache.has_fresh_start_switch(steady_now=4.501)
-
-    # Then: stale AUX cannot authorize mission start.
-    assert fresh
-    assert not stale
-
-
-def test_0x40_retains_all_channels_for_realtime_mode_gating() -> None:
-    # Given: one complete RC frame with distinct primary, AUX1, and AUX6 values.
+def test_0x40_retains_all_channels_and_exposes_aux1_emergency_input() -> None:
+    # Given: one complete RC frame with distinct primary, AUX1, and final-channel values.
     cache = TelemetryCache(FreshnessPolicy())
     expected_channels = (1450, 1500, 1550, 1490, 1510, 1500, 1500, 1500, 1500, 1800)
     cache.ingest_raw(
@@ -97,12 +83,13 @@ def test_0x40_retains_all_channels_for_realtime_mode_gating() -> None:
     # When: the fresh telemetry snapshot is read.
     snapshot = cache.snapshot(steady_now=5.1)
 
-    # Then: all ten channels remain available while AUX6 keeps its start semantics.
+    # Then: all ten raw channels remain available, but only AUX1 has a named
+    # safety meaning in the runtime API.
     assert snapshot.aux is not None
     assert snapshot.aux.channels_us == expected_channels
     assert snapshot.aux.aux1_us == 1510
-    assert snapshot.aux.aux6_us == 1800
-    assert cache.has_fresh_start_switch(steady_now=5.1)
+    assert not hasattr(snapshot.aux, "aux6_us")
+    assert not hasattr(cache, "has_fresh_start_switch")
 
 
 def test_status_and_link_track_source_sequence_and_steady_age_independently() -> None:

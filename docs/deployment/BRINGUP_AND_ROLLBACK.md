@@ -281,17 +281,12 @@ ros2 run ed_uav_fcu_bridge ed_uav_fcu_bridge \
   `TIOCEXCL` 后仍可能可写，因此仍必须执行预检
 - 用户属于 `dialout` 组（或以 root 运行）
 
-### 3.8 飞行命令权限
+### 3.8 飞行命令启用与紧急锁浆
 
-`/fcu/flight_command` action 默认禁用。显式启用必须满足以下全部条件：
-
-- `ROS_SECURITY_ENABLE=true`
-- `ROS_SECURITY_STRATEGY=Enforce`
-- `ROS_SECURITY_KEYSTORE` 指向已配置的密钥库
-- 从已安装模板 `share/ed_uav_bringup/security/fcu_command.policy.xml` 生成签名权限
-
-桥接 enclave 具有 `execute` 权限，任务执行器具有 `call` 权限。ROS 2 中间件策略强制执行
-默认拒绝。策略模板不包含凭据。离线 PTY 空运行不需要凭据，并保持飞行命令禁用。
+`/fcu/flight_command` action 默认禁用，实飞 launch 通过显式参数
+`enable_flight_commands:=true` 和 `enable_realtime_control:=true` 启用。仓库内不再读取
+SROS2 环境变量或注入 enclave；网络访问控制由部署边界负责。唯一的遥控安全锁是
+AUX1 `1800..2000 us` 一键紧急锁浆，触发后锁存并抢占当前飞行命令。
 
 ---
 

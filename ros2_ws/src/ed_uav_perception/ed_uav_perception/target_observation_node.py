@@ -159,6 +159,7 @@ class _DualCameraFusion:
                 source_sequence=narrow.source_sequence,
                 frame_id=narrow.frame_id,
                 target_revision=narrow.target_revision,
+                line_width_m=narrow.line_width_m,
                 pose=PoseEstimate(
                     rotation_vector=narrow.pose.rotation_vector,
                     translation_m=t_fused_primary,
@@ -166,11 +167,18 @@ class _DualCameraFusion:
                         narrow.pose.reprojection_rms_px,
                         wide.pose.reprojection_rms_px,
                     ),
+                    candidate_count=(
+                        narrow.pose.candidate_count + wide.pose.candidate_count
+                    ),
+                    inlier_count=(
+                        narrow.pose.inlier_count + wide.pose.inlier_count
+                    ),
+                    quality=(
+                        w_n * narrow.pose.quality
+                        + (1.0 - w_n) * wide.pose.quality
+                    ),
                     covariance=narrow.pose.covariance,
                 ),
-                candidate_count=narrow.candidate_count + wide.candidate_count,
-                quality=w_n * narrow.quality + (1.0 - w_n) * wide.quality,
-                line_width_m=narrow.line_width_m,
             )
             return self._update(fused, now_sec)
 
@@ -197,15 +205,16 @@ class _DualCameraFusion:
             source_sequence=obs.source_sequence,
             frame_id=obs.frame_id,
             target_revision=obs.target_revision,
+            line_width_m=obs.line_width_m,
             pose=PoseEstimate(
                 rotation_vector=obs.pose.rotation_vector,
                 translation_m=filtered_pos,
                 reprojection_rms_px=obs.pose.reprojection_rms_px,
+                candidate_count=obs.pose.candidate_count,
+                inlier_count=obs.pose.inlier_count,
+                quality=obs.pose.quality,
                 covariance=obs.pose.covariance,
             ),
-            candidate_count=obs.candidate_count,
-            quality=obs.quality,
-            line_width_m=obs.line_width_m,
         )
         self._last_obs = result
         return result
@@ -231,15 +240,16 @@ class _DualCameraFusion:
             source_sequence=src.source_sequence,
             frame_id=self._last_frame_id or src.frame_id,
             target_revision=src.target_revision,
+            line_width_m=src.line_width_m,
             pose=PoseEstimate(
                 rotation_vector=src.pose.rotation_vector,
                 translation_m=predicted_pos,
                 reprojection_rms_px=src.pose.reprojection_rms_px,
+                candidate_count=0,
+                inlier_count=0,
+                quality=max(src.quality * 0.5, 0.1),
                 covariance=src.pose.covariance,
             ),
-            candidate_count=0,  # prediction, not a fresh detection
-            quality=max(src.quality * 0.5, 0.1),  # degraded quality
-            line_width_m=src.line_width_m,
         )
 
 
@@ -346,6 +356,10 @@ class TargetObservationNode(Node):
     def _camera_info_callback(self, message: CameraInfo, role: str) -> None:
         self._cameras[role].info = message
 
+    def _camera_callback(self, message: CameraInfo, role: str = "narrow") -> None:
+        """Compatibility entry point for callers using the original callback name."""
+        self._camera_info_callback(message, role)
+
     # ── Vehicle telemetry ───────────────────────────────────────────────
 
     def _vehicle_callback(self, message: VehicleTelemetry) -> None:
@@ -380,21 +394,28 @@ class TargetObservationNode(Node):
             cam.last_acquisition_sec is not None
             and acquisition_sec <= cam.last_acquisition_sec
         ):
+            self._publish_early_rejection(
+                RejectReason.IMAGE_ACQUISITION_REGRESSION, message, role
+            )
             return
         cam.last_acquisition_sec = acquisition_sec
 
         if cam.info is None:
+            self._publish_early_rejection(RejectReason.UNCALIBRATED, message, role)
             return
         if self._vehicle is None:
+            self._publish_early_rejection(self._vehicle_reason, message, role)
             return
 
         binding_reason = validate_camera_binding(cam.info, message)
         if binding_reason is not None:
+            self._publish_early_rejection(binding_reason, message, role)
             return
 
         try:
             decoded = self._bridge.imgmsg_to_cv2(message, desired_encoding="bgr8")
         except CvBridgeError:
+            self._publish_early_rejection(RejectReason.INVALID_INPUT, message, role)
             return
 
         # Build per-camera request
@@ -495,7 +516,13 @@ class TargetObservationNode(Node):
             # so downstream consumers (tests, diagnostics) can observe it.
             self._sequence += 1
             self._publish_rejection(
-                RejectReason.PARTIAL_GEOMETRY, decoded, role
+                (
+                    new_result.reject_reason
+                    if isinstance(new_result, RejectedObservation)
+                    else RejectReason.PARTIAL_GEOMETRY
+                ),
+                role,
+                source_message,
             )
             return
 
@@ -581,30 +608,48 @@ class TargetObservationNode(Node):
             target_revision=str(
                 self.get_parameter("target_revision").value
             ),
+            line_width_m=0.0,
             pose=PoseEstimate(
                 rotation_vector=prior.rotation_vector.copy(),
                 translation_m=prior.translation_m.copy(),
                 reprojection_rms_px=2.0,
-                covariance=[0.0] * 36,
+                candidate_count=0,
+                inlier_count=0,
+                quality=0.3,
+                covariance=tuple([0.0] * 36),
             ),
-            candidate_count=0,
-            quality=0.3,  # low — stale detection
-            line_width_m=0.0,
         )
 
+    def _publish_early_rejection(
+        self, reason: RejectReason, source_message: Image, role: str
+    ) -> None:
+        self._sequence += 1
+        self._publish_rejection(reason, role, source_message)
+
     def _publish_rejection(
-        self, reason: RejectReason, decoded: np.ndarray, role: str
+        self,
+        reason: RejectReason,
+        role: str,
+        source_message: Image | None = None,
     ) -> None:
         """Publish a typed rejection observation for diagnostics."""
         msg = TargetObservation()
         msg.contract_version = TargetObservation.CONTRACT_VERSION
-        msg.acquisition_stamp = self.get_clock().now().to_msg()
+        msg.acquisition_stamp = (
+            source_message.header.stamp
+            if source_message is not None
+            else self.get_clock().now().to_msg()
+        )
         msg.source_sequence = self._sequence
         msg.observation_id = f"target-fused-{self._sequence}"
         msg.target_revision = str(
             self.get_parameter("target_revision").value
         )
-        msg.frame_id = f"camera_{role}_optical_frame"
+        msg.frame_id = (
+            source_message.header.frame_id
+            if source_message is not None and source_message.header.frame_id
+            else f"camera_{role}_optical_frame"
+        )
         msg.candidate_count = 0
         msg.reprojection_rms_px = -1.0
         msg.outer_diameter_m = 0.50

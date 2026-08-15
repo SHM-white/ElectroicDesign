@@ -54,12 +54,6 @@ class AuxSample:
         """Return AUX1, the fifth channel in the complete 0x40 payload."""
         return self.channels_us[4]
 
-    @property
-    def aux6_us(self) -> int:
-        """Return AUX6, preserving the existing mission-start switch mapping."""
-        return self.channels_us[9]
-
-
 @dataclass(frozen=True, slots=True)
 class FlowDiagnostic51:
     source_sequence: int
@@ -193,17 +187,15 @@ class TelemetryCache:
             source_stamp_ns,
         )
 
-    def has_fresh_start_switch(self, steady_now: float) -> bool:
-        """Return true only for a fresh AUX6 mission-start switch assertion."""
-        aux = self._with_aux_age(steady_now)
-        return aux is not None and aux.valid and aux.aux6_us > 1700
-
     def snapshot(self, steady_now: float) -> TelemetrySnapshot:
         """Return source-separated state with validity derived from steady-clock age."""
         aux = self._with_aux_age(steady_now)
         aux1_us = aux.aux1_us if aux is not None else 0
         aux1_valid = aux is not None and aux.valid
-        task3_control_allowed = aux1_valid and 1400 < aux1_us < 1600
+        # Retain the legacy message field for wire compatibility, but it no
+        # longer represents an AUX mode window. Commands remain available
+        # until the one physical emergency lock is latched.
+        task3_control_allowed = not self._emergency_lock_active
         return TelemetrySnapshot(
             position=self._with_position_age(steady_now),
             status=self._with_status_age(steady_now),

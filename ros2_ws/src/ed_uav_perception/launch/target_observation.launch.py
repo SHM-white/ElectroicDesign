@@ -8,6 +8,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description() -> LaunchDescription:
+    use_sim_time = LaunchConfiguration("use_sim_time")
     vehicle_topic = LaunchConfiguration("vehicle_topic")
     rms = LaunchConfiguration("max_reprojection_rms_px")
     revision = LaunchConfiguration("target_revision")
@@ -17,6 +18,7 @@ def generate_launch_description() -> LaunchDescription:
     kn_age = LaunchConfiguration("kalman_max_predict_age_sec")
     return LaunchDescription(
         [
+            DeclareLaunchArgument("use_sim_time", default_value="false"),
             DeclareLaunchArgument(
                 "vehicle_topic", default_value="/d_task/vehicle/telemetry"
             ),
@@ -44,7 +46,7 @@ def generate_launch_description() -> LaunchDescription:
                 name="target_observation_node",
                 output="screen",
                 parameters=[
-                    {"target_revision": revision},
+                    {"target_revision": revision, "use_sim_time": use_sim_time},
                     {
                         "max_reprojection_rms_px": ParameterValue(
                             rms, value_type=float

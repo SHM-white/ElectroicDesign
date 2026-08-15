@@ -10,6 +10,11 @@
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>ed_uav_camera</exec_depend>
   <exec_depend>ed_uav_description</exec_depend>
+  <exec_depend>ed_uav_fcu_bridge</exec_depend>
+  <exec_depend>ed_uav_lidar</exec_depend>
+  <exec_depend>ed_uav_localization</exec_depend>
+  <exec_depend>ed_uav_mission</exec_depend>
+  <exec_depend>ed_uav_navigation</exec_depend>
   <exec_depend>ed_uav_perception</exec_depend>
   <exec_depend>ed_uav_verification</exec_depend>
   <exec_depend>ed_uav_vehicle_bridge</exec_depend>

@@ -4,7 +4,6 @@ import math
 from pathlib import Path
 
 import pytest
-from ed_uav_fcu_bridge.authority import ProgrammableCapabilityError
 from ed_uav_interfaces.msg import MissionStatus, TargetObservation, VehicleTelemetry
 from ed_uav_mission import d_task_capability
 from ed_uav_mission.d_task_inputs import (
@@ -89,7 +88,7 @@ def test_status_mapping_exposes_safe_and_terminal_phases() -> None:
     assert mission_status_state(DTaskPhase.ABORTED) == MissionStatus.STATE_ABORTED
 
 
-def test_simulation_capability_allows_fake_while_field_missing_fails_closed(
+def test_capability_compatibility_adapter_delegates_both_modes(
     tmp_path: Path,
 ) -> None:
     simulation = d_task_capability.evaluate_d_task_capability(
@@ -106,28 +105,18 @@ def test_simulation_capability_allows_fake_while_field_missing_fails_closed(
     )
 
     assert simulation.ready is True
-    assert field.ready is False
-    assert "provenance" in field.reason
+    assert field.ready is True
+    assert simulation.reason == "capability admission delegated to deployment"
+    assert field.reason == simulation.reason
 
 
-def test_field_red_capability_reason_is_retained(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        d_task_capability,
-        "capability_trust_from_environment",
-        lambda report_path, device_identity, environment: None,
-    )
-
-    def reject(enabled, trust):
-        raise ProgrammableCapabilityError("capability report is red: V7 timeout")
-
-    monkeypatch.setattr(d_task_capability, "require_programmable_capability", reject)
-
+def test_legacy_report_contents_do_not_reintroduce_a_runtime_gate() -> None:
     decision = d_task_capability.evaluate_d_task_capability(
         simulation_only=False,
         report_path=Path("red.json"),
         device_identity="v7-001",
-        environment={},
+        environment={"ROS_SECURITY_ENABLE": "true"},
     )
 
-    assert decision.ready is False
-    assert decision.reason == "capability report is red: V7 timeout"
+    assert decision.ready is True
+    assert "delegated" in decision.reason

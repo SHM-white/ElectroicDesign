@@ -118,26 +118,26 @@ def _control_fields(raw: bytes) -> tuple[int, ...]:
         (True, _snapshot(), True),
         (False, _snapshot(), False),
         (True, _snapshot(position_valid=False), False),
-        (True, _snapshot(status_mode=3), False),
-        (True, _snapshot(status_valid=False), False),
-        (True, _snapshot(aux1_us=1900), False),
-        (True, _snapshot(primary_channels_us=(1300, 1500, 1500, 1500)), False),
-        (True, _snapshot(aux_valid=False), False),
+        (True, _snapshot(status_mode=3), True),
+        (True, _snapshot(status_valid=False), True),
+        (True, _snapshot(aux1_us=1700), True),
+        (True, _snapshot(primary_channels_us=(1300, 1500, 1500, 1500)), True),
+        (True, _snapshot(aux_valid=False), True),
     ),
 )
-def test_nonzero_stream_requires_every_realtime_mode_gate(
+def test_nonzero_stream_uses_only_backend_and_position_availability(
     config_enabled: bool,
     snapshot: TelemetrySnapshot,
     expected: bool,
 ) -> None:
-    # Given: one combination of explicit enable, telemetry freshness, mode, and RC channels.
+    # Given: one combination of explicit enable and telemetry values.
     realtime = _realtime_module()
     config = realtime.RealtimeControlConfig(enable_realtime_control=config_enabled)
 
     # When: permission for a nonzero realtime frame is evaluated.
     actual = realtime.nonzero_control_allowed(config, snapshot)
 
-    # Then: only the complete documented mode-2 combination passes.
+    # Then: obsolete mode/stick/AUX windows do not participate.
     assert actual is expected
 
 
@@ -229,7 +229,7 @@ def test_hover_streams_zero_velocity_for_the_requested_duration() -> None:
             "CANCELLED",
         ),
         (
-            (_snapshot(), _snapshot(status_mode=3)),
+            (_snapshot(), _snapshot(position_valid=False)),
             None,
             1.0,
             "CONTROL_GATED",
@@ -276,8 +276,8 @@ def test_cancel_failure_and_timeout_end_with_configurable_zero_frames(
     assert [_control_fields(frame) for frame in written[-3:]] == [(0,) * 7] * 3
 
 
-def test_hover_aborts_when_mode_gate_is_lost_during_hover() -> None:
-    # Given: three valid samples followed by one invalid mode sample during a 80 ms hover.
+def test_hover_ignores_obsolete_mode_gate_during_hover() -> None:
+    # Given: telemetry changes FCU mode during a bounded HOVER.
     realtime = _realtime_module()
     clock = FakeClock()
     written: list[bytes] = []
@@ -301,13 +301,13 @@ def test_hover_aborts_when_mode_gate_is_lost_during_hover() -> None:
         config,
     )
 
-    # When: the hover loop encounters an invalid mode after several zero-velocity frames.
+    # When: the hover loop runs through that change.
     result = controller.execute(realtime.RealtimeHoverRequest(duration_s=0.08), lambda: False)
 
-    # Then: the hover aborts with CONTROL_GATED and trailing stop frames are still emitted.
-    assert result.code is realtime.RealtimeResultCode.CONTROL_GATED
-    assert clock.sleeps == [0.02, 0.02, 0.02]
-    assert len(written) == 5
+    # Then: it completes and writes its configured trailing stop frames.
+    assert result.code is realtime.RealtimeResultCode.SUCCEEDED
+    assert clock.sleeps == [0.02, 0.02, 0.02, 0.02]
+    assert len(written) == 6
     assert all(_control_fields(frame) == (0,) * 7 for frame in written[-2:])
 
 

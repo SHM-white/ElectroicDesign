@@ -60,12 +60,29 @@ def generate_launch_description() -> LaunchDescription:
                         "use_sim_time": use_sim_time,
                         "calibration_file": calibration_file,
                         "input_topic": "/fast_lio/odometry",
+                        "output_topic": "/localization/lio/planar_raw",
                         "cloud_input_topic": "/fast_lio/cloud_registered",
                         "map_input_topic": "/fast_lio/laser_map",
                         "path_input_topic": "/fast_lio/path",
                         "cloud_output_topic": "/localization/lio/cloud_registered",
                         "map_output_topic": "/localization/lio/map",
                         "path_output_topic": "/localization/lio/path",
+                    }
+                ],
+            ),
+            Node(
+                package="ed_uav_gazebo",
+                executable="planar_odom_fuser",
+                name="planar_odom_fuser",
+                output="screen",
+                parameters=[
+                    {
+                        "use_sim_time": use_sim_time,
+                        "input_topic": "/localization/lio/planar_raw",
+                        "output_topic": "/localization/lio/odom",
+                        "altitude_topic": "/simulation/ground_truth/odom",
+                        "altitude_variance": 0.0025,
+                        "maximum_vertical_rate_m_s": 3.0,
                     }
                 ],
             ),

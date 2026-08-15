@@ -12,21 +12,28 @@ from ed_uav_mission.executor import PreflightCode, bounded_failure_reason, valid
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_executor_requires_valid_start() -> None:
-    """Stale AUX switch causes preflight rejection."""
+def test_executor_preflight_has_no_aux_or_capability_admission_parameters() -> None:
+    """Deployment owns caller admission; mission preflight owns flight state."""
+    import inspect
+
+    parameters = inspect.signature(validate_preflight).parameters
+
+    assert "aux_start_active" not in parameters
+    assert "capability_ready" not in parameters
+
+
+def test_preflight_rejects_unarmed_fcu() -> None:
     result = validate_preflight(
         fcu_communication_ok=True,
         fcu_source=FcuState.SOURCE_V7,
-        fcu_motors_armed=True,
+        fcu_motors_armed=False,
         simulation_only=False,
-        aux_start_active=False,
         localization_active=True,
         map_to_odom_valid=True,
         profile_loaded=True,
         calibration_valid=True,
     )
-    assert result.code == PreflightCode.STALE_AUX
-    assert "aux" in result.reason.lower()
+    assert result.code == PreflightCode.MOTORS_NOT_ARMED
 
 
 def test_preflight_rejects_no_fcu_link() -> None:
@@ -35,7 +42,6 @@ def test_preflight_rejects_no_fcu_link() -> None:
         fcu_source=0,
         fcu_motors_armed=True,
         simulation_only=False,
-        aux_start_active=True,
         localization_active=True,
         map_to_odom_valid=True,
         profile_loaded=True,
@@ -50,7 +56,6 @@ def test_preflight_rejects_lost_localization() -> None:
         fcu_source=FcuState.SOURCE_V7,
         fcu_motors_armed=True,
         simulation_only=False,
-        aux_start_active=True,
         localization_active=False,
         map_to_odom_valid=True,
         profile_loaded=True,
@@ -65,7 +70,6 @@ def test_preflight_rejects_invalid_map_to_odom() -> None:
         fcu_source=FcuState.SOURCE_V7,
         fcu_motors_armed=True,
         simulation_only=False,
-        aux_start_active=True,
         localization_active=True,
         map_to_odom_valid=False,
         profile_loaded=True,
@@ -80,7 +84,6 @@ def test_preflight_rejects_missing_profile() -> None:
         fcu_source=FcuState.SOURCE_V7,
         fcu_motors_armed=True,
         simulation_only=False,
-        aux_start_active=True,
         localization_active=True,
         map_to_odom_valid=True,
         profile_loaded=False,
@@ -95,7 +98,6 @@ def test_preflight_all_clear() -> None:
         fcu_source=FcuState.SOURCE_V7,
         fcu_motors_armed=True,
         simulation_only=False,
-        aux_start_active=True,
         localization_active=True,
         map_to_odom_valid=True,
         profile_loaded=True,
@@ -120,7 +122,6 @@ def test_preflight_rejects_execution_mode_source_mismatch(
         fcu_source=fcu_source,
         fcu_motors_armed=True,
         simulation_only=simulation_only,
-        aux_start_active=True,
         localization_active=True,
         map_to_odom_valid=True,
         profile_loaded=True,
@@ -169,17 +170,18 @@ def test_d_task_ros_surface_uses_typed_inputs_status_and_selection_service() -> 
     assert "DTaskRosBoundary(" in executor_source
 
 
-def test_field_d_task_preflight_requires_verified_programmable_capability() -> None:
-    # Given: the executor's pure preflight and capability boundary source.
+def test_field_d_task_preflight_delegates_network_admission_to_deployment() -> None:
+    # Given: the mission runtime and retained compatibility adapter.
     executor_source = (PACKAGE_ROOT / "ed_uav_mission" / "executor.py").read_text(
         encoding="utf-8"
     )
     capability_path = PACKAGE_ROOT / "ed_uav_mission" / "d_task_capability.py"
 
-    # When/Then: field mode fails closed while simulation may use its fake path.
+    # When/Then: neither AUX nor capability/SROS state participates in mission
+    # preflight; older diagnostics receive an explicit delegated decision.
     assert capability_path.is_file()
     capability_source = capability_path.read_text(encoding="utf-8")
-    assert "require_programmable_capability" in capability_source
-    assert "capability_trust_from_environment" in capability_source
-    assert "CAPABILITY_BLOCKED" in executor_source
-    assert "capability_ready" in executor_source
+    assert "capability admission delegated to deployment" in capability_source
+    assert "CAPABILITY_BLOCKED" not in executor_source
+    assert "capability_ready" not in executor_source
+    assert "aux_start_active" not in executor_source

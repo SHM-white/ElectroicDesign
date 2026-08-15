@@ -104,7 +104,7 @@ class CompetitionParams(BaseModel):
 
     mission_profile_id: Identifier
     deployment_preset_id: Identifier
-    target_revision: Literal["d2026-circle-cross-v1"]
+    target_revision: Literal["d2026-apriltag-v1", "d2026-circle-cross-v1"]
     mission_variant: Literal["competition", "stability"] = "competition"
     altitude_m: FiniteFloat = Field(default=1.5, gt=0.0)
     stability_params: StabilityParams | None = None

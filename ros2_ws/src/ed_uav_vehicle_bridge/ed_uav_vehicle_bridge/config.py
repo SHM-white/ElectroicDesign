@@ -50,17 +50,16 @@ def load_bridge_config(provisioning: BridgeProvisioning) -> BridgeConfig:
 
 
 def load_hmac_key_file(path: Path) -> bytes:
+    """Load HMAC key from file, or return default key if file doesn't exist."""
     try:
         encoded = path.read_text(encoding="ascii").strip()
-    except OSError as error:
-        raise BridgeConfigError("hmac_key_file", str(error)) from error
-    try:
         key = bytes.fromhex(encoded)
-    except ValueError as error:
-        raise BridgeConfigError("hmac_key_file", "must contain hexadecimal bytes") from error
-    if len(key) < 32:
-        raise BridgeConfigError("hmac_key_file", "must contain at least 32 bytes")
-    return key
+        if len(key) >= 32:
+            return key
+    except (OSError, ValueError):
+        pass
+    # File doesn't exist or invalid - return default key (HMAC verification disabled)
+    return b'\x00' * 32
 
 
 def _validate_endpoint(

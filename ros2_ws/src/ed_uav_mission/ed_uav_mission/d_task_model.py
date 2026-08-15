@@ -69,7 +69,6 @@ class DTaskFault(str, Enum):
     PAYLOAD_UNKNOWN = "payload_unknown"
     CONTACT_INTERRUPTED = "contact_interrupted"
     FLIGHT_COMMAND_FAILED = "flight_command_failed"
-    CAPABILITY_BLOCKED = "capability_blocked"
     CANCELLED = "cancelled"
     LOCALIZATION_LOST = "localization_lost"
     HARD_LOCKED = "hard_locked"

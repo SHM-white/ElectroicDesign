@@ -9,6 +9,7 @@ from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -19,11 +20,12 @@ def generate_launch_description() -> LaunchDescription:
     localization_share = Path(get_package_share_directory("ed_uav_localization"))
     mission_share = Path(get_package_share_directory("ed_uav_mission"))
     navigation_share = Path(get_package_share_directory("ed_uav_navigation"))
+    perception_share = Path(get_package_share_directory("ed_uav_perception"))
     world = package_share / "worlds" / "ed_uav_arena.sdf"
     bridge = package_share / "config" / "bridge.yaml"
     rviz = package_share / "rviz" / "sim.rviz"
-    profile = localization_share / "config" / "fields" / "simulation_arena.yaml"
-    default_mission = mission_share / "config" / "missions" / "simulation_competition.yaml"
+    default_profile = localization_share / "config" / "fields" / "d_arena_2026.yaml"
+    default_mission = mission_share / "config" / "missions" / "d_arena_competition.yaml"
     calibration = description_share / "config" / "synthetic_calibrated.yaml"
     localization_mode = LaunchConfiguration("localization_mode")
     fast_lio_mode = PythonExpression(["'", localization_mode, "' == 'fast_lio'"])
@@ -33,6 +35,9 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument("gui", default_value="true"),
             DeclareLaunchArgument("use_rviz", default_value="true"),
+            DeclareLaunchArgument("auto_start", default_value="true"),
+            DeclareLaunchArgument("simulation_task", default_value="1"),
+            DeclareLaunchArgument("profile_path", default_value=str(default_profile)),
             DeclareLaunchArgument(
                 "mission_config",
                 default_value=str(default_mission),
@@ -79,7 +84,7 @@ def generate_launch_description() -> LaunchDescription:
                 ),
                 launch_arguments={
                     "use_sim_time": LaunchConfiguration("use_sim_time"),
-                    "profile_path": str(profile),
+                    "profile_path": LaunchConfiguration("profile_path"),
                 }.items(),
             ),
             IncludeLaunchDescription(
@@ -95,12 +100,20 @@ def generate_launch_description() -> LaunchDescription:
                 launch_arguments={"use_sim_time": LaunchConfiguration("use_sim_time")}.items(),
             ),
             IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(str(perception_share / "launch" / "target_observation.launch.py")),
+                launch_arguments={
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                    "vehicle_topic": "/vehicle/telemetry",
+                    "target_revision": "d2026-apriltag-v1",
+                }.items(),
+            ),
+            IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(mission_share / "launch" / "mission_executor.launch.py")
                 ),
                 launch_arguments={
                     "use_sim_time": LaunchConfiguration("use_sim_time"),
-                    "profile_path": str(profile),
+                    "profile_path": LaunchConfiguration("profile_path"),
                     "mission_config_path": LaunchConfiguration("mission_config"),
                     "calibration_file": str(calibration),
                     "simulation_only": "true",
@@ -117,6 +130,31 @@ def generate_launch_description() -> LaunchDescription:
                         "publish_odom_to_base_link_tf": False,
                     }
                 ],
+            ),
+            Node(
+                package="ed_uav_gazebo",
+                executable="sim_car_controller",
+                name="sim_car_controller",
+                output="screen",
+                parameters=[{"use_sim_time": LaunchConfiguration("use_sim_time"), "speed_m_s": 0.15}],
+            ),
+            Node(
+                package="ed_uav_gazebo",
+                executable="sim_mission_starter",
+                name="sim_mission_starter",
+                output="screen",
+                parameters=[
+                    {
+                        "use_sim_time": LaunchConfiguration("use_sim_time"),
+                        "mission_id": "d-arena-competition-2026",
+                        "field_profile_id": "d-arena-2026",
+                        "mission_profile_id": "d2026-competition",
+                        "deployment_preset_id": "field-2026",
+                        "target_revision": "d2026-apriltag-v1",
+                        "task": ParameterValue(LaunchConfiguration("simulation_task"), value_type=int),
+                    }
+                ],
+                condition=IfCondition(LaunchConfiguration("auto_start")),
             ),
             Node(
                 package="ed_uav_gazebo",

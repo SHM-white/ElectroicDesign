@@ -272,5 +272,5 @@ def test_competition_ros_integration_remains_planner_only_and_flight_command_onl
         if "<exec_depend>" in line
     }
     assert 'glob("config/missions/*.yaml")' in setup_source
-    assert "simulation_competition.yaml" in sim_launch_source
+    assert "d_arena_competition.yaml" in sim_launch_source
     assert COMPETITION_CONFIG.is_file()

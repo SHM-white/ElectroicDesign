@@ -118,7 +118,7 @@ def test_task3_launch_composes_the_real_flight_chain_without_rviz() -> None:
     assert "use_fake_devices" not in _declared_arguments(tree)
 
 
-def test_task3_launch_requires_security_inputs_and_fixed_control_policy() -> None:
+def test_task3_launch_uses_explicit_runtime_inputs_without_sros_admission() -> None:
     # Given: the dedicated Task3 launch entry point.
     tree = ast.parse(_launch_source(), filename=str(LAUNCH_PATH))
 
@@ -126,7 +126,7 @@ def test_task3_launch_requires_security_inputs_and_fixed_control_policy() -> Non
     declared = _declared_arguments(tree)
     forwarded = _launch_configurations(tree)
 
-    # Then: real runtime evidence, SROS settings, and Task3 identity are mandatory launch data.
+    # Then: measured runtime inputs and Task3 identity are mandatory launch data.
     required = {
         "mission_config_path",
         "field_profile_path",
@@ -136,16 +136,21 @@ def test_task3_launch_requires_security_inputs_and_fixed_control_policy() -> Non
         "hmac_key_file",
         "mid360_driver_config_path",
         "fast_lio_launch_path",
-        "ros_security_enable",
-        "ros_security_strategy",
-        "ros_security_keystore",
         "task3_identity",
     }
     assert required <= declared
     assert required <= forwarded
+    assert {
+        "ros_security_enable",
+        "ros_security_strategy",
+        "ros_security_keystore",
+    }.isdisjoint(declared | forwarded)
+    source = _launch_source()
+    assert "ROS_SECURITY" not in source
+    assert "--enclave" not in source
+    assert "programmable_capability_report" not in source
     assert "CALIBRATED" in _string_literals(tree)
     assert {
         "enable_flight_commands": True,
         "enable_realtime_control": True,
-        "enable_programmable_commands": False,
     }.items() <= _parameter_literals(tree).items()

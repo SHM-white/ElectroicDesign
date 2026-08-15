@@ -21,8 +21,8 @@ MODEL_PATH: Final = GAZEBO_PACKAGE / "models" / "ed_quadrotor" / "model.sdf"
 BRIDGE_PATH: Final = GAZEBO_PACKAGE / "config" / "bridge.yaml"
 LAUNCH_PATH: Final = GAZEBO_PACKAGE / "launch" / "sim.launch.py"
 COMPAT_LAUNCH_PATH: Final = GAZEBO_PACKAGE / "launch" / "gazebo_simulation.launch.py"
-FIELD_PROFILE_PATH: Final = REPOSITORY_ROOT / "ros2_ws" / "src" / "ed_uav_localization" / "config" / "fields" / "simulation_arena.yaml"
-MISSION_PROFILE_PATH: Final = REPOSITORY_ROOT / "ros2_ws" / "src" / "ed_uav_mission" / "config" / "missions" / "simulation_patrol.yaml"
+FIELD_PROFILE_PATH: Final = REPOSITORY_ROOT / "ros2_ws" / "src" / "ed_uav_localization" / "config" / "fields" / "d_arena_2026.yaml"
+MISSION_PROFILE_PATH: Final = REPOSITORY_ROOT / "ros2_ws" / "src" / "ed_uav_mission" / "config" / "missions" / "d_arena_competition.yaml"
 SIM_DOC_PATH: Final = REPOSITORY_ROOT / "docs" / "testing" / "GAZEBO_SIM.md"
 OFFLINE_RUNNERS: Final = (
     "run_offline_static.sh",
@@ -38,7 +38,7 @@ EXPECTED_BRIDGES: Final = {
     "gz_type_name: ignition.msgs.Clock",
     "ros_topic_name: /simulation/ground_truth/odom",
     "gz_type_name: ignition.msgs.Odometry",
-    "ros_topic_name: /lidar/points",
+    "ros_topic_name: /lidar/points_raw",
     "gz_type_name: ignition.msgs.PointCloudPacked",
     "ros_topic_name: /rangefinder/range",
     "gz_type_name: ignition.msgs.LaserScan",
@@ -52,11 +52,15 @@ EXPECTED_BRIDGES: Final = {
     "gz_topic_name: /ed_quadrotor/simulation/cmd_vel",
     "ros_topic_name: /simulation/enable",
     "gz_topic_name: /ed_quadrotor/simulation/enable",
+    "ros_topic_name: /simulation/car/odom",
+    "ros_topic_name: /simulation/car/cmd_vel",
+    "gz_topic_name: /d_task_car/cmd_vel",
 }
 EXPECTED_SIM_TOPICS: Final = (
     "/clock",
     "/tf",
     "/simulation/ground_truth/odom",
+    "/simulation/car/odom",
     "/lidar/points",
     "/rangefinder/range",
     "/camera/narrow/image_raw",
@@ -65,6 +69,8 @@ EXPECTED_SIM_TOPICS: Final = (
     "/camera/wide/camera_info",
     "/fcu/flight_command",
     "/mission/execute",
+    "/vehicle/telemetry",
+    "/localization/odom",
 )
 EXPECTED_DOCKER_PACKAGES: Final = (
     "ros-humble-ros-gz-sim",
@@ -174,7 +180,20 @@ def test_simulator_launch_owns_sim_topics_and_excludes_offline_or_serial_launche
         ("localization_simulation.launch.py", "mission_executor.launch.py", "synthetic_calibrated.yaml", "simulation_only"),
         LAUNCH_PATH.name,
     )
-    assert_contains_all(launch_source, ("sim_fcu", "sim_localization", "ros_gz_bridge"), LAUNCH_PATH.name)
+    assert_contains_all(
+        launch_source,
+        (
+            "sim_fcu",
+            "sim_localization",
+            "sim_car_controller",
+            "sim_mission_starter",
+            "fast_lio_simulation.launch.py",
+            "ros_gz_bridge",
+            "d_arena_2026.yaml",
+            "d_arena_competition.yaml",
+        ),
+        LAUNCH_PATH.name,
+    )
 
     # And: real hardware, serial bridges, and offline verification launches are not included.
     assert_excludes_all(
@@ -227,8 +246,8 @@ def test_gazebo_runners_use_humble_modes_evidence_and_preserve_offline_runners()
         assert ".omo/evidence/gazebo" not in source, f"tools/{script} must not write Gazebo evidence"
 
 
-def test_mission_localization_entry_points_and_synthetic_profiles_are_bounded_to_simulation() -> None:
-    # Given: simulator smoke flows need CLI entry points and synthetic data only.
+def test_mission_localization_entry_points_and_d_arena_profiles_are_integrated() -> None:
+    # Given: the competition simulator needs mission and localization entry points.
     mission_setup = read_text(REPOSITORY_ROOT / "ros2_ws" / "src" / "ed_uav_mission" / "setup.py")
     localization_setup = read_text(REPOSITORY_ROOT / "ros2_ws" / "src" / "ed_uav_localization" / "setup.py")
 
@@ -241,17 +260,36 @@ def test_mission_localization_entry_points_and_synthetic_profiles_are_bounded_to
         "ed_uav_localization setup.py",
     )
 
-    # And: field, mission, and documentation profiles mark the surface as simulation-only.
-    assert FIELD_PROFILE_PATH.is_file(), "missing simulation-only field profile config/fields/gazebo_sim_synthetic.yaml"
-    assert MISSION_PROFILE_PATH.is_file(), "missing simulation-only Gazebo smoke mission YAML"
-    assert SIM_DOC_PATH.is_file(), "missing simulation-only Gazebo documentation docs/testing/GAZEBO_SIM.md"
+    # And: the default files describe the current 4x5m D arena while the
+    # documentation clearly bounds Gazebo to hardware-free verification.
+    assert FIELD_PROFILE_PATH.is_file(), "missing D-arena field profile"
+    assert MISSION_PROFILE_PATH.is_file(), "missing D-arena competition mission"
+    assert SIM_DOC_PATH.is_file(), "missing Gazebo documentation docs/testing/GAZEBO_SIM.md"
     field_source = read_text(FIELD_PROFILE_PATH)
     mission_source = read_text(MISSION_PROFILE_PATH)
     doc_source = read_text(SIM_DOC_PATH)
-    assert_contains_all(field_source, ("synthetic", "synthetic_simulation", "activation: blocked"), FIELD_PROFILE_PATH.name)
-    assert_contains_all(mission_source, ("simulation-patrol", "simulation-arena", "mission_id"), MISSION_PROFILE_PATH.name)
-    assert_contains_all(doc_source, ("simulation-only", "synthetic", "run_gazebo_sim.sh", "run_gazebo_smoke.sh", "serial hardware"), SIM_DOC_PATH.name)
-    assert_contains_all(field_source + mission_source, ("blocked", "simulation"), "simulation YAML profiles")
+    assert_contains_all(
+        field_source,
+        ("profile_id: d-arena-2026", "x_m: 4.0", "y_m: 5.0", "route-a", "route-d"),
+        FIELD_PROFILE_PATH.name,
+    )
+    assert_contains_all(
+        mission_source,
+        ("mission_id: d-arena-competition-2026", "target_revision: d2026-apriltag-v1"),
+        MISSION_PROFILE_PATH.name,
+    )
+    assert_contains_all(
+        doc_source,
+        (
+            "仅用于仿真",
+            "4 m × 5 m",
+            "15 cm",
+            "FAST-LIO",
+            "连续里程计",
+            "run_competition.sh --simulation",
+        ),
+        SIM_DOC_PATH.name,
+    )
 
 
 def test_contract_has_no_hidden_runtime_side_effects() -> None:

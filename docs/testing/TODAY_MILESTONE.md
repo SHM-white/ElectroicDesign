@@ -187,7 +187,7 @@ rosbag 阶段只包含 `/verification/events`，是事件回放而非传感器�
 
 ### 离线安全边界说明
 
-已安装策略模板为 `share/ed_uav_bringup/security/fcu_command.policy.xml`。`/fcu/flight_command` action 默认禁用。启用需要 `ROS_SECURITY_ENABLE=true`、`ROS_SECURITY_STRATEGY=Enforce`、`ROS_SECURITY_KEYSTORE` 以及由模板生成的签名权限。桥接 enclave 使用 `execute`，任务执行器使用 `call`；中间件策略默认拒绝其他调用者。模板不含凭据。离线 PTY 空运行仍不需要凭据且禁用命令。
+`/fcu/flight_command` action 默认禁用，实飞 launch 通过显式布尔参数启用。当前运行链不读取 SROS2 环境或注入 enclave，网络隔离由部署侧负责。离线 PTY 空运行仍禁用命令；唯一遥控锁是 AUX1 `1800..2000 us` 紧急锁浆锁存。
 
 串口所有权使用规范设备号身份锁定、`TIOCEXCL` 和 `flock`，阻止协作的新打开操作。这些控制不能驱逐既有描述符，因此硬件前仍需要所有者预检或 broker。本里程碑只记录边界，不声明签名 keystore 运行时、硬件、HIL 或飞行执行。
 

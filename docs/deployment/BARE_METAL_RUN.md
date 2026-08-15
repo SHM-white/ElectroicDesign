@@ -41,37 +41,20 @@ python3 -m pytest src/ed_uav_mission/test src/ed_uav_vehicle_bridge/test src/ed_
 # ── Task3 稳定性测试 ────────────────────────────────────────────────────
 # 1) 校验配置（当前未接电机电源时先跑这个）：
 ./task3.sh --dry-run
-# 2) 正式启动（需要 ROS_SECURITY_KEYSTORE 指向 keystore 目录 + 相机计划）：
-export ROS_SECURITY_KEYSTORE=/home/xtyf/ed/keystore
+# 2) 正式启动（网络边界由部署侧隔离，仓库内不启用 SROS2 门控）：
 ./task3.sh
 ```
 
-## SROS2 keystore（已生成，勿删）
+## 飞行控制边界
 
-Task3 使用 SROS2 `Enforce` 模式，keystore 已生成在 `/home/xtyf/ed/keystore`（已加入
-.gitignore，含私钥禁止入库）。包含 enclave：`/`、`/ed_uav_fcu_bridge`、
-`/ed_uav_mission_executor`、`/ed_uav_mission_display`，并已应用
-`ed_uav_bringup/security/fcu_command.policy.xml` 签名权限（否则飞行命令默认拒绝）。
-
-如需重新生成：
-
-```bash
-ros2 security create_keystore /home/xtyf/ed/keystore
-ros2 security create_enclave /home/xtyf/ed/keystore /
-ros2 security create_enclave /home/xtyf/ed/keystore /ed_uav_fcu_bridge
-ros2 security create_enclave /home/xtyf/ed/keystore /ed_uav_mission_executor
-ros2 security create_enclave /home/xtyf/ed/keystore /ed_uav_mission_display
-ros2 security create_permission /home/xtyf/ed/keystore /ed_uav_fcu_bridge \
-  ros2_ws/src/ed_uav_bringup/security/fcu_command.policy.xml
-ros2 security create_permission /home/xtyf/ed/keystore /ed_uav_mission_executor \
-  ros2_ws/src/ed_uav_bringup/security/fcu_command.policy.xml
-```
+仓库内的实飞启动不读取 keystore，也不注入 enclave。网络隔离由部署侧负责。
+程序只保留 AUX1 `1800..2000 us` 的一次性紧急锁浆锁存；其他 AUX 通道不参与
+任务准入或模式切换。
 
 ## 注意事项
 
 1. **不要**执行 `docker build` / `podman` / `run_humble.sh` 的容器模式；本机也没有这些命令。
-2. Task3 使用 SROS2 `Enforce` 模式，启动前必须设置 `ROS_SECURITY_KEYSTORE` 环境变量，
-   否则 `./task3.sh` 会在前置检查处退出。
+2. `./task3.sh --dry-run` 只校验并打印命令，不会打开串口、网络或传感器。
 3. 当前有 4 个**预先存在**的测试失败（与本次改动无关，基线即失败）：
    - `ed_uav_mission/test/test_action_lifecycle.py::test_lifecycle_sources_use_steady_timer_deadlines_and_recovery`
    - `ed_uav_mission/test/test_competition_tree.py::test_competition_ros_integration_remains_planner_only_and_flight_command_only`

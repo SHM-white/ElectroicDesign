@@ -26,6 +26,7 @@ TARGET_REVISION = REVISION_APRILTAG
 # AprilTag configuration
 APRILTAG_SIZE_M = 0.15  # 15cm edge length
 APRILTAG_FAMILY = "tag36h11"
+APRILTAG_ID: Final = 0
 
 # Circle-cross configuration
 OUTER_RADIUS_M = 0.25
@@ -80,9 +81,9 @@ def detect_target(image: np.ndarray, revision: str) -> CorrespondenceSet | Detec
 
 
 def _detect_apriltag(image: np.ndarray) -> CorrespondenceSet | DetectionFailure:
-    """Detect AprilTag using OpenCV ArUco."""
+    """Detect only the field contract's centered tag36h11 ID 0 marker."""
     detector = _get_apriltag_detector()
-    return detector.detect(image)
+    return detector.detect(image, target_tag_id=APRILTAG_ID)
 
 
 def _detect_circle_cross(image: np.ndarray) -> CorrespondenceSet | DetectionFailure:

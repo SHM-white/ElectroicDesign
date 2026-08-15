@@ -25,7 +25,6 @@ from .models import (
     AuthorityDecision,
     BootEpoch,
     CarState,
-    DTask,
     FaultFlag,
     MessageType,
     MissionSelectionValue,
@@ -37,7 +36,6 @@ from .models import (
     RouteEvent,
     SelectionId,
     Sequence,
-    Task3FcuAuxGate,
     Task3FlightTestIdentity,
     TaskMode,
     TurnClass,
@@ -69,23 +67,33 @@ class VehicleBridgeNode(Node):
         super().__init__("vehicle_bridge", parameter_overrides=parameter_overrides)
         config = load_bridge_config(declare_bridge_provisioning(self))
         provision = config.provisioning
-        self._task3_flight_test_mode = bool(self.get_parameter("task3_flight_test_mode").value)
+        identity_values = (
+            str(self.get_parameter("task3_mission_id").value),
+            str(self.get_parameter("task3_field_profile_id").value),
+            str(self.get_parameter("task3_mission_profile_id").value),
+            str(self.get_parameter("task3_deployment_preset_id").value),
+            str(self.get_parameter("task3_target_revision").value),
+        )
+        # Mission identity comes from the launch-loaded YAML, not from the HMI
+        # wire payload.  Apply it to every D-task selection (tasks 1/2/3).
         self._task3_identity = (
             Task3FlightTestIdentity(
-                mission_id=str(self.get_parameter("task3_mission_id").value),
-                field_profile_id=str(self.get_parameter("task3_field_profile_id").value),
-                mission_profile_id=str(self.get_parameter("task3_mission_profile_id").value),
-                deployment_preset_id=str(
-                    self.get_parameter("task3_deployment_preset_id").value
-                ),
-                target_revision=str(self.get_parameter("task3_target_revision").value),
+                mission_id=identity_values[0],
+                field_profile_id=identity_values[1],
+                mission_profile_id=identity_values[2],
+                deployment_preset_id=identity_values[3],
+                target_revision=identity_values[4],
                 timeout_seconds=float(self.get_parameter("task3_timeout_seconds").value),
             )
-            if self._task3_flight_test_mode
+            if all(identity_values)
             else None
         )
         self._key = config.hmac_key
         self._socket = BoundUdpSocket(provision.bind)
+        self._car_peer = provision.car_peer
+        self._hmi_peer = provision.hmi_peer
+        self._car_sender_id = provision.car_sender_id
+        self._hmi_sender_id = provision.hmi_sender_id
         self._hmi_sender = HmiSender(
             HmiSenderConfig(
                 socket=self._socket,
@@ -105,25 +113,25 @@ class VehicleBridgeNode(Node):
         self._no_car_mode = bool(self.get_parameter("no_car_mode").value)
         self._simulate_car = bool(self.get_parameter("simulate_car").value)
         self._immediate_start = bool(self.get_parameter("task3_immediate_start").value)
-        self._car_hmi_sender = HmiSender(
-            HmiSenderConfig(
-                socket=self._socket,
-                destination=provision.hmi_peer,
-                sender_id=provision.car_sender_id,
-                key=self._key,
-            )
-        )
         self._authority = BridgeAuthority(
             provision.mission_timeout_seconds,
             no_car_mode=self._no_car_mode,
         )
         self._car_session = SessionTracker(
-            PeerPolicy(provision.car_sender_id, provision.car_peer, frozenset({MessageType.CAR_TELEMETRY}))
+            PeerPolicy(
+                provision.car_sender_id,
+                provision.car_peer,
+                frozenset({MessageType.CAR_TELEMETRY, MessageType.HEARTBEAT}),
+            )
         )
         self._hmi_session = SessionTracker(
-            PeerPolicy(provision.hmi_sender_id, provision.hmi_peer, frozenset({MessageType.TASK_SELECTION}))
+            PeerPolicy(
+                provision.hmi_sender_id,
+                provision.hmi_peer,
+                frozenset({MessageType.TASK_SELECTION, MessageType.HEARTBEAT}),
+            )
         )
-        self._stale_seconds = 0.75
+        self._stale_seconds = provision.telemetry_stale_seconds
         self._fcu_armed = False
         self._mission_idle = False
         self._car_epoch = BootEpoch(0)
@@ -237,24 +245,44 @@ class VehicleBridgeNode(Node):
                         f" boot=0x{frame.boot_id:08X} seq={frame.sequence}"
                     )
                 self._publish_telemetry(telemetry, datagram)
-                # 转发原始 CAR 遥测给 HMI (保持 CAR sender_id/boot/seq)
-                try:
-                    self._socket.send(packet.data, provision.hmi_peer)
-                except Exception as error:  # noqa: BLE001
-                    self.get_logger().error(f"car→hmi 转发异常(已隔离): {error}")
-                if telemetry.event is RouteEvent.START and not self._task3_flight_test_mode:
-                    self._apply_start(self._authority.observe_car_start(frame.boot_id))
+                # 物理小车从自身 42001 端口同时直发 ROS 与 HMI。桥接器不能
+                # 转发原包：转发后的源端点是 ROS，HMI 会按协议正确拒绝它。
+                if telemetry.event is RouteEvent.START:
+                    self._apply_start(
+                        self._authority.observe_car_start(
+                            frame.boot_id,
+                            self._task3_identity,
+                        )
+                    )
             case MessageType.TASK_SELECTION:
                 selection = decode_task_selection(frame.payload)
                 self._hmi_session.accept(datagram, packet.source, receipt)
+                self._authority.observe_hmi_epoch(frame.boot_id)
                 self.get_logger().info(
                     f"udp.rx TASK_SELECTION id={selection.selection_id}"
                     f" task={int(selection.task)} mode={int(selection.mode)}"
                     f" car_boot=0x{selection.car_boot_id:08X}"
                 )
                 self._apply_selection(selection)
-            case MessageType.HEARTBEAT | MessageType.DIAGNOSTIC:
-                return
+            case MessageType.HEARTBEAT:
+                if frame.sender_id == self._hmi_sender_id:
+                    self._hmi_session.accept(datagram, packet.source, receipt)
+                    self._authority.observe_hmi_epoch(frame.boot_id)
+                elif frame.sender_id == self._car_sender_id:
+                    accepted = self._car_session.accept(datagram, packet.source, receipt)
+                    if accepted.session_changed:
+                        self._car_epoch = frame.boot_id
+                        self._authority.observe_car_epoch(frame.boot_id, self._fcu_armed)
+                else:
+                    raise ProtocolError(
+                        ProtocolErrorCode.SOURCE_MISMATCH,
+                        "heartbeat sender is not a provisioned peer",
+                    )
+            case MessageType.DIAGNOSTIC:
+                raise ProtocolError(
+                    ProtocolErrorCode.MESSAGE_TYPE_FORBIDDEN,
+                    "diagnostic datagrams are not accepted by the bridge",
+                )
             case MessageType.MISSION_STATUS:
                 raise ProtocolError(
                     ProtocolErrorCode.MESSAGE_TYPE_FORBIDDEN,
@@ -276,21 +304,6 @@ class VehicleBridgeNode(Node):
             self._car_epoch = selection.car_boot_id
         elif self._no_car_mode:
             # 兼容旧配置: 启动参数 no_car_mode=true 等价于始终模拟飞
-            self._car_epoch = selection.car_boot_id
-        elif self._task3_flight_test_mode:
-            if selection.task is not DTask.STABILITY_TEST:
-                self.get_logger().warning(
-                    f"selection.reject id={selection.selection_id} reason=TASK3_SELECTION_REQUIRED"
-                )
-                self._send_rejection(selection.selection_id, selection.car_boot_id, "TASK3_SELECTION_REQUIRED")
-                return
-            epoch = self._authority.observe_car_epoch(selection.car_boot_id, self._fcu_armed)
-            if not epoch.accepted:
-                self.get_logger().warning(
-                    f"selection.reject id={selection.selection_id} reason={epoch.reason}"
-                )
-                self._send_rejection(selection.selection_id, selection.car_boot_id, epoch.reason)
-                return
             self._car_epoch = selection.car_boot_id
         decision = self._authority.request_selection(selection, self._fcu_armed)
         if decision.acknowledgement is not None:
@@ -355,7 +368,7 @@ class VehicleBridgeNode(Node):
             self._send_rejection(selection.selection_id, selection.car_boot_id, decision.reason)
         if (self._no_car_mode or selection.mode is TaskMode.SIMULATED or self._immediate_start) and decision.acknowledgement is not None:
             # 立即启动: 地面站 TASK 指令提交即开始任务 — 模拟飞 (no_car_sim 应答),
-            # 或调试阶段 task3_immediate_start 开关 (跳过小车 START / AUX gate 等待)。
+            # 或调试阶段 immediate-start 兼容开关（跳过小车 START 等待）。
             start = self._authority.observe_no_car_start(self._task3_identity)
             if start.execute_command is not None:
                 self._apply_start(start)
@@ -447,32 +460,6 @@ class VehicleBridgeNode(Node):
 
     def _on_fcu_state_impl(self, message: FcuState) -> None:
         self._fcu_armed = bool(message.motors_armed and message.communication_ok)
-        if self._task3_flight_test_mode:
-            if self._task3_identity is not None:
-                gate = Task3FcuAuxGate(
-                    communication_fresh=bool(message.communication_ok),
-                    motors_armed=bool(message.motors_armed),
-                    channel_5_task_permission=bool(
-                        message.task3_control_allowed
-                    ),
-                )
-                decision = self._authority.observe_task3_flight_gate(
-                    self._task3_identity,
-                    gate,
-                )
-                gate_log = (
-                    f"task3.gate comm={int(gate.communication_fresh)}"
-                    f" armed={int(gate.motors_armed)}"
-                    f" ch5={int(gate.channel_5_task_permission)}"
-                )
-                if decision.execute_command is not None:
-                    self.get_logger().info(gate_log + " → 启动任务")
-                    self._apply_start(decision)
-                elif decision.reason:
-                    self.get_logger().debug(
-                        gate_log + f" wait reason={decision.reason}"
-                    )
-            return
         decision = self._authority.observe_arm(self._fcu_armed)
         if message.motors_armed and not decision.accepted:
             self._send_rejection(SelectionId(0), self._car_epoch, decision.reason)
@@ -484,9 +471,9 @@ class VehicleBridgeNode(Node):
         self._mission_idle = message.state == MissionStatus.STATE_PRE_ARM and not message.complete
         payload = encode_mission_status_for_hmi(
             message,
-            self._authority.committed_selection
-            if (self._task3_flight_test_mode or self._no_car_mode)
-            else None,
+            self._authority.committed_selection,
+            car_boot_id=self._car_epoch,
+            hmi_boot_id=self._authority.hmi_boot_id,
         )
         self.get_logger().info(
             f"udp.tx MISSION_STATUS state={message.state} complete={message.complete}"
@@ -505,7 +492,7 @@ class VehicleBridgeNode(Node):
             MissionStatusValue(
                 selection_id=selection_id,
                 car_boot_id=car_epoch,
-                hmi_boot_id=0,
+                hmi_boot_id=self._authority.hmi_boot_id,
                 phase=MissionPhase.FAULT,
                 selected_task=0,
                 reason_flags=0,
@@ -542,10 +529,6 @@ class VehicleBridgeNode(Node):
     def _send_heartbeat_impl(self) -> None:
         self._hmi_sender.send(MessageType.HEARTBEAT, b"")
         self._car_sender.send(MessageType.HEARTBEAT, b"")
-        # 仅 dry-run / no-car 时以 CAR 身份向 HMI 发送心跳 (HMI 据此显示
-        # CAR→HMI 链路在线); 真实模式由物理小车自行发包, bridge 不冒充。
-        if self._simulate_car or self._no_car_mode:
-            self._car_hmi_sender.send(MessageType.HEARTBEAT, b"")
         self._heartbeat_count = getattr(self, "_heartbeat_count", 0) + 1
         if self._heartbeat_count == 1 or self._heartbeat_count % 40 == 0:
             self.get_logger().debug(
@@ -584,7 +567,35 @@ class VehicleBridgeNode(Node):
             line_error_milli=0,
             fault_flags=FaultFlag(0),
         )
-        self._car_hmi_sender.send(MessageType.CAR_TELEMETRY, encode_car_telemetry(value))
+        # 本地仿真遥测直接进入 ROS 边界；不能从 ROS 的 42000 端口冒充
+        # 物理 CAR 的 42001 源端点向真实 HMI 发包。
+        self._publish_simulated_telemetry(value)
+
+    def _publish_simulated_telemetry(self, value: VehicleTelemetryValue) -> None:
+        """Publish deterministic no-hardware telemetry through the ROS contract."""
+        from .models import OutboundFrame, SenderId, SourceMillis
+
+        if self._car_epoch == 0:
+            self._car_epoch = BootEpoch(1)
+            self._authority.observe_car_epoch(self._car_epoch, self._fcu_armed)
+        sequence = Sequence((self._last_sequence + 1) & 0xFFFFFFFF)
+        frame = OutboundFrame(
+            message_type=MessageType.CAR_TELEMETRY,
+            sender_id=SenderId(self._car_sender_id),
+            boot_id=self._car_epoch,
+            sequence=sequence,
+            source_millis=SourceMillis(int(time.monotonic() * 1000) & 0xFFFFFFFF),
+            payload=encode_car_telemetry(value),
+        )
+        datagram = AuthenticatedDatagram(frame=frame, checksum_crc16=0)
+        self._publish_telemetry(value, datagram)
+        if value.event is RouteEvent.START:
+            self._apply_start(
+                self._authority.observe_car_start(
+                    self._car_epoch,
+                    self._task3_identity,
+                )
+            )
 
     def destroy_node(self) -> None:
         self._socket.close()

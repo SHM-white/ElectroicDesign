@@ -10,12 +10,14 @@ from launch_ros.actions import Node
 def generate_launch_description() -> LaunchDescription:
     package_share = Path(get_package_share_directory("ed_uav_navigation"))
     parameters = package_share / "config" / "planner_only.yaml"
-    map_yaml = package_share / "maps" / "simulation_arena.yaml"
+    default_map_yaml = package_share / "maps" / "d_arena_2026.yaml"
+    map_yaml = LaunchConfiguration("map_yaml")
     use_sim_time = LaunchConfiguration("use_sim_time")
 
     return LaunchDescription(
         [
             DeclareLaunchArgument("use_sim_time", default_value="true"),
+            DeclareLaunchArgument("map_yaml", default_value=str(default_map_yaml)),
             Node(
                 package="nav2_map_server",
                 executable="map_server",
@@ -23,7 +25,7 @@ def generate_launch_description() -> LaunchDescription:
                 output="screen",
                 parameters=[
                     str(parameters),
-                    {"yaml_filename": str(map_yaml), "use_sim_time": use_sim_time},
+                    {"yaml_filename": map_yaml, "use_sim_time": use_sim_time},
                 ],
             ),
             Node(

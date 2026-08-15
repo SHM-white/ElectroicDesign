@@ -9,7 +9,7 @@
     preprocess:
       # FAST-LIO type 2 consumes x/y/z/intensity/time/ring PointCloud2 fields in seconds.
       lidar_type: 2
-      scan_line: 4
+      scan_line: 1
       scan_rate: 10
       timestamp_unit: 0
     mapping:

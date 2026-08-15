@@ -227,13 +227,6 @@ class Task3FlightTestIdentity:
 
 
 @dataclass(frozen=True, slots=True)
-class Task3FcuAuxGate:
-    communication_fresh: bool
-    motors_armed: bool
-    channel_5_task_permission: bool
-
-
-@dataclass(frozen=True, slots=True)
 class TelemetryFault:
     code: RejectCode
     age_seconds: float

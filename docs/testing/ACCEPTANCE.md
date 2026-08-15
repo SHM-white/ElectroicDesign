@@ -60,7 +60,7 @@ rosbag 输出仅包含 `/verification/events`，属于事件回放，不是传�
 
 ### 2.1.2 串口和飞行命令安全边界
 
-验收包含已安装的策略模板 `share/ed_uav_bringup/security/fcu_command.policy.xml`。`/fcu/flight_command` action 默认禁用。显式启用的运行时需要 `ROS_SECURITY_ENABLE=true`、`ROS_SECURITY_STRATEGY=Enforce`、`ROS_SECURITY_KEYSTORE` 以及根据该模板生成的签名权限。桥接 enclave 获得 `execute`，任务执行器获得 `call`；其他调用者继续由中间件策略拒绝。模板不含凭据。离线 PTY 检查仍不需要凭据且禁用命令。
+`/fcu/flight_command` action 默认禁用，实飞 launch 仅通过明确的布尔参数启用。仓库内不设置 SROS2 环境或 enclave，网络隔离由部署侧负责。离线 PTY 检查保持飞行命令禁用；实飞安全验收只验证 AUX1 `1800..2000 us` 的锁浆锁存与抢占。
 
 串口验收要求规范设备号身份锁定，并结合 `TIOCEXCL` 和 `flock` 防止协作的新打开操作。这些控制不能驱逐更早打开的描述符，因此硬件验证前仍需要所有者预检或 broker。该边界已在离线阶段记录并接受，不声明签名 keystore 运行时、硬件、HIL 或飞行授权。
 

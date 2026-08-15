@@ -15,7 +15,7 @@ from ed_uav_gazebo.pointcloud_normalizer import (
 
 
 WIDTH = 360
-HEIGHT = 4
+HEIGHT = 1
 POINT_STEP = 32
 ROW_PADDING = 8
 ROW_STEP = WIDTH * POINT_STEP + ROW_PADDING
@@ -56,11 +56,11 @@ def _source(is_bigendian: bool) -> SourcePointCloud:
 def test_normalize_gazebo_pointcloud_when_valid_points_have_nonfinite_neighbors(
     is_bigendian: bool,
 ) -> None:
-    # Given: a padded four-ring Gazebo cloud with one NaN and one infinity.
+    # Given: a padded single-ring planar Gazebo cloud with one NaN and one infinity.
     source = _source(is_bigendian)
     byte_order = ">" if is_bigendian else "<"
     data = bytearray(source.data)
-    struct.pack_into(f"{byte_order}f", data, 2 * ROW_STEP, float("nan"))
+    struct.pack_into(f"{byte_order}f", data, 0, float("nan"))
     struct.pack_into(f"{byte_order}f", data, 180 * POINT_STEP + 16, float("inf"))
 
     # When: the cloud is normalized for FAST-LIO type 2.
@@ -84,15 +84,17 @@ def test_normalize_gazebo_pointcloud_when_valid_points_have_nonfinite_neighbors(
         ("ring", 24, PointFieldDatatype.UINT16, 1),
     ]
     assert [(record[0], record[1], record[5]) for record in records[:7]] == [
-        (0.0, 0.0, 0),
-        (0.0, 1.0, 1),
-        (0.0, 3.0, 3),
         (1.0, 0.0, 0),
-        (1.0, 1.0, 1),
-        (1.0, 2.0, 2),
-        (1.0, 3.0, 3),
+        (2.0, 0.0, 0),
+        (3.0, 0.0, 0),
+        (4.0, 0.0, 0),
+        (5.0, 0.0, 0),
+        (6.0, 0.0, 0),
+        (7.0, 0.0, 0),
     ]
-    assert [record[4] for record in records[:7]] == [0.0, 0.0, 0.0, time_step, time_step, time_step, time_step]
+    assert [record[4] for record in records[:7]] == pytest.approx(
+        [index * time_step for index in range(1, 8)]
+    )
     assert records[-1][4] == struct.unpack("<f", struct.pack("<f", 359.0 / 3600.0))[0]
     assert all(left[4] <= right[4] for left, right in zip(records, records[1:]))
 

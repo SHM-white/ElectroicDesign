@@ -363,23 +363,6 @@ class SafetySupervisor:
             )
         return SafetyVerdict()
 
-    def evaluate_stale_aux(self, aux_active: bool) -> SafetyVerdict:
-        """Stale-AUX safety transition."""
-        if not self._monitoring_active:
-            return SafetyVerdict()
-        if self.state not in (SupervisorState.ACTIVE,):
-            return SafetyVerdict()
-        if not aux_active:
-            self.state = SupervisorState.LOCALIZATION_LOST_LANDING
-            self._land_cmd_count = 1
-            self._land_cmd_last_at = None
-            return SafetyVerdict(
-                action=SupervisorAction.LAND,
-                correlation_id=self.new_correlation_id(),
-                reason="AUX switch stale or off during mission",
-            )
-        return SafetyVerdict()
-
     def evaluate_mission_timeout(self, timestamp_s: float) -> SafetyVerdict:
         """Mission-timeout safety transition."""
         if not self._monitoring_active:

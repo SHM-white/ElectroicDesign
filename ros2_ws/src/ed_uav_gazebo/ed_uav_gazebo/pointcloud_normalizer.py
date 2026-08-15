@@ -73,7 +73,7 @@ class NormalizedPointCloud:
 
 
 SOURCE_WIDTH: Final = 360
-SOURCE_HEIGHT: Final = 4
+SOURCE_HEIGHT: Final = 1
 SOURCE_POINT_STEP: Final = 32
 SOURCE_FIELDS: Final = (
     PointFieldSpec("x", 0, PointFieldDatatype.FLOAT32, 1),

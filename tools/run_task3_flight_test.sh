@@ -2,8 +2,8 @@
 # ==============================================================================
 # Task3 Stability Flight Test Runner
 #
-# One-command bringup for Task3 stability test with AUX5 gating and hard lock.
-# Requires: calibrated field profile, camera plan, SROS2 keystore, FCU serial.
+# One-command bringup for Task3 stability test with an AUX1 emergency lock.
+# Requires: calibrated field profile, camera plan, and FCU serial.
 #
 # Usage:
 #   ./tools/run_task3_flight_test.sh --dry-run [args]   # Validate and print
@@ -36,14 +36,13 @@ TASK3_IMMEDIATE_START="false"
 H7_SERIAL_PORT="/dev/ttyUSB1"
 LIDAR_IP="192.168.1.3"
 ENABLE_DISPLAY="false"
-ROS_SECURITY_KEYSTORE="${ROS_SECURITY_KEYSTORE:-}"
 
 # ─── Argument parsing ───────────────────────────────────────────────────────
 usage() {
     cat <<'EOF'
 Usage: ./tools/run_task3_flight_test.sh [OPTIONS]
 
-Task3 stability flight-test launcher with AUX6 start gating and hard-lock emergency.
+Task3 stability flight-test launcher with AUX1 one-switch emergency motor lock.
 
 Required:
   --mission-config PATH        Task3 mission YAML
@@ -56,24 +55,18 @@ Required:
   --fast-lio-launch PATH       FAST-LIO launch file path
   --task3-identity STR         Task3 mission identity
 
-Start gating (real flight, AUX semantics per drone/ tools):
-  --wait-car                   (default) wait for car START + AUX6 (>1700us)
-                               start switch (drone/monitor_aux6.py threshold
-                               1700; AUX1..AUX5 not used for start)
-  --immediate-start            skip car START / AUX gate, start on GCS selection
+Start behavior:
+  --wait-car                   (default) wait for authenticated car START
+  --immediate-start            skip car START and start on GCS selection
                                (debug only)
 
 Options:
   --h7-serial-port PATH        H7 GPIO (electromagnet/laser) serial (default /dev/ttyUSB1)
   --lidar-ip IP                MID-360 IP (default 192.168.1.3)
 
-Environment:
-  ROS_SECURITY_KEYSTORE        SROS2 keystore directory (required)
-
 Flags:
-  --dry-run                    Validate inputs, then launch all non-FCU modules
-                               (ground station / lidar odometry / cameras /
-                               visual tracking / electromagnet / display)
+  --dry-run                    Validate inputs and print the resolved command;
+                               do not open serial, network, camera, or lidar
   --enable-display             Enable mission display window (auto-detects headless)
   -h, --help                   Show this help
 EOF
@@ -138,10 +131,6 @@ if grep -qi 'PLACEHOLDER' "$CAMERA_PLAN" 2>/dev/null; then
     die "Camera plan must not contain PLACEHOLDER controller IDs: $CAMERA_PLAN"
 fi
 
-# Check SROS2 keystore
-[[ -n "$ROS_SECURITY_KEYSTORE" ]] || die "ROS_SECURITY_KEYSTORE environment variable is required"
-[[ -d "$ROS_SECURITY_KEYSTORE" ]] || die "ROS_SECURITY_KEYSTORE directory does not exist: $ROS_SECURITY_KEYSTORE"
-
 # ─── Build launch command ───────────────────────────────────────────────────
 LAUNCH_CMD=(
     ros2 launch ed_uav_bringup task3_flight_test.launch.py
@@ -157,24 +146,19 @@ LAUNCH_CMD=(
     "task3_immediate_start:=$TASK3_IMMEDIATE_START"
     "h7_serial_port:=$H7_SERIAL_PORT"
     "lidar_ip:=$LIDAR_IP"
-    "ros_security_enable:=true"
-    "ros_security_strategy:=Enforce"
-    "ros_security_keystore:=$ROS_SECURITY_KEYSTORE"
     "enable_display:=$ENABLE_DISPLAY"
 )
 
 # ─── Dry-run mode ───────────────────────────────────────────────────────────
 if [[ "$DRY_RUN" -eq 1 ]]; then
-    # 非飞控全链路自检: 启动地面站/雷达里程计/相机/视觉跟踪/电磁铁/显示,
-    # 跳过飞控桥并强制关闭飞行指令; 无飞行指令故不启用 SROS2 (与 field_test.sh 一致)
+    # 纯配置检查: 将 launch 的 dry_run 参数一并打印，便于操作者复制后
+    # 手工启动非飞控链路，但本命令不产生任何硬件或网络副作用。
     LAUNCH_CMD+=(
         "dry_run:=true"
-        "ros_security_enable:=false"
-        "ros_security_strategy:=Enforce"
     )
-    ok "Task3 配置校验通过, 以 dry-run 模式启动非飞控全链路自检"
-    ok "跳过: 飞控桥 (ed_uav_fcu_bridge); 保留: 地面站/雷达/相机/视觉/电磁铁/显示"
+    ok "Task3 配置校验通过（dry-run 不启动任何进程）"
     printf '%s\n' "${LAUNCH_CMD[*]}"
+    exit 0
 fi
 
 # ─── Launch ─────────────────────────────────────────────────────────────────

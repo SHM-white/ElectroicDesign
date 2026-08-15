@@ -248,9 +248,7 @@ class DTaskRosBoundary:
         response.contract_version = SelectDTaskMission.Request.CONTRACT_VERSION
         self._node.get_logger().info(
             f"select_d_task.rx mission_id={request.mission_id}"
-            f" task={request.task_id} mode={request.mode}"
-            f" car_boot=0x{request.car_boot_id:08X}"
-            f" sel={request.selection_id}"
+            f" task={request.task} field={request.field_profile_id}"
         )
         reason = self._selection_contract.rejection_reason(
             request,

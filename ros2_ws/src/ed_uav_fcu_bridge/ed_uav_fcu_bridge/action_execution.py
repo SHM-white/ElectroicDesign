@@ -87,21 +87,20 @@ def _log_goal(context: ActionNodeContext, goal: FlightCommand.Goal, tag: str) ->
     log = getattr(context, "get_logger", None)
     if log is None:
         return
+    try:
+        logger = log()
+    except (AttributeError, RuntimeError):
+        # Unit boundaries and interrupted construction can legitimately expose
+        # a Node method before rclpy has installed its logger.
+        return
     pos = goal.target_pose.pose.position
     vel = goal.target_velocity.linear
-    log().info(
+    logger.info(
         f"flight_command.goal cmd={goal.command} corr={goal.correlation_id}"
         f" target=({pos.x:.2f},{pos.y:.2f},{pos.z:.2f})"
         f" vel=({vel.x:.2f},{vel.y:.2f})"
         f" {tag}"
     )
-    realtime_capable = goal.command in (
-        FlightCommand.Goal.COMMAND_MOVE,
-        FlightCommand.Goal.COMMAND_HOVER,
-    )
-    if use_realtime_backend(realtime_capable):
-        return _execute_realtime(context, goal_handle)
-    return _execute_legacy(context, goal_handle)
 
 
 def _execute_realtime(
@@ -148,13 +147,17 @@ def _log_result(context: ActionNodeContext, goal: FlightCommand.Goal, result: Fl
     log = getattr(context, "get_logger", None)
     if log is None:
         return
+    try:
+        logger = log()
+    except (AttributeError, RuntimeError):
+        return
     code_names = {
         FlightCommand.Result.RESULT_SUCCEEDED: "SUCCEEDED",
         FlightCommand.Result.RESULT_REJECTED: "REJECTED",
         FlightCommand.Result.RESULT_TIMEOUT: "TIMEOUT",
         FlightCommand.Result.RESULT_FCU_ERROR: "FCU_ERROR",
     }
-    log().info(
+    logger.info(
         f"flight_command.result cmd={goal.command} corr={goal.correlation_id}"
         f" code={code_names.get(result.result_code, result.result_code)}"
         f" reason={result.reason}"

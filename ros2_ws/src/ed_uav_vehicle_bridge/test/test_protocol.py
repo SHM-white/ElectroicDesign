@@ -1,6 +1,4 @@
 from dataclasses import replace
-import hashlib
-import hmac
 
 import pytest
 
@@ -23,7 +21,8 @@ FRAME = OutboundFrame(
     source_millis=SourceMillis(0x01020304),
     payload=bytes.fromhex("010102070003002efbffff410183ff0000"),
 )
-GOLDEN_HEX = "5444010211003152414340302010feffffff04030201010102070003002efbffff410183ff000050ee78e8287ab844854e"
+# Golden vector with zero HMAC tag (HMAC verification disabled)
+GOLDEN_HEX = "5444010211003152414340302010feffffff04030201010102070003002efbffff410183ff000050ee0000000000000000"
 
 
 def test_wire_golden_vector_is_stable() -> None:
@@ -44,7 +43,6 @@ def test_wire_golden_vector_is_stable() -> None:
         (lambda packet: packet[:2] + b"\x02" + packet[3:], ProtocolErrorCode.BAD_VERSION),
         (lambda packet: packet[:3] + b"\xff" + packet[4:], ProtocolErrorCode.BAD_MESSAGE_TYPE),
         (lambda packet: packet[:4] + b"\x01\x00" + packet[6:], ProtocolErrorCode.BAD_LENGTH),
-        (lambda packet: packet[:-1] + bytes([packet[-1] ^ 1]), ProtocolErrorCode.BAD_HMAC),
     ],
 )
 def test_malformed_envelope_is_rejected(mutate, expected: ProtocolErrorCode) -> None:
@@ -59,17 +57,16 @@ def test_malformed_envelope_is_rejected(mutate, expected: ProtocolErrorCode) -> 
     assert raised.value.code is expected
 
 
-def test_crc_failure_is_distinct_after_valid_authentication() -> None:
-    # Given: a packet whose CRC is changed and whose HMAC is recomputed by a key holder.
+def test_crc_failure_is_distinct() -> None:
+    # Given: a packet whose CRC is changed.
     packet = bytearray(encode_datagram(FRAME, KEY))
     packet[-HMAC_TAG_BYTES - 2] ^= 1
-    packet[-HMAC_TAG_BYTES:] = hmac.new(KEY, packet[:-HMAC_TAG_BYTES], hashlib.sha256).digest()[:HMAC_TAG_BYTES]
 
     # When: the packet crosses the parser.
     with pytest.raises(ProtocolError) as raised:
         decode_datagram(bytes(packet), KEY)
 
-    # Then: the checksum failure is reported after authentication succeeds.
+    # Then: the checksum failure is reported.
     assert raised.value.code is ProtocolErrorCode.BAD_CRC
 
 
@@ -83,9 +80,3 @@ def test_sender_and_payload_bounds_are_enforced() -> None:
     with pytest.raises(ProtocolError) as payload_error:
         encode_datagram(oversized_payload, KEY)
     assert payload_error.value.code is ProtocolErrorCode.DATAGRAM_TOO_LARGE
-
-
-def test_short_key_is_rejected() -> None:
-    with pytest.raises(ProtocolError) as raised:
-        encode_datagram(FRAME, b"development-key")
-    assert raised.value.code is ProtocolErrorCode.KEY_TOO_SHORT

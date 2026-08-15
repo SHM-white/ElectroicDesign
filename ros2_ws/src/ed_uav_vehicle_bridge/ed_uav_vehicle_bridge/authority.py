@@ -9,7 +9,6 @@ from .models import (
     AuthorityDecision,
     AuthorityState,
     BootId,
-    DTask,
     ExecuteMissionCommand,
     MissionSelectionValue,
     MissionPhase,
@@ -18,7 +17,6 @@ from .models import (
     RejectCode,
     SelectMissionCommand,
     SelectionId,
-    Task3FcuAuxGate,
     Task3FlightTestIdentity,
 )
 
@@ -41,7 +39,6 @@ class BridgeAuthority:
         self._hmi_boot_id = hmi_boot_id
         self._pending: MissionSelectionValue | None = None
         self._committed: MissionSelectionValue | None = None
-        self._task3_gate_consumed = False
         self._mission_timeout_seconds = mission_timeout_seconds
         self._no_car_mode = no_car_mode
 
@@ -50,6 +47,22 @@ class BridgeAuthority:
         with self._lock:
             return self._committed
 
+    @property
+    def hmi_boot_id(self) -> BootId:
+        with self._lock:
+            return self._hmi_boot_id
+
+    def observe_hmi_epoch(self, boot_id: BootId) -> None:
+        """Bind acknowledgements to the currently authenticated HMI session.
+
+        The HMI boot epoch lives in the authenticated UDP envelope rather than
+        in the selection payload.  Keeping it here makes every acknowledgement
+        produced by the authority acceptable to the current HMI after a ground
+        station restart, without changing the selected mission or car session.
+        """
+        with self._lock:
+            self._hmi_boot_id = boot_id
+
     def observe_car_epoch(self, boot_id: BootId, fcu_armed: bool) -> AuthorityDecision:
         with self._lock:
             if self._car_boot_id == boot_id:
@@ -57,7 +70,6 @@ class BridgeAuthority:
             self._car_boot_id = boot_id
             self._pending = None
             self._committed = None
-            self._task3_gate_consumed = False
             self._state = AuthorityState.FAULT if fcu_armed else AuthorityState.PRESTART
             reason = RejectCode.FCU_ALREADY_ARMED if fcu_armed else "CAR_SESSION_READY"
             return self._result(not fcu_armed, reason)
@@ -127,7 +139,6 @@ class BridgeAuthority:
 
             self._pending = None
             self._committed = pending
-            self._task3_gate_consumed = False
             self._state = AuthorityState.SELECTED
             acknowledgement = self._mission_status(
                 selection_id=pending.selection_id,
@@ -157,42 +168,13 @@ class BridgeAuthority:
                 case unreachable:
                     assert_never(unreachable)
 
-    def observe_task3_flight_gate(
-        self,
-        identity: Task3FlightTestIdentity,
-        gate: Task3FcuAuxGate,
-    ) -> AuthorityDecision:
-        with self._lock:
-            if self._committed is None:
-                return self._result(False, RejectCode.NO_COMMITTED_SELECTION)
-            if self._committed.task is not DTask.STABILITY_TEST:
-                return self._result(False, "TASK3_SELECTION_REQUIRED")
-            if self._state is AuthorityState.CAR_RUNNING or self._task3_gate_consumed:
-                return self._result(False, RejectCode.START_ALREADY_CONSUMED)
-            if self._state is not AuthorityState.SELECTED:
-                return self._result(False, RejectCode.FCU_NOT_ARMED)
-            if not (
-                gate.communication_fresh
-                and gate.motors_armed
-                and gate.channel_5_task_permission
-            ):
-                return self._result(False, "TASK3_FCU_AUX_GATE_INCOMPLETE")
-            self._task3_gate_consumed = True
-            self._state = AuthorityState.CAR_RUNNING
-            command = ExecuteMissionCommand(
-                mission_id=identity.mission_id,
-                field_profile_id=identity.field_profile_id,
-                timeout_seconds=identity.timeout_seconds,
-            )
-            return self._result(True, "MISSION_DISPATCH", execute_command=command)
-
     def observe_no_car_start(
         self,
         identity: Task3FlightTestIdentity | None = None,
     ) -> AuthorityDecision:
         """Immediate start: the HMI selection commit itself is the start.
 
-        Used when no car telemetry / AUX gate should gate the dispatch
+        Used when no car telemetry should gate the dispatch
         (simulated flight, or debug with immediate_start). The caller decides
         when this path applies; this authority no longer requires the
         construction-time no_car_mode flag.
@@ -224,7 +206,11 @@ class BridgeAuthority:
             )
             return self._result(True, "MISSION_DISPATCH", execute_command=command)
 
-    def observe_car_start(self, boot_id: BootId) -> AuthorityDecision:
+    def observe_car_start(
+        self,
+        boot_id: BootId,
+        identity: Task3FlightTestIdentity | None = None,
+    ) -> AuthorityDecision:
         with self._lock:
             if self._car_boot_id != boot_id:
                 return self._result(False, RejectCode.CAR_EPOCH_MISMATCH)
@@ -240,9 +226,21 @@ class BridgeAuthority:
                     self._state = AuthorityState.CAR_RUNNING
                     task_name = selection.task.name.lower()
                     command = ExecuteMissionCommand(
-                        mission_id=f"d-task-{task_name}",
-                        field_profile_id=f"d-task-{task_name}",
-                        timeout_seconds=self._mission_timeout_seconds,
+                        mission_id=(
+                            identity.mission_id
+                            if identity is not None
+                            else f"d-task-{task_name}"
+                        ),
+                        field_profile_id=(
+                            identity.field_profile_id
+                            if identity is not None
+                            else f"d-task-{task_name}"
+                        ),
+                        timeout_seconds=(
+                            identity.timeout_seconds
+                            if identity is not None
+                            else self._mission_timeout_seconds
+                        ),
                     )
                     return self._result(True, "MISSION_DISPATCH", execute_command=command)
                 case AuthorityState.CAR_RUNNING:

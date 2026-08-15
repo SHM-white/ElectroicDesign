@@ -22,7 +22,6 @@ def declare_bridge_provisioning(node: Node) -> BridgeProvisioning:
         "hmac_key_file": "",
         "mission_timeout_seconds": 90.0,
         "telemetry_stale_seconds": 0.75,
-        "task3_flight_test_mode": False,
         "no_car_mode": False,
         "simulate_car": False,
         "task3_immediate_start": False,

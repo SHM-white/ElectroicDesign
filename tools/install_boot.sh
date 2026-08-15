@@ -327,7 +327,7 @@ install_guardian() {
     if [[ "${NO_CAR_MODE:-false}" == "true" ]]; then
         local field_profile_id
         field_profile_id="$(grep -m1 '^profile_id:' "$PROFILE_PATH" 2>/dev/null | awk '{print $2}')"
-        bridge_mode_params=" -p task3_flight_test_mode:=true -p no_car_mode:=true \
+        bridge_mode_params=" -p no_car_mode:=true \
  -p task3_mission_id:=${TASK3_IDENTITY:-task3-stability-2026} \
  -p task3_field_profile_id:=${field_profile_id:-d-arena-2026} \
  -p task3_mission_profile_id:=task3-stability \
@@ -441,7 +441,7 @@ ExecStartPre=/bin/sleep 3
 ExecStart=/bin/bash -c '\
   ${ros_source}; \
   ros2 run ed_uav_mission mission_executor \
-    --ros-args --enclave /ed_uav_mission_executor \
+    --ros-args \
     -p mission_config_path:=${MISSION_CONFIG} \
     ${profile:+-p profile_path:=${profile}} \
     -p calibration_file:=${calibration} \

@@ -8,7 +8,6 @@ import select
 import sys
 import threading
 import time
-from contextlib import ExitStack
 from pathlib import Path
 from typing import Final
 
@@ -71,31 +70,41 @@ def _echo_worker(master_fd: int, stop: threading.Event) -> None:
 
 @pytest.fixture()
 def transport_fixture(tmp_path: Path):
-    """Yield (transport, master_fd, echo_thread) with an echoing PTY pair."""
-    with ExitStack() as stack:
-        master_fd, tty_path = _open_pty_pair()
-        stack.callback(os.close, master_fd)
-        transport = H7GpioTransport(tty_path, 115200, lock_dir=tmp_path)
-        transport.open()
-        stack.callback(transport.close)
-        stop = threading.Event()
-        worker = threading.Thread(
-            target=_echo_worker, args=(master_fd, stop), daemon=True
-        )
-        worker.start()
-        stack.callback(stop.set)
-        yield transport, master_fd, stop
+    """Yield one transport/PTY pair without a competing reader thread."""
+    master_fd, tty_path = _open_pty_pair()
+    transport = H7GpioTransport(tty_path, 115200, lock_dir=tmp_path)
+    transport.open()
+    try:
+        yield transport, master_fd
+    finally:
+        transport.close()
+        os.close(master_fd)
+
+
+@pytest.fixture()
+def echo_transport_fixture(transport_fixture):
+    """Add a joined echo peer only for tests that need acknowledgements."""
+    transport, master_fd = transport_fixture
+    stop = threading.Event()
+    worker = threading.Thread(target=_echo_worker, args=(master_fd, stop), daemon=True)
+    worker.start()
+    try:
+        yield transport, master_fd
+    finally:
+        stop.set()
+        worker.join(timeout=1.0)
+        assert not worker.is_alive()
 
 
 def test_send_writes_frame_bytes(transport_fixture) -> None:
-    transport, master_fd, _ = transport_fixture
+    transport, master_fd = transport_fixture
     transport.send(cmd_set_output(2, True))
     observed = _drain_master(master_fd)
     assert observed == cmd_set_output(2, True)
 
 
-def test_read_response_gets_echoed_ack(transport_fixture) -> None:
-    transport, master_fd, _ = transport_fixture
+def test_read_response_gets_echoed_ack(echo_transport_fixture) -> None:
+    transport, master_fd = echo_transport_fixture
     transport.send(cmd_set_output(2, True))
     response = transport.read_response(timeout_s=1.0)
     assert response is not None
@@ -105,7 +114,7 @@ def test_read_response_gets_echoed_ack(transport_fixture) -> None:
 
 
 def test_read_response_timeout_without_peer(transport_fixture) -> None:
-    transport, _, _ = transport_fixture
+    transport, _ = transport_fixture
     # 不发送任何帧, 对端不会回响应; 应超时返回 None。
     start = time.monotonic()
     response = transport.read_response(timeout_s=0.2)
@@ -113,8 +122,8 @@ def test_read_response_timeout_without_peer(transport_fixture) -> None:
     assert time.monotonic() - start >= 0.19
 
 
-def test_transport_rejects_stale_bytes_before_header(transport_fixture) -> None:
-    transport, master_fd, _ = transport_fixture
+def test_transport_rejects_stale_bytes_before_header(echo_transport_fixture) -> None:
+    transport, master_fd = echo_transport_fixture
     # 在响应帧前注入一个 0x55 脏字节。
     os.write(master_fd, b"\x55")
     transport.send(cmd_set_output(2, True))

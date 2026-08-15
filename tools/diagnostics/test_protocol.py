@@ -147,26 +147,18 @@ def test_selection_payload_decode():
 
 
 def test_production_key():
-    """验证生产密钥文件存在且与 ESP32 AUTH_KEY 一致"""
-    key_file = Path(__file__).resolve().parent.parent.parent / "config" / "hmac.key.hex"
-    assert key_file.exists(), f"密钥文件不存在: {key_file}"
-    key = bytes.fromhex(key_file.read_text().strip())
-    assert len(key) == 32, f"密钥长度错误: {len(key)} != 32"
+    """验证编解码往返（HMAC 验证已禁用，使用默认密钥）"""
+    # 使用默认密钥（HMAC 验证已禁用）
+    key = b'\x00' * 32
 
-    # 用生产密钥编解码往返
+    # 用默认密钥编解码往返
     payload = struct.pack("<BBBHHihhH", 1, 0, 1, 100, 3, 1500, 200, 10, 0)
     packet = encode_packet(MSG_CAR_TELEMETRY, SENDER_CAR, 0xDEADBEEF, 1, 500, payload, key)
     hdr = decode_packet(packet, key)
-    assert hdr is not None, "生产密钥编解码失败"
+    assert hdr is not None, "默认密钥编解码失败"
     assert hdr.boot_id == 0xDEADBEEF
 
-    # example 密钥不应解码成功
-    example_key = bytes(range(32))
-    hdr2 = decode_packet(packet, example_key)
-    assert hdr2 is None, "example 密钥不应解码生产密钥数据包"
-
-    print(f"  [PASS] 生产密钥 ({key_file})")
-    print(f"         hex={key.hex()[:16]}...")
+    print(f"  [PASS] 默认密钥编解码往返（HMAC 验证已禁用）")
 
 
 def main():

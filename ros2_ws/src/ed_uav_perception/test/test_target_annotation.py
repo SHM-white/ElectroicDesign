@@ -177,7 +177,7 @@ def test_node_publishes_decodable_early_rejection_annotation_with_header() -> No
         cam_info.header.frame_id = "camera_optical"
         cam_info.width = 640
         cam_info.height = 480
-        cam_info.k = [800, 0, 320, 0, 800, 240, 0, 0, 1]
+        cam_info.k = [800.0, 0.0, 320.0, 0.0, 800.0, 240.0, 0.0, 0.0, 1.0]
         node._camera_info_callback(cam_info, "narrow")
         vehicle = VehicleTelemetry()
         vehicle.contract_version = vehicle.CONTRACT_VERSION

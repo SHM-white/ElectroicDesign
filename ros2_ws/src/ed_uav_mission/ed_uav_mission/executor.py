@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import math
-import os
 import sys
 import time
 import traceback
@@ -41,7 +40,6 @@ from ed_uav_mission.competition_runtime import (
     DTaskEffectError,
 )
 from ed_uav_mission.stability_runner import StabilityCallbacks
-from ed_uav_mission.d_task_capability import evaluate_d_task_capability
 from ed_uav_mission.d_task_events import TargetSnapshot, VehicleSnapshot
 from ed_uav_mission.d_task_model import (
     DTaskFault,
@@ -84,13 +82,12 @@ from ed_uav_mission.state_machine import MissionFSM, MissionState
 
 class PreflightCode(Enum):
     OK = auto()
-    STALE_AUX = auto()
     NO_FCU_LINK = auto()
+    MOTORS_NOT_ARMED = auto()
     LOCALIZATION_LOST = auto()
     PROFILE_INVALID = auto()
     CALIBRATION_MISSING = auto()
     FCU_SOURCE_MISMATCH = auto()
-    CAPABILITY_BLOCKED = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,16 +109,12 @@ def validate_preflight(
     fcu_source: int,
     fcu_motors_armed: bool,
     simulation_only: bool,
-    aux_start_active: bool,
     localization_active: bool,
     map_to_odom_valid: bool,
     profile_loaded: bool,
     calibration_valid: bool,
-    capability_ready: bool = True,
 ) -> PreflightResult:
     """Pure-function preflight gate — testable without ROS infrastructure."""
-    if not aux_start_active:
-        return PreflightResult(PreflightCode.STALE_AUX, "AUX start switch is stale or off")
     if not fcu_communication_ok:
         return PreflightResult(PreflightCode.NO_FCU_LINK, "no FCU communication")
     expected_source = FcuState.SOURCE_SIMULATOR if simulation_only else FcuState.SOURCE_V7
@@ -138,13 +131,8 @@ def validate_preflight(
         return PreflightResult(PreflightCode.PROFILE_INVALID, "field profile not loaded or invalid")
     if not calibration_valid:
         return PreflightResult(PreflightCode.CALIBRATION_MISSING, "sensor calibration missing")
-    if not capability_ready:
-        return PreflightResult(
-            PreflightCode.CAPABILITY_BLOCKED,
-            "verified programmable capability is unavailable",
-        )
     if not fcu_motors_armed:
-        return PreflightResult(PreflightCode.CALIBRATION_MISSING, "motors not armed")
+        return PreflightResult(PreflightCode.MOTORS_NOT_ARMED, "motors not armed")
     return PreflightResult(PreflightCode.OK)
 
 
@@ -159,8 +147,6 @@ class MissionExecutorNode(Node):
         self.declare_parameter("simulation_only", False)
         self.declare_parameter("payload_config_path", "")
         self.declare_parameter("payload_actuator", "fake")
-        self.declare_parameter("programmable_capability_report", "")
-        self.declare_parameter("fcu_device_identity", "")
         self.declare_parameter("task3_mission_profile_id", "")
         self.declare_parameter("task3_deployment_preset_id", "")
         self.declare_parameter("task3_target_revision", "")
@@ -170,7 +156,6 @@ class MissionExecutorNode(Node):
         self._active_flight_goal = None
         self._mission_deadline: MissionDeadline | None = None
         self._airborne = False
-        self._aux_start_active = False
         self._hard_lock_active = False
         self._latest_fcu: FcuState | None = None
         self._latest_localization: LocalizationStatus | None = None
@@ -196,16 +181,6 @@ class MissionExecutorNode(Node):
             calibration_path,
             simulation_only=simulation_only,
         )
-        capability = evaluate_d_task_capability(
-            simulation_only=simulation_only,
-            report_path=Path(
-                str(self.get_parameter("programmable_capability_report").value)
-            ),
-            device_identity=str(self.get_parameter("fcu_device_identity").value),
-            environment=os.environ,
-        )
-        self._capability_ready = capability.ready
-        self._capability_reason = capability.reason
         payload_path_value = str(self.get_parameter("payload_config_path").value)
         payload_path = (
             Path(payload_path_value)
@@ -341,7 +316,6 @@ class MissionExecutorNode(Node):
     def _on_fcu_state(self, msg: FcuState) -> None:
         self._latest_fcu = msg
         hard_lock_started = msg.emergency_lock_active and not self._hard_lock_active
-        self._aux_start_active = msg.aux1_valid and msg.task3_control_allowed
         self._hard_lock_active = msg.emergency_lock_active
         if hard_lock_started:
             self._cancel_active_flight()
@@ -511,17 +485,10 @@ class MissionExecutorNode(Node):
             fcu_source=fcu.source if fcu is not None else 0,
             fcu_motors_armed=fcu is not None and fcu.motors_armed,
             simulation_only=self._simulation_only,
-            aux_start_active=self._aux_start_active,
             localization_active=loc is not None and loc.state == LocalizationStatus.STATE_ACTIVE,
             map_to_odom_valid=loc is not None and loc.map_to_odom_valid,
             profile_loaded=self._profile is not None,
             calibration_valid=self._calibration_valid,
-            capability_ready=(
-                self._capability_ready
-                if self._mission_config is not None
-                and self._mission_config.mission_type == MissionType.COMPETITION
-                else True
-            ),
         )
 
     def _localization_is_valid(self) -> bool:

@@ -9,14 +9,18 @@
         <geometry>
           <plane>
             <normal>0 0 1</normal>
-            <size>0.24 0.24</size> <!-- 24cm square: 15cm tag + white border -->
+            <size>0.15 0.15</size>
           </plane>
         </geometry>
         <material>
           <ambient>1 1 1 1</ambient>
           <diffuse>1 1 1 1</diffuse>
           <pbr>
-            <albedo_map>materials/textures/tag36h11_0.png</albedo_map>
+            <metal>
+              <albedo_map>model://apriltag_marker/materials/textures/tag36h11_0.png</albedo_map>
+              <metalness>0</metalness>
+              <roughness>1</roughness>
+            </metal>
           </pbr>
         </material>
       </visual>
@@ -24,7 +28,7 @@
         <pose>0 0 0.001 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.24 0.24 0.002</size>
+            <size>0.15 0.15 0.002</size>
           </box>
         </geometry>
       </collision>
