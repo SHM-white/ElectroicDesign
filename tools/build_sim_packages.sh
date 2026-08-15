@@ -21,7 +21,7 @@ colcon build --packages-select livox_sdk2 --symlink-install --event-handlers con
 echo ""
 echo "=== Step 2: Activate workspace livox_sdk2 ==="
 source install/setup.bash
-export LD_LIBRARY_PATH="/workspace/ros2_ws/install/livox_sdk2/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$(pwd)/install/livox_sdk2/lib:${LD_LIBRARY_PATH:-}"
 
 echo ""
 echo "=== Step 3: Build livox_ros_driver2 ==="

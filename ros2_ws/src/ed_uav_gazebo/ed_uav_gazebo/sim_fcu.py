@@ -165,6 +165,11 @@ class SimulatorFcuNode(Node):
         hold_deadline = time.monotonic() + duration if command is CommandKind.HOVER else None
         deadline = time.monotonic() + duration + (0.2 if hold_deadline is not None else 0.0)
         self._publish_enable(True)
+        target = goal_handle.request.target_pose.pose.position
+        self.get_logger().info(
+            f"[MOTION] cmd={command.name} target=({target.x:.2f},{target.y:.2f},{target.z:.2f}) timeout={duration:.1f}s"
+        )
+        loop_count = 0
         while rclpy.ok() and time.monotonic() < deadline:
             if goal_handle.is_cancel_requested:
                 self._publish_zero_command()
@@ -178,15 +183,24 @@ class SimulatorFcuNode(Node):
                     complete = hold_deadline is not None and time.monotonic() >= hold_deadline
                 if complete:
                     self._publish_zero_command()
+                    self.get_logger().info(
+                        f"[MOTION] DONE pos=({current.x:.2f},{current.y:.2f},{current.z:.2f})"
+                    )
                     return self._finish(
                         goal_handle,
                         FlightCommand.Result.RESULT_SUCCEEDED,
                         "physical condition reached",
                     )
-                self._command_publisher.publish(
-                    motion_command(command, current, goal_handle.request, odometry)
-                )
+                cmd = motion_command(command, current, goal_handle.request, odometry)
+                if loop_count % 10 == 0:
+                    self.get_logger().info(
+                        f"[MOTION] pos=({current.x:.2f},{current.y:.2f},{current.z:.2f}) "
+                        f"err=({target.x-current.x:.2f},{target.y-current.y:.2f},{target.z-current.z:.2f}) "
+                        f"cmd=({cmd.linear.x:.2f},{cmd.linear.y:.2f},{cmd.linear.z:.2f})"
+                    )
+                self._command_publisher.publish(cmd)
                 self._publish_feedback(goal_handle, 0.5)
+                loop_count += 1
             time.sleep(0.05)
         self._publish_zero_command()
         return self._finish(goal_handle, FlightCommand.Result.RESULT_TIMEOUT, "physical condition timeout")
@@ -194,6 +208,16 @@ class SimulatorFcuNode(Node):
     def _on_odometry(self, odometry: Odometry) -> None:
         """Store ground truth, publish optical-flow odometry, and own dynamic TF."""
         self._latest_odom = odometry
+        if not hasattr(self, '_odom_log_count'):
+            self._odom_log_count = 0
+        self._odom_log_count += 1
+        if self._odom_log_count <= 3 or self._odom_log_count % 100 == 0:
+            p = odometry.pose.pose.position
+            o = odometry.pose.pose.orientation
+            self.get_logger().info(
+                f"[ODOM-GT] pos=({p.x:.3f},{p.y:.3f},{p.z:.3f}) "
+                f"quat=({o.x:.3f},{o.y:.3f},{o.z:.3f},{o.w:.3f})"
+            )
         flow = Odometry()
         flow.header = odometry.header
         flow.child_frame_id = "base_link"

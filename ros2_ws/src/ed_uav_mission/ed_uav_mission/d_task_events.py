@@ -26,6 +26,7 @@ class DTaskRuntimeConfig:
     target_freshness_s: float = 0.2
     maximum_relative_error_m: float = 2.0
     right_offset_m: float = 0.75
+    search_distance_m: float = 2.0
 
 
 @dataclass(frozen=True, slots=True)

@@ -129,7 +129,7 @@ ensure_image() {
 
 gui_args() {
     [[ "${HUMBLE_GUI:-}" == 1 ]] || {
-        [[ -z "${HUMBLE_GUI:-}" ]] || die "HUMBLE_GUI must be 1 when GUI forwarding is enabled"
+        [[ -z "${HUMBLE_GUI:-}" || "${HUMBLE_GUI:-}" == 0 ]] || die "HUMBLE_GUI must be 1 when GUI forwarding is enabled"
         return
     }
     [[ "${DISPLAY:-}" == :0 ]] || die "HUMBLE_GUI requires DISPLAY=:0"

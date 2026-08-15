@@ -5,6 +5,11 @@ set -euo pipefail
 readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly workspace="$repo_root/ros2_ws"
 
+# ── 模式开关：0=容器（默认），1=本机 ROS2 ──
+FORCE_NATIVE=${FORCE_NATIVE:-0}
+# ── 强制使用容器，即使本机有 ROS2 ──
+HUMBLE_FORCE_CONTAINER=${HUMBLE_FORCE_CONTAINER:-0}
+
 mode="real"
 do_build=0
 with_hotspot=1
@@ -24,6 +29,7 @@ lidar_ip="192.168.1.3"
 fcu_serial="${FCU_SERIAL_PORT:-/dev/ttyUSB0}"
 h7_serial="${H7_SERIAL_PORT:-/dev/ttyUSB1}"
 vehicle_bind_host="192.168.20.1"
+network_host=0
 
 usage() {
     cat <<'EOF'
@@ -44,6 +50,13 @@ usage() {
   --no-hotspot | --hotspot-only  禁用热点或仅启动热点
   --no-fcu | --no-h7             明确跳过对应实机桥
   --fcu PATH | --h7 PATH         指定串口
+  --network-host                 Docker 使用 host 网络（便于 rqt 调试）
+  --force-container              强制使用 Docker 容器（即使本机有 ROS2）
+
+环境变量:
+  FORCE_NATIVE=1                 强制使用本机 ROS2（需已安装 Humble）
+  HUMBLE_FORCE_CONTAINER=1       强制使用 Docker 容器
+  HUMBLE_NETWORK=host            Docker 使用 host 网络
 EOF
 }
 
@@ -77,6 +90,8 @@ while (($#)); do
         --no-h7) with_h7=0; shift ;;
         --no-hotspot) with_hotspot=0; shift ;;
         --hotspot-only) hotspot_only=1; shift ;;
+        --network-host) network_host=1; shift ;;
+        --force-container) HUMBLE_FORCE_CONTAINER=1; shift ;;
         --flight|--immediate-start) note "$1 已不再需要：普通指令无额外软件安全锁"; shift ;;
         -h|--help) usage; exit 0 ;;
         *) die "未知参数: $1" ;;
@@ -87,7 +102,7 @@ done
     || die "--task 仅接受 1（投放）或 2（动平台降落）"
 
 native_humble=0
-if [[ -r /opt/ros/humble/setup.bash ]]; then
+if ((FORCE_NATIVE)) && [[ -r /opt/ros/humble/setup.bash ]] && [[ "$HUMBLE_FORCE_CONTAINER" != 1 ]]; then
     native_humble=1
 fi
 
@@ -118,7 +133,7 @@ fi
 
 if ((do_build)); then
     note "构建完整 ROS/Gazebo 工作空间"
-    bash "$repo_root/tools/build_sim_packages.sh"
+    HUMBLE_FORCE_CONTAINER="$HUMBLE_FORCE_CONTAINER" bash "$repo_root/tools/build_sim_packages.sh"
 fi
 
 runtime_path() {
@@ -139,21 +154,33 @@ run_ros() {
     if ((native_humble)); then
         exec bash -lc '
             set -euo pipefail
+            set +u
             source /opt/ros/humble/setup.bash
+            set -u
             ws="$1"
             shift
             [[ -r "$ws/install/setup.bash" ]] || { echo "缺少 install/setup.bash，请加 --build" >&2; exit 2; }
+            set +u
             source "$ws/install/setup.bash"
+            set -u
             exec "$@"
         ' bash "$workspace" "${command[@]}"
     fi
-    HUMBLE_GUI="$gui" HUMBLE_INTERACTIVE=1 exec bash "$repo_root/tools/run_humble.sh" bash -lc '
-        set -euo pipefail
+    local network="${HUMBLE_NETWORK:-}"
+    if ((network_host)); then
+        network="host"
+    fi
+    HUMBLE_GUI="$gui" HUMBLE_INTERACTIVE=1 HUMBLE_NETWORK="$network" HUMBLE_FORCE_CONTAINER="$HUMBLE_FORCE_CONTAINER" exec bash "$repo_root/tools/run_humble.sh" bash -lc '
+        set -eo pipefail
+        set +u
         source /opt/ros/humble/setup.bash
+        set -u
         ws="$1"
         shift
         [[ -r "$ws/install/setup.bash" ]] || { echo "缺少 install/setup.bash，请加 --build" >&2; exit 2; }
+        set +u
         source "$ws/install/setup.bash"
+        set -u
         exec "$@"
     ' bash /workspace/ros2_ws "${command[@]}"
 }
@@ -163,11 +190,12 @@ if [[ "$mode" == simulation ]]; then
     sim_profile="${profile_path:-$repo_root/ros2_ws/src/ed_uav_localization/config/fields/d_arena_2026.yaml}"
     [[ -f "$sim_mission" ]] || die "任务文件不存在: $sim_mission"
     [[ -f "$sim_profile" ]] || die "场地文件不存在: $sim_profile"
-    note "启动 D 题纯仿真：FAST-LIO 连续里程计、二维雷达 Z 融合、靶车与 AprilTag"
+    note "启动 D 题纯仿真：地面真值定位、靶车与 AprilTag"
     run_ros "$([[ "$display" == true ]] && echo 1 || echo 0)" \
         ros2 launch ed_uav_gazebo sim.launch.py \
         "gui:=$display" "use_rviz:=$display" "auto_start:=$auto_start" \
         "simulation_task:=$simulation_task" \
+        "localization_mode:=ground_truth" \
         "mission_config:=$(runtime_path "$sim_mission")" \
         "profile_path:=$(runtime_path "$sim_profile")"
 fi

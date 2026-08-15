@@ -1,4 +1,11 @@
-"""Strict Gazebo PointCloud2 to FAST-LIO type-2 normalization."""
+"""Gazebo PointCloud2 to FAST-LIO type-2 normalization.
+
+Accepts variable Gazebo GPU lidar schemas:
+  - x/y/z only (point_step=12)
+  - x/y/z/intensity (point_step=16)
+  - x/y/z/intensity/ring (point_step=32, legacy)
+Synthesizes missing intensity (1.0) and ring (0) fields.
+"""
 
 from dataclasses import dataclass
 from enum import Enum, IntEnum
@@ -72,16 +79,6 @@ class NormalizedPointCloud:
     data: bytes
 
 
-SOURCE_WIDTH: Final = 360
-SOURCE_HEIGHT: Final = 1
-SOURCE_POINT_STEP: Final = 32
-SOURCE_FIELDS: Final = (
-    PointFieldSpec("x", 0, PointFieldDatatype.FLOAT32, 1),
-    PointFieldSpec("y", 4, PointFieldDatatype.FLOAT32, 1),
-    PointFieldSpec("z", 8, PointFieldDatatype.FLOAT32, 1),
-    PointFieldSpec("intensity", 16, PointFieldDatatype.FLOAT32, 1),
-    PointFieldSpec("ring", 24, PointFieldDatatype.UINT16, 1),
-)
 OUTPUT_POINT_STEP: Final = 32
 OUTPUT_FIELDS: Final = (
     PointFieldSpec("x", 0, PointFieldDatatype.FLOAT32, 1),
@@ -94,31 +91,49 @@ OUTPUT_FIELDS: Final = (
 OUTPUT_RECORD: Final = struct.Struct("<fff4xffH6x")
 
 
+def _field_by_name(fields: tuple[PointFieldSpec, ...], name: str) -> PointFieldSpec | None:
+    for f in fields:
+        if f.name == name:
+            return f
+    return None
+
+
 def normalize_gazebo_pointcloud(
     source: SourcePointCloud,
     scan_rate_hz: float,
 ) -> NormalizedPointCloud:
-    """Filter one fixed Gazebo cloud into FAST-LIO type-2 point records."""
+    """Filter one Gazebo cloud into FAST-LIO type-2 point records."""
     _validate_source(source, scan_rate_hz)
     byte_order = ">" if source.is_bigendian else "<"
+    x_field = _field_by_name(source.fields, "x")
+    y_field = _field_by_name(source.fields, "y")
+    z_field = _field_by_name(source.fields, "z")
+    intensity_field = _field_by_name(source.fields, "intensity")
+    ring_field = _field_by_name(source.fields, "ring")
     records: list[bytes] = []
     has_positive_time = False
     for column in range(source.width):
         point_time = column / (source.width * scan_rate_hz)
         for row in range(source.height):
             offset = row * source.row_step + column * source.point_step
-            x = struct.unpack_from(f"{byte_order}f", source.data, offset)[0]
-            y = struct.unpack_from(f"{byte_order}f", source.data, offset + 4)[0]
-            z = struct.unpack_from(f"{byte_order}f", source.data, offset + 8)[0]
-            intensity = struct.unpack_from(f"{byte_order}f", source.data, offset + 16)[0]
-            ring = struct.unpack_from(f"{byte_order}H", source.data, offset + 24)[0]
+            x = struct.unpack_from(f"{byte_order}f", source.data, offset + x_field.offset)[0]
+            y = struct.unpack_from(f"{byte_order}f", source.data, offset + y_field.offset)[0]
+            z = struct.unpack_from(f"{byte_order}f", source.data, offset + z_field.offset)[0]
+            if intensity_field is not None:
+                intensity = struct.unpack_from(f"{byte_order}f", source.data, offset + intensity_field.offset)[0]
+            else:
+                intensity = 1.0
+            if ring_field is not None:
+                ring = struct.unpack_from(f"{byte_order}H", source.data, offset + ring_field.offset)[0]
+            else:
+                ring = 0
             if all(math.isfinite(value) for value in (x, y, z, intensity)):
                 records.append(OUTPUT_RECORD.pack(x, y, z, intensity, point_time, ring))
                 has_positive_time = has_positive_time or point_time > 0.0
     if not records:
         raise PointCloudNormalizationError(
             NormalizationFailure.NO_USABLE_POINTS,
-            "the source cloud contains no finite x/y/z/intensity point",
+            "the source cloud contains no finite x/y/z point",
         )
     if not has_positive_time:
         raise PointCloudNormalizationError(
@@ -139,21 +154,34 @@ def normalize_gazebo_pointcloud(
 
 
 def _validate_source(source: SourcePointCloud, scan_rate_hz: float) -> None:
-    """Reject every source layout outside the observed Gazebo contract."""
+    """Reject invalid source layout, accepting variable Gazebo GPU lidar schemas."""
     if not math.isfinite(scan_rate_hz) or scan_rate_hz <= 0.0:
         raise PointCloudNormalizationError(
             NormalizationFailure.INVALID_SCAN_RATE,
             "scan_rate_hz must be finite and greater than zero",
         )
-    if (
-        source.width != SOURCE_WIDTH
-        or source.height != SOURCE_HEIGHT
-        or source.point_step != SOURCE_POINT_STEP
-        or source.fields != SOURCE_FIELDS
-    ):
+    if source.height < 1:
         raise PointCloudNormalizationError(
             NormalizationFailure.INVALID_SCHEMA,
-            "source metadata does not match the observed Gazebo PointCloud2 schema",
+            "source height must be at least 1",
+        )
+    if source.width < 1:
+        raise PointCloudNormalizationError(
+            NormalizationFailure.INVALID_SCHEMA,
+            "source width must be at least 1",
+        )
+    x_field = _field_by_name(source.fields, "x")
+    y_field = _field_by_name(source.fields, "y")
+    z_field = _field_by_name(source.fields, "z")
+    if x_field is None or y_field is None or z_field is None:
+        raise PointCloudNormalizationError(
+            NormalizationFailure.INVALID_SCHEMA,
+            "source cloud must have x, y, z fields",
+        )
+    if x_field.datatype != PointFieldDatatype.FLOAT32:
+        raise PointCloudNormalizationError(
+            NormalizationFailure.INVALID_SCHEMA,
+            "x field must be FLOAT32",
         )
     minimum_row_step = source.width * source.point_step
     if source.row_step < minimum_row_step:

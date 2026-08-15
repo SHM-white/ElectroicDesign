@@ -19,7 +19,7 @@ from .fcu_state import (
 )
 
 
-SIMULATOR_MOVE_SPEED_LIMIT_M_S: Final = 0.6
+SIMULATOR_MOVE_SPEED_LIMIT_M_S: Final = 1.0
 
 
 def motion_complete(command: CommandKind, current: Position3D, odometry: Odometry, goal: FlightCommand.Goal) -> bool:

@@ -18,10 +18,17 @@ class SimulatorLocalizationNode(Node):
             self._relay_odometry,
             10,
         )
+        self._count = 0
 
     def _relay_odometry(self, odometry: Odometry) -> None:
         """Relay ground truth without creating a second transform owner."""
         self._publisher.publish(odometry)
+        self._count += 1
+        if self._count <= 3 or self._count % 100 == 0:
+            p = odometry.pose.pose.position
+            self.get_logger().info(
+                f"[GT-RELAY] pos=({p.x:.3f},{p.y:.3f},{p.z:.3f})"
+            )
 
 
 def main(args: list[str] | None = None) -> None:

@@ -59,10 +59,27 @@ class LioAdapter(Node):
             RosPath, path_input_topic, self._path_callback, 10
         )
 
+        self._odom_sub_count = 0
+
     def _odom_callback(self, msg: Odometry) -> None:
+        self._odom_sub_count += 1
+        p = msg.pose.pose.position
+        o = msg.pose.pose.orientation
+        if self._odom_sub_count <= 3 or self._odom_sub_count % 50 == 0:
+            self.get_logger().info(
+                f"[LIO-RAW] pos=({p.x:.3f},{p.y:.3f},{p.z:.3f}) "
+                f"quat=({o.x:.3f},{o.y:.3f},{o.z:.3f},{o.w:.3f})"
+            )
         normalized = normalize_odometry(msg, self._base_to_lidar)
         if normalized is not None:
+            np = normalized.pose.pose.position
             self._odom_pub.publish(normalized)
+            if self._odom_sub_count <= 3 or self._odom_sub_count % 50 == 0:
+                self.get_logger().info(
+                    f"[LIO-NORM] pos=({np.x:.3f},{np.y:.3f},{np.z:.3f})"
+                )
+        else:
+            self.get_logger().warn("[LIO-NORM] normalize returned None — dropped")
 
     def _cloud_callback(self, message: PointCloud2) -> None:
         self._cloud_pub.publish(canonicalize_cloud(message))

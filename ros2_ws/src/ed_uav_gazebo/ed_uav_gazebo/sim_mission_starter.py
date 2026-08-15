@@ -66,6 +66,8 @@ class SimMissionStarter(Node):
             now_ns = self.get_clock().now().nanoseconds
             if self._start_published_at_ns is None or now_ns - self._start_published_at_ns <= 2_000_000_000:
                 self._start_pub.publish(Bool(data=True))
+                if self._start_published_at_ns is not None and now_ns - self._start_published_at_ns >= 1_800_000_000:
+                    print(f"[STARTER] last chance start signal published", flush=True)
 
     def _ready_to_select(self) -> bool:
         fcu = self._fcu

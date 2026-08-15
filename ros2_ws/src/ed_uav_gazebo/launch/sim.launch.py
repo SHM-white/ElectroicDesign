@@ -45,7 +45,7 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "localization_mode",
-                default_value="fast_lio",
+                default_value="ground_truth",
                 choices=("fast_lio", "ground_truth"),
             ),
             SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", str(package_share / "models")),

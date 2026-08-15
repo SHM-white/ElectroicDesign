@@ -274,6 +274,7 @@ class MissionExecutorNode(Node):
                     execute_takeoff=self._execute_takeoff,
                     send_hover=self._send_hover,
                     move_right=self._move_right_task1,
+                    search_forward=self._search_forward_task1,
                     track_target=self._track_d_task_target,
                     release_payload=self._release_d_task_payload,
                     descend_to_vehicle=self._descend_to_vehicle,
@@ -562,6 +563,20 @@ class MissionExecutorNode(Node):
             raise RuntimeError("competition params unavailable")
         await self._competition_planner.move_right_offset(
             offset_m, config.competition.altitude_m,
+        )
+
+    async def _search_forward_task1(
+        self,
+        feedback: ExecuteMission.Feedback,
+        distance_m: float,
+    ) -> None:
+        if self._competition_planner is None:
+            raise RuntimeError("competition planner unavailable")
+        config = self._mission_config
+        if config is None or config.competition is None:
+            raise RuntimeError("competition params unavailable")
+        await self._competition_planner.search_forward(
+            distance_m, config.competition.altitude_m,
         )
 
     async def _release_d_task_payload(

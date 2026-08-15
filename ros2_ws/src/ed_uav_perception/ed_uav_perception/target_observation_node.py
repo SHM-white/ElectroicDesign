@@ -65,7 +65,7 @@ CAMERA_INFO_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
     reliability=ReliabilityPolicy.RELIABLE,
-    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    durability=DurabilityPolicy.VOLATILE,
 )
 
 # Camera mounting yaw offsets (rotation about optical Z axis).

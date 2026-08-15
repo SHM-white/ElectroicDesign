@@ -6,6 +6,10 @@ import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 
+
+def _log(msg: str) -> None:
+    print(f"[RUNTIME] {msg}", flush=True)
+
 from ed_uav_interfaces.action import ExecuteMission
 from typing_extensions import assert_never
 
@@ -49,6 +53,7 @@ class CompetitionCallbacks:
     execute_takeoff: Callable[[ExecuteMission.Feedback], Awaitable[None]]
     send_hover: Callable[[float], Awaitable[None]]
     move_right: Callable[[ExecuteMission.Feedback, float], Awaitable[None]]
+    search_forward: Callable[[ExecuteMission.Feedback, float], Awaitable[None]]
     track_target: Callable[[TargetSnapshot, VehicleSnapshot, float], Awaitable[None]]
     release_payload: Callable[[TargetSnapshot, VehicleSnapshot], Awaitable[None]]
     descend_to_vehicle: Callable[[TargetSnapshot, VehicleSnapshot], Awaitable[None]]
@@ -108,6 +113,7 @@ class CompetitionRuntime:
             target_freshness_s=params.target_freshness_s,
             maximum_relative_error_m=params.maximum_relative_error_m,
             right_offset_m=params.right_offset_m,
+            search_distance_m=params.search_distance_m,
         )
         runtime = DTaskRuntime(selection, config, self._payload_config)
         latest_target: TargetSnapshot | None = None
@@ -118,11 +124,15 @@ class CompetitionRuntime:
         )
         while runtime.state.phase not in (DTaskPhase.SUCCEEDED, DTaskPhase.ABORTED):
             event = await self._callbacks.next_event()
+            event_name = type(event).__name__
+            _log(f"event={event_name} phase={runtime.state.phase.value}")
             match event:
                 case TargetObserved(target=target):
                     latest_target = target
+                    _log(f"target updated: valid={target.valid} err={target.relative_error_m:.2f}m")
                 case VehicleObserved(vehicle=vehicle):
                     latest_vehicle = vehicle
+                    _log(f"vehicle updated: started={vehicle.started} route={vehicle.route_stage}")
                 case _:
                     pass
             transition = runtime.advance(event)
@@ -186,6 +196,8 @@ class CompetitionRuntime:
             case DTaskEffect.MOVE_RIGHT:
                 await self._callbacks.move_right(feedback, config.right_offset_m)
                 self._callbacks.capture_home()
+            case DTaskEffect.SEARCH_FORWARD:
+                await self._callbacks.search_forward(feedback, config.search_distance_m)
             case DTaskEffect.TRACK_TARGET:
                 target_value, vehicle_value = self._required_tracking(target, vehicle)
                 await self._callbacks.track_target(target_value, vehicle_value, 1.5)

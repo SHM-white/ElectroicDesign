@@ -31,15 +31,21 @@ class PlanarOdomFuser(Node):
         self.create_subscription(Odometry, ground_truth_topic, self._on_ground_truth, 20)
         self.create_subscription(Odometry, input_topic, self._on_lio, 10)
 
+        self._lio_count = 0
+
     def _on_ground_truth(self, message: Odometry) -> None:
         if math.isfinite(message.pose.pose.position.z):
             self._ground_truth = message
             self._ground_truth_received_ns = self.get_clock().now().nanoseconds
 
     def _on_lio(self, lio: Odometry) -> None:
+        self._lio_count += 1
         ground_truth = self._ground_truth
         now_ns = self.get_clock().now().nanoseconds
         if ground_truth is None or (now_ns - self._ground_truth_received_ns) / 1e9 > self._max_altitude_age_s:
+            if self._lio_count <= 3 or self._lio_count % 50 == 0:
+                gt_age = float('inf') if ground_truth is None else (now_ns - self._ground_truth_received_ns) / 1e9
+                self.get_logger().warn(f"[FUSER] skipped: gt_age={gt_age:.2f}s")
             return
         q = lio.pose.pose.orientation
         try:
@@ -83,6 +89,12 @@ class PlanarOdomFuser(Node):
         self._publisher.publish(output)
         self._last_z = altitude
         self._last_stamp_s = stamp_s
+        if self._lio_count <= 3 or self._lio_count % 50 == 0:
+            self.get_logger().info(
+                f"[FUSER-OUT] pos=({output.pose.pose.position.x:.3f},"
+                f"{output.pose.pose.position.y:.3f},"
+                f"{output.pose.pose.position.z:.3f})"
+            )
 
 
 def main(args: list[str] | None = None) -> None:

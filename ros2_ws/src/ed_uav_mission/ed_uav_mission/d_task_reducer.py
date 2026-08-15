@@ -6,6 +6,10 @@ from dataclasses import replace
 
 from typing_extensions import assert_never
 
+
+def _log(msg: str) -> None:
+    print(f"[REDUCER] {msg}", flush=True)
+
 from ed_uav_mission.d_task_events import (
     CommandCompleted,
     CommandFailed,
@@ -64,9 +68,11 @@ class DTaskRuntime:
         now_s = event_time(event)
         deadline = self._deadline_fault(now_s)
         if deadline is not None:
+            _log(f"deadline fault={deadline.value} phase={self.state.phase.value}")
             transition = self._interrupt(now_s, deadline, deadline.value)
             self.state = transition.state
             return transition
+        old_phase = self.state.phase
         match event:
             case Tick():
                 transition = self._on_tick(now_s)
@@ -87,6 +93,9 @@ class DTaskRuntime:
                     transition = self._interrupt(now_s, fault, reason)
             case unreachable:
                 assert_never(unreachable)
+        new_phase = transition.state.phase
+        if old_phase is not new_phase:
+            _log(f"{old_phase.value} → {new_phase.value} effect={transition.effect}")
         self.state = transition.state
         return transition
 
@@ -127,11 +136,15 @@ class DTaskRuntime:
             and now_s - self.state.phase_started_at_s + 1e-9 >= self.config.stable_s
         ):
             return self._transition(DTaskPhase.MOVE_RIGHT, now_s, DTaskEffect.MOVE_RIGHT)
+        if self.state.phase is DTaskPhase.SEARCHING:
+            # Start forward search when entering SEARCHING phase
+            return self._transition(DTaskPhase.SEARCHING, now_s, DTaskEffect.SEARCH_FORWARD)
         return DTaskTransition(state=self.state)
 
     def _on_vehicle(self, now_s: float, vehicle: VehicleSnapshot, payload_state: PayloadState) -> DTaskTransition:
         if self.state.phase is DTaskPhase.WAITING_START:
             if not vehicle.started:
+                _log("vehicle not started yet, waiting...")
                 return DTaskTransition(state=self.state)
             if self.state.task is DTaskKind.PAYLOAD_DROP and payload_state.value == 0:
                 return self._abort(now_s, DTaskFault.PAYLOAD_UNKNOWN, "payload state unknown")
@@ -144,6 +157,7 @@ class DTaskRuntime:
                 phase_started_at_s=now_s,
                 mission_started_at_s=now_s,
             )
+            _log("vehicle started! → TAKEOFF")
             return DTaskTransition(state=state, effect=DTaskEffect.TAKEOFF)
         if not vehicle.heartbeat_alive or now_s - vehicle.observed_at_s > self.config.vehicle_freshness_s:
             return self._interrupt(now_s, DTaskFault.VEHICLE_LOST, "vehicle telemetry lost")
@@ -166,14 +180,17 @@ class DTaskRuntime:
 
     def _on_target(self, now_s: float, target: TargetSnapshot) -> DTaskTransition:
         if now_s - target.observed_at_s > self.config.target_freshness_s:
+            _log(f"target stale: age={now_s - target.observed_at_s:.1f}s > {self.config.target_freshness_s:.1f}s")
             return self._interrupt(now_s, DTaskFault.TARGET_STALE, "target observation stale")
         if (
             not target.valid
             or target.relative_error_m > self.config.maximum_relative_error_m
             or (self._last_target_sequence is not None and target.sequence <= self._last_target_sequence)
         ):
+            _log(f"target outlier: valid={target.valid} err={target.relative_error_m:.2f}m reason={target.rejection_reason}")
             return self._interrupt(now_s, DTaskFault.TARGET_OUTLIER, target.rejection_reason or "target outlier")
         self._last_target_sequence = target.sequence
+        _log(f"target observed: phase={self.state.phase.value} err={target.relative_error_m:.2f}m")
         if self.state.phase is DTaskPhase.ACQUIRING:
             phase = (
                 DTaskPhase.ESCORTING
@@ -196,6 +213,9 @@ class DTaskRuntime:
             return self._transition(DTaskPhase.STABILIZING, now_s, DTaskEffect.HOVER)
         if phase is DTaskPhase.MOVE_RIGHT and effect is DTaskEffect.MOVE_RIGHT:
             return self._transition(DTaskPhase.SEARCHING, now_s)
+        if phase is DTaskPhase.SEARCHING and effect is DTaskEffect.SEARCH_FORWARD:
+            # Search distance exceeded without finding target - abort
+            return self._interrupt(now_s, DTaskFault.SEARCH_DISTANCE_EXCEEDED, "search distance exceeded without finding target")
         if phase is DTaskPhase.RELEASING and effect is DTaskEffect.RELEASE_PAYLOAD:
             state = replace(self.state, release_attempted=True)
             self.state = state

@@ -15,6 +15,7 @@ from ed_uav_interfaces.msg import (
 from ed_uav_interfaces.srv import SelectDTaskMission
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from rclpy.task import Future
 
 from ed_uav_mission.action_lifecycle import steady_now_sec
@@ -56,6 +57,12 @@ from ed_uav_mission.touchdown import (
 
 class DTaskRosBoundary:
     """Own external D-task inputs while the executor retains motion authority."""
+
+    _SENSOR_QOS = QoSProfile(
+        reliability=ReliabilityPolicy.BEST_EFFORT,
+        history=HistoryPolicy.KEEP_LAST,
+        depth=5,
+    )
 
     def __init__(
         self,
@@ -101,7 +108,7 @@ class DTaskRosBoundary:
             TargetObservation,
             "/d_task/target_observation",
             self._on_target,
-            20,
+            self._SENSOR_QOS,
             callback_group=group,
         )
         self._contact_sub = node.create_subscription(

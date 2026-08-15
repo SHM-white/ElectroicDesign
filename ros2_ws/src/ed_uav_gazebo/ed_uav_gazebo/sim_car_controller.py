@@ -43,6 +43,7 @@ class SimCarController(Node):
         self._odom = message
 
     def _on_start(self, message: Bool) -> None:
+        print(f"[CAR-START] received competition_start: data={message.data} already_started={self._started}", flush=True)
         if message.data and not self._started:
             self._started = True
             self._start_ns = self.get_clock().now().nanoseconds
@@ -72,6 +73,8 @@ class SimCarController(Node):
         message.vehicle_id = "sim-d-task-car"
         start_age_s = 0.0 if self._start_ns is None else (now.nanoseconds - self._start_ns) / 1e9
         message.start_event = self._started and start_age_s <= 1.0
+        if self._sequence <= 20 or self._sequence % 20 == 0:
+            print(f"[CAR-TEL] seq={self._sequence} started={self._started} start_event={message.start_event} age={start_age_s:.2f}s", flush=True)
         message.heartbeat_alive = True
         message.motion_kind = VehicleTelemetry.MOTION_DISPLACEMENT
         message.displacement_m = float(self._last_command.displacement_m if self._started else 0.0)
@@ -87,7 +90,7 @@ class SimCarController(Node):
         )
         message.route_stage = int(self._last_command.stage if self._started else VehicleTelemetry.ROUTE_START)
         message.lap_complete = bool(self._started and self._last_command.complete)
-        message.frame_id = "world"
+        message.frame_id = "vehicle_start"
         self._telemetry_pub.publish(message)
 
 

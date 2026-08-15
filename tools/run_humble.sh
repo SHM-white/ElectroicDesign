@@ -111,7 +111,7 @@ main() {
         native_setup="$HUMBLE_NATIVE_SETUP"
     fi
     v4l2_args
-    if is_jammy && [[ -r "$native_setup" ]]; then
+    if [[ "${HUMBLE_FORCE_CONTAINER:-0}" != 1 ]] && is_jammy && [[ -r "$native_setup" ]]; then
         # shellcheck disable=SC1090
         set +u
         source "$native_setup"
@@ -147,6 +147,9 @@ main() {
         --workdir /workspace
         "$image_name"
     )
+    if [[ "${HUMBLE_NETWORK:-}" == "host" ]]; then
+        container_run_args+=(--network host)
+    fi
 
     if ((interactive_mode)); then
         container_run_args=(run --name "$container_name" "${container_run_args[@]:1}")
