@@ -1,55 +1,17 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "xiaomi/mimo-v2.5-pro",
+  "model": "xiaomi-token-plan/mimo-v2.5-pro",
   "small_model": "deepseek/deepseek-v4-flash",
   "instructions": ["AGENTS.md", "DELEGATION.md", "SKILLS.md", "MODEL_CONFIG.md", "TROUBLESHOOTING.md"],
-  "provider": {
-    "xiaomi": {
-      "api": "openai",
-      "options": {
-        "baseURL": "https://api.xiaomi.com/v1",
-        "apiKey": "{env:XIAOMI_API_KEY}"
-      },
-      "models": {
-        "mimo-v2.5-pro": {
-          "reasoning": true,
-          "options": {
-            "thinking": {
-              "type": "enabled",
-              "budget_tokens": 8000
-            }
-          }
-        }
-      }
-    },
-    "deepseek": {
-      "api": "openai",
-      "options": {
-        "baseURL": "https://api.deepseek.com/v1",
-        "apiKey": "{env:DEEPSEEK_API_KEY}"
-      },
-      "models": {
-        "deepseek-v4-flash": {
-          "reasoning": true,
-          "options": {
-            "thinking": {
-              "type": "enabled",
-              "budget_tokens": 10000
-            }
-          }
-        }
-      }
-    }
-  },
   "agent": {
     "build": {
-      "model": "xiaomi/mimo-v2.5-pro",
+      "model": "xiaomi-token-plan/mimo-v2.5-pro",
       "description": "主构建代理，使用小米MiMo-V2.5-Pro模型",
       "mode": "primary",
       "prompt": "你是主构建代理，负责协调和完成软件工程任务。你的核心职责是：\n1. 分析用户需求，制定实现计划\n2. 将具体任务委派给专门的子代理（如DeepSeek V4 Flash）\n3. 监督子代理的工作并整合结果\n4. 做出最终决策和交付成果\n\n请积极使用子代理来处理具体实现任务，以便专注于高层次的协调和决策。对于代码编写、测试运行、文件搜索等具体任务，请委派给相应的子代理。"
     },
     "plan": {
-      "model": "xiaomi/mimo-v2.5-pro",
+      "model": "xiaomi-token-plan/mimo-v2.5-pro",
       "description": "规划代理，使用小米MiMo-V2.5-Pro模型",
       "mode": "primary",
       "prompt": "你是规划代理，负责分析复杂任务并制定详细的执行计划。你的核心职责是：\n1. 理解用户需求和项目上下文\n2. 将复杂任务分解为可执行的子任务\n3. 确定哪些任务适合委派给子代理\n4. 制定任务执行顺序和依赖关系\n\n请积极识别可以委派给子代理的任务，特别是那些需要专门处理的具体实现任务。使用子代理可以提高效率并让你专注于整体规划。"

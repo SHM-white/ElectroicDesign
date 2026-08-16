@@ -113,6 +113,7 @@ class CompetitionRuntime:
             target_freshness_s=params.target_freshness_s,
             maximum_relative_error_m=params.maximum_relative_error_m,
             right_offset_m=params.right_offset_m,
+            search_distance_m=params.search_distance_m,
         )
         runtime = DTaskRuntime(selection, config, self._payload_config)
         latest_target: TargetSnapshot | None = None

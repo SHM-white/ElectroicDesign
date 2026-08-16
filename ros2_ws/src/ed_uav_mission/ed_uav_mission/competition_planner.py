@@ -108,6 +108,21 @@ class CompetitionPlanner:
         )
         await self._send_move(waypoint)
 
+    async def search_forward(self, distance_m: float, altitude_m: float) -> None:
+        """Move forward by *distance_m* along the current heading in the map frame.
+
+        Used during the SEARCHING phase to scan for the AprilTag target.
+        """
+        current = self._capture_map_pose()
+        waypoint = Waypoint(
+            x_m=current.x_m + distance_m * math.cos(current.yaw_rad),
+            y_m=current.y_m + distance_m * math.sin(current.yaw_rad),
+            altitude_m=altitude_m,
+            heading_rad=current.yaw_rad,
+            label="d2026_search_forward",
+        )
+        await self._send_move(waypoint)
+
     async def precision_land_on_target(
         self,
         target: TargetSnapshot,

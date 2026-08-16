@@ -209,7 +209,11 @@ class DTaskRuntime:
         if phase is DTaskPhase.TAKEOFF and effect is DTaskEffect.TAKEOFF:
             return self._transition(DTaskPhase.STABILIZING, now_s, DTaskEffect.HOVER)
         if phase is DTaskPhase.MOVE_RIGHT and effect is DTaskEffect.MOVE_RIGHT:
-            return self._transition(DTaskPhase.SEARCHING, now_s)
+            return self._transition(DTaskPhase.SEARCHING, now_s, DTaskEffect.SEARCH_FORWARD)
+        if phase is DTaskPhase.SEARCHING and effect is DTaskEffect.SEARCH_FORWARD:
+            return self._interrupt(
+                now_s, DTaskFault.SEARCH_DISTANCE_EXCEEDED, "search distance exceeded, target not found"
+            )
         if phase is DTaskPhase.RELEASING and effect is DTaskEffect.RELEASE_PAYLOAD:
             state = replace(self.state, release_attempted=True)
             self.state = state

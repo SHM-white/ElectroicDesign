@@ -15,6 +15,7 @@ from ed_uav_interfaces.msg import (
 from ed_uav_interfaces.srv import SelectDTaskMission
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from rclpy.task import Future
 
 from ed_uav_mission.action_lifecycle import steady_now_sec
@@ -101,7 +102,7 @@ class DTaskRosBoundary:
             TargetObservation,
             "/d_task/target_observation",
             self._on_target,
-            20,
+            qos_profile_sensor_data,
             callback_group=group,
         )
         self._contact_sub = node.create_subscription(
