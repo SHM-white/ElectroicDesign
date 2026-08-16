@@ -1,5 +1,6 @@
 # Codex Session 转交文档 - ElectroicDesign 项目修复
 
+> **最后更新**: 2026-08-16
 > **注意**：本文档根据 codex session 日志整理，标注"已完成"的任务需要实际验证，因为 session 中途断开，不确定最终状态。
 
 ---
@@ -9,7 +10,7 @@
 - **仓库**: `https://github.com/SHM-white/ElectroicDesign.git`
 - **工作目录**: `/home/shm-white/ElectroicDesign`
 - **类型**: 无人机 + 小车协同仿真项目（Gazebo + ROS2），用于比赛 D 题
-- **Session 时长**: 约 3 小时 (14:38 - 17:48)，中途断开
+- **运行环境**: WSL2 Ubuntu 22.04 + Docker
 
 ---
 
@@ -309,3 +310,147 @@
 - AprilTag 视觉定位
 - Docker 容器化构建
 - colcon 构建系统
+
+---
+
+## 九、2026-08-16 Session 完成的工作
+
+### 9.1 Docker 强制模式
+
+**问题**: WSL2 环境下 `/opt/ros/humble/setup.bash` 存在，`run_humble.sh` 的 `is_jammy` 检测会走本机路径，而不是 Docker。
+
+**解决方案**: 添加 `HUMBLE_FORCE_CONTAINER` 环境变量和 `--force-container` 命令行选项。
+
+**修改的文件**:
+1. `tools/run_humble.sh:114` - 添加 `HUMBLE_FORCE_CONTAINER` 检查
+2. `tools/run_competition.sh:11` - 添加 `HUMBLE_FORCE_CONTAINER` 变量定义
+3. `tools/run_competition.sh:94` - 添加 `--force-container` 命令行选项
+4. `tools/run_competition.sh:105` - `native_humble` 判断排除强制容器模式
+5. `tools/run_competition.sh:136` - 构建时传递 `HUMBLE_FORCE_CONTAINER`
+6. `tools/run_competition.sh:173` - 运行时传递 `HUMBLE_FORCE_CONTAINER`
+7. `tools/build_sim_packages.sh:24` - 修复 `LD_LIBRARY_PATH` 使用相对路径
+
+**使用方式**:
+```bash
+# 命令行参数
+tools/run_competition.sh --simulation --build --force-container
+
+# 或环境变量
+HUMBLE_FORCE_CONTAINER=1 tools/run_competition.sh --simulation --build
+```
+
+### 9.2 搜索行为修改
+
+**问题**: 原来的 SEARCHING 阶段没有实现向前搜索的逻辑，只是等待目标出现。
+
+**解决方案**: 添加 SEARCH_FORWARD 效果，实现向前搜索，移动一定距离后未找到目标则失败降落。
+
+**修改的文件**:
+1. `ed_uav_mission/ed_uav_mission/d_task_model.py` - 添加 `SEARCH_FORWARD` DTaskEffect 和 `SEARCH_DISTANCE_EXCEEDED` DTaskFault
+2. `ed_uav_mission/ed_uav_mission/d_task_events.py` - 添加 `search_distance_m` 参数到 DTaskRuntimeConfig
+3. `ed_uav_mission/ed_uav_mission/d_task_reducer.py` - 添加 SEARCHING 阶段的处理逻辑
+4. `ed_uav_mission/ed_uav_mission/competition_planner.py` - 添加 `search_forward` 方法
+5. `ed_uav_mission/ed_uav_mission/competition_runtime.py` - 添加 `search_forward` 回调和 SEARCH_FORWARD 效果执行
+6. `ed_uav_mission/ed_uav_mission/executor.py` - 添加 `_search_forward_task1` 方法
+7. `ed_uav_mission/ed_uav_mission/mission_model.py` - 添加 `search_distance_m` 参数到 CompetitionParams
+8. `ed_uav_mission/config/missions/d_arena_competition.yaml` - 添加 `search_distance_m: 2.0` 配置
+
+**当前行为树流程**:
+```
+WAITING_START → TAKEOFF → STABILIZING(3s) → MOVE_RIGHT(0.75m) → SEARCHING(向前2m) → [找到目标] → TRACKING/ESCORTING
+                                                                                    → [未找到] → SEARCH_DISTANCE_EXCEEDED → SAFE_HOVER → SAFE_RETURN → SAFE_LAND → ABORTED
+```
+
+### 9.3 无人机速度调整
+
+**问题**: 搜索的前进速度太慢，追不上小车。
+
+**解决方案**: 增加无人机的移动速度。
+
+**修改的文件**:
+1. `ed_uav_gazebo/ed_uav_gazebo/motion_policy.py:22` - `SIMULATOR_MOVE_SPEED_LIMIT_M_S` 从 0.6 增加到 1.0
+
+**注意**: 小车速度保持 0.15 m/s 不变（在 `sim.launch.py:139` 中配置）。
+
+---
+
+## 十、当前项目状态
+
+### 10.1 已完成
+
+1. ✅ Docker 强制模式支持
+2. ✅ 搜索行为树修改（SEARCH_FORWARD）
+3. ✅ 无人机速度调整（1.0 m/s）
+4. ✅ 构建系统修复（`--build` 参数正常工作）
+5. ✅ 仿真闭环基本可用
+
+### 10.2 未完成
+
+1. ❌ 搜索距离可能需要调整（当前 2.0m）
+2. ❌ 搜索行为可能需要优化（当前只是直线向前）
+3. ❌ 调试日志清理（大量 `print(... flush=True)`）
+4. ❌ Stage 4 脚本清理
+5. ❌ QoS 不兼容问题（`/d_task/target_observation` 发布者用 BEST_EFFORT，订阅者用 RELIABLE）
+6. ❌ 仿真流程端到端验证（reducer 转入 takeoff 后的后续流程）
+7. ❌ 二维雷达 Z 漂移问题
+8. ❌ Gazebo 场地重建（5m×4m）
+9. ❌ AprilTag 配置
+10. ❌ FAST-LIO 定位验收
+
+### 10.3 已知问题
+
+1. **QoS 不兼容**: `/d_task/target_observation` 发布者用 BEST_EFFORT，订阅者 mission_executor 用 RELIABLE，导致日志报 `No messages will be received`
+2. **搜索失败**: 当前搜索距离 2.0m 可能不够，需要根据实际场地调整
+3. **调试日志**: 多个文件中有大量 `print(... flush=True)` 调试输出，比赛前需移除或降级
+
+---
+
+## 十一、下一步工作建议
+
+### 11.1 短期（比赛前）
+
+1. **调整搜索距离**: 根据实际场地大小调整 `search_distance_m` 参数
+2. **清理调试日志**: 移除或降级 `sim_fcu.py`、`sim_car_controller.py`、`sim_mission_starter.py`、`lio_adapter.py`、`planar_odom_fuser.py`、`sim_localization.py`、`d_task_reducer.py`、`competition_runtime.py` 中的调试输出
+3. **修复 QoS 不兼容**: 统一 `RELIABILITY` 策略
+4. **端到端验证**: 跑完一次完整 30s 仿真确认闭环
+
+### 11.2 中期（比赛后）
+
+1. **Gazebo 场地重建**: 更新为 5m×4m 场地
+2. **AprilTag 配置**: 固定为 tag36h11 ID 0
+3. **FAST-LIO 定位验收**: 验证连续输出和 Z 稳定性
+4. **二维雷达 Z 漂移**: 通过 planar constraint 解决
+
+---
+
+## 十二、常用命令
+
+```bash
+# 构建并运行仿真（强制 Docker）
+tools/run_competition.sh --simulation --build --force-container
+
+# 仅构建
+tools/run_competition.sh --simulation --build --force-container
+
+# 运行仿真（不显示 GUI）
+tools/run_competition.sh --simulation --force-container --no-display
+
+# 运行仿真（手动启动）
+tools/run_competition.sh --simulation --force-container --manual-start
+
+# 查看帮助
+tools/run_competition.sh --help
+```
+
+---
+
+## 十三、关键配置文件
+
+| 文件 | 用途 |
+|------|------|
+| `ed_uav_mission/config/missions/d_arena_competition.yaml` | 任务配置（搜索距离、高度等） |
+| `ed_uav_localization/config/fields/d_arena_2026.yaml` | 场地配置（起飞点、路线等） |
+| `ed_uav_gazebo/launch/sim.launch.py` | 仿真启动配置（小车速度等） |
+| `ed_uav_gazebo/ed_uav_gazebo/motion_policy.py` | 无人机运动策略（速度限制等） |
+| `tools/run_competition.sh` | 主启动脚本 |
+| `tools/run_humble.sh` | Docker/本机 ROS2 切换脚本 |

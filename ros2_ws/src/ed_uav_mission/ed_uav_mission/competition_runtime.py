@@ -53,6 +53,7 @@ class CompetitionCallbacks:
     execute_takeoff: Callable[[ExecuteMission.Feedback], Awaitable[None]]
     send_hover: Callable[[float], Awaitable[None]]
     move_right: Callable[[ExecuteMission.Feedback, float], Awaitable[None]]
+    search_forward: Callable[[ExecuteMission.Feedback, float], Awaitable[None]]
     track_target: Callable[[TargetSnapshot, VehicleSnapshot, float], Awaitable[None]]
     release_payload: Callable[[TargetSnapshot, VehicleSnapshot], Awaitable[None]]
     descend_to_vehicle: Callable[[TargetSnapshot, VehicleSnapshot], Awaitable[None]]

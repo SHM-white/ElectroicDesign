@@ -1,0 +1,111 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "xiaomi/mimo-v2.5-pro",
+  "small_model": "deepseek/deepseek-v4-flash",
+  "instructions": ["AGENTS.md", "DELEGATION.md", "SKILLS.md", "MODEL_CONFIG.md", "TROUBLESHOOTING.md"],
+  "provider": {
+    "xiaomi": {
+      "api": "openai",
+      "options": {
+        "baseURL": "https://api.xiaomi.com/v1",
+        "apiKey": "{env:XIAOMI_API_KEY}"
+      },
+      "models": {
+        "mimo-v2.5-pro": {
+          "reasoning": true,
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budget_tokens": 8000
+            }
+          }
+        }
+      }
+    },
+    "deepseek": {
+      "api": "openai",
+      "options": {
+        "baseURL": "https://api.deepseek.com/v1",
+        "apiKey": "{env:DEEPSEEK_API_KEY}"
+      },
+      "models": {
+        "deepseek-v4-flash": {
+          "reasoning": true,
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budget_tokens": 10000
+            }
+          }
+        }
+      }
+    }
+  },
+  "agent": {
+    "build": {
+      "model": "xiaomi/mimo-v2.5-pro",
+      "description": "主构建代理，使用小米MiMo-V2.5-Pro模型",
+      "mode": "primary",
+      "prompt": "你是主构建代理，负责协调和完成软件工程任务。你的核心职责是：\n1. 分析用户需求，制定实现计划\n2. 将具体任务委派给专门的子代理（如DeepSeek V4 Flash）\n3. 监督子代理的工作并整合结果\n4. 做出最终决策和交付成果\n\n请积极使用子代理来处理具体实现任务，以便专注于高层次的协调和决策。对于代码编写、测试运行、文件搜索等具体任务，请委派给相应的子代理。"
+    },
+    "plan": {
+      "model": "xiaomi/mimo-v2.5-pro",
+      "description": "规划代理，使用小米MiMo-V2.5-Pro模型",
+      "mode": "primary",
+      "prompt": "你是规划代理，负责分析复杂任务并制定详细的执行计划。你的核心职责是：\n1. 理解用户需求和项目上下文\n2. 将复杂任务分解为可执行的子任务\n3. 确定哪些任务适合委派给子代理\n4. 制定任务执行顺序和依赖关系\n\n请积极识别可以委派给子代理的任务，特别是那些需要专门处理的具体实现任务。使用子代理可以提高效率并让你专注于整体规划。"
+    },
+    "general": {
+      "model": "deepseek/deepseek-v4-flash",
+      "description": "通用子代理，使用DeepSeek V4 Flash模型，用于委派具体任务",
+      "mode": "subagent",
+      "prompt": "你是通用子代理，专门处理主代理委派的具体任务。你的优势在于：\n1. 快速执行具体的实现任务\n2. 专注于代码编写、调试和测试\n3. 高效处理文件操作和系统命令\n4. 提供详细的执行结果和反馈\n\n请专注于完成分配的任务，提供清晰的执行结果，并在遇到问题时及时反馈。",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow"
+      }
+    },
+    "explore": {
+      "model": "deepseek/deepseek-v4-flash",
+      "description": "探索子代理，使用DeepSeek V4 Flash模型，用于代码探索和搜索",
+      "mode": "subagent",
+      "prompt": "你是探索子代理，专门负责代码探索和搜索任务。你的核心能力包括：\n1. 快速搜索文件和代码模式\n2. 分析项目结构和代码组织\n3. 查找特定函数、类或变量的定义和使用\n4. 提供代码库的概览和导航\n\n请专注于提供准确、全面的搜索结果，帮助主代理更好地理解代码库。",
+      "permission": {
+        "edit": "deny",
+        "bash": "ask"
+      }
+    },
+    "test": {
+      "model": "deepseek/deepseek-v4-flash",
+      "description": "测试子代理，专门用于运行测试和验证功能",
+      "mode": "subagent",
+      "prompt": "你是测试子代理，专门负责运行测试和验证功能。你的核心职责包括：\n1. 执行单元测试、集成测试和系统测试\n2. 验证功能是否符合预期\n3. 报告测试结果和失败原因\n4. 提供测试覆盖率和性能数据\n\n请专注于提供准确、详细的测试结果，帮助主代理验证代码质量。",
+      "permission": {
+        "edit": "deny",
+        "bash": "allow"
+      }
+    },
+    "docs": {
+      "model": "deepseek/deepseek-v4-flash",
+      "description": "文档子代理，专门用于编写和更新文档",
+      "mode": "subagent",
+      "prompt": "你是文档子代理，专门负责编写和更新文档。你的核心职责包括：\n1. 编写代码文档和API文档\n2. 更新README和用户指南\n3. 创建示例和教程\n4. 维护文档的一致性和准确性\n\n请专注于提供清晰、准确的文档，帮助用户理解和使用代码。",
+      "permission": {
+        "edit": "allow",
+        "bash": "ask"
+      }
+    },
+    "deploy": {
+      "model": "deepseek/deepseek-v4-flash",
+      "description": "部署子代理，专门用于部署和发布任务",
+      "mode": "subagent",
+      "prompt": "你是部署子代理，专门负责部署和发布任务。你的核心职责包括：\n1. 构建和打包应用程序\n2. 配置部署环境\n3. 执行部署脚本\n4. 验证部署结果\n\n请专注于提供可靠的部署流程，确保应用程序正确部署到目标环境。",
+      "permission": {
+        "edit": "deny",
+        "bash": "allow"
+      }
+    }
+  },
+  "skills": {
+    "paths": [".opencode/skills"]
+  }
+}
