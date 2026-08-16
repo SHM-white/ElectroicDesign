@@ -18,27 +18,27 @@
         <material><ambient>0.06 0.18 0.28 1</ambient><diffuse>0.08 0.35 0.55 1</diffuse></material>
       </visual>
       <sensor name="narrow_camera" type="camera">
-        <!-- Gazebo camera looks along sensor +X; +90deg pitch points +X down. -->
-        <pose>0.08 0 -0.08 0 1.5708 0</pose>
+        <!-- Camera placed well outside body box (0.42x0.32x0.12) to avoid occlusion -->
+        <pose>0.28 0.22 -0.10 0 1.5708 0</pose>
         <always_on>true</always_on><update_rate>15</update_rate><visualize>true</visualize>
         <topic>/camera/narrow/image_raw</topic>
         <ignition_frame_id>camera_narrow_optical_frame</ignition_frame_id>
         <camera>
           <horizontal_fov>1.05</horizontal_fov>
           <camera_info_topic>/camera/narrow/camera_info</camera_info_topic>
-          <image><width>640</width><height>480</height><format>R8G8B8</format></image>
+          <image><width>1280</width><height>960</height><format>R8G8B8</format></image>
           <clip><near>0.05</near><far>80</far></clip>
         </camera>
       </sensor>
       <sensor name="wide_camera" type="camera">
-        <pose>-0.04 0 -0.08 0 1.5708 0</pose>
+        <pose>-0.28 -0.22 -0.10 0 1.5708 0</pose>
         <always_on>true</always_on><update_rate>10</update_rate><visualize>true</visualize>
         <topic>/camera/wide/image_raw</topic>
         <ignition_frame_id>camera_wide_optical_frame</ignition_frame_id>
         <camera>
           <horizontal_fov>1.75</horizontal_fov>
           <camera_info_topic>/camera/wide/camera_info</camera_info_topic>
-          <image><width>640</width><height>360</height><format>R8G8B8</format></image>
+          <image><width>1280</width><height>720</height><format>R8G8B8</format></image>
           <clip><near>0.05</near><far>80</far></clip>
         </camera>
       </sensor>
@@ -60,7 +60,7 @@
       </sensor>
       <sensor name="rangefinder" type="ray">
         <!-- Gazebo ray axis is +X; +90deg pitch points it down along -Z. -->
-        <pose>0 0 -0.08 0 1.5708 0</pose>
+        <pose>0 0 -0.10 0 1.5708 0</pose>
         <always_on>true</always_on><update_rate>20</update_rate>
         <topic>/rangefinder/range</topic>
         <ray><scan><horizontal><samples>1</samples><resolution>1</resolution><min_angle>0</min_angle><max_angle>0</max_angle></horizontal></scan><range><min>0.08</min><max>8.0</max><resolution>0.01</resolution></range></ray>

@@ -38,6 +38,7 @@ setup(
             "planar_odom_fuser = ed_uav_gazebo.planar_odom_fuser:main",
             "sim_car_controller = ed_uav_gazebo.sim_car_controller:main",
             "sim_mission_starter = ed_uav_gazebo.sim_mission_starter:main",
+            "camera_debug = ed_uav_gazebo.camera_debug:main",
         ],
     },
 )

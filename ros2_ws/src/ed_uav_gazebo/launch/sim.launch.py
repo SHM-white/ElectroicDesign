@@ -99,13 +99,50 @@ def generate_launch_description() -> LaunchDescription:
                 PythonLaunchDescriptionSource(str(navigation_share / "launch" / "planner_only.launch.py")),
                 launch_arguments={"use_sim_time": LaunchConfiguration("use_sim_time")}.items(),
             ),
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(str(perception_share / "launch" / "target_observation.launch.py")),
-                launch_arguments={
+            # 新的双相机独立检测架构
+            Node(
+                package="ed_uav_perception",
+                executable="narrow_detector",
+                name="narrow_detector",
+                output="screen",
+                parameters=[{
                     "use_sim_time": LaunchConfiguration("use_sim_time"),
-                    "vehicle_topic": "/vehicle/telemetry",
+                    "target_tag_id": 0,
                     "target_revision": "d2026-apriltag-v1",
-                }.items(),
+                }],
+            ),
+            Node(
+                package="ed_uav_perception",
+                executable="wide_detector",
+                name="wide_detector",
+                output="screen",
+                parameters=[{
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                    "target_tag_id": 0,
+                    "target_revision": "d2026-apriltag-v1",
+                }],
+            ),
+            Node(
+                package="ed_uav_perception",
+                executable="target_fusion",
+                name="target_fusion",
+                output="screen",
+                parameters=[{
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                    "max_position_jump": 0.5,
+                    "slop": 0.1,
+                }],
+            ),
+            Node(
+                package="ed_uav_perception",
+                executable="perception_visualizer",
+                name="perception_visualizer",
+                output="screen",
+                parameters=[{
+                    "use_sim_time": LaunchConfiguration("use_sim_time"),
+                    "recording_dir": "debug_recordings",
+                }],
+                condition=IfCondition(LaunchConfiguration("gui")),
             ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(

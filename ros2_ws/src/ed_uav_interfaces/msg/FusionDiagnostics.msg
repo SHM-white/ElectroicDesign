@@ -1,0 +1,11 @@
+# 融合层诊断信息
+std_msgs/Header header
+string fusion_source
+float64 narrow_quality
+float64 wide_quality
+float64 fused_quality
+float64[3] fused_position_m
+float64[3] kalman_velocity
+float64 kalman_uncertainty
+bool is_fresh
+int32 consecutive_misses

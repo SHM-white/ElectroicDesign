@@ -86,7 +86,7 @@ def observe_target(request: ObservationRequest) -> ObservationResult:
     vehicle_age = (
         request.frame.evaluation_steady_sec - request.motion.receipt_steady_sec
     )
-    if vehicle_age < 0.0:
+    if vehicle_age < -0.5:
         return _reject(request, RejectReason.FUTURE_VEHICLE)
     if vehicle_age > request.limits.vehicle_freshness_sec:
         return _reject(request, RejectReason.STALE_VEHICLE)
@@ -102,7 +102,7 @@ def observe_target(request: ObservationRequest) -> ObservationResult:
     acquisition_delta = (
         request.frame.acquisition_sec - request.motion.acquisition_sec
     )
-    if acquisition_delta < 0.0:
+    if acquisition_delta < -0.5:
         return _reject(request, RejectReason.FUTURE_VEHICLE)
     motion = request.motion
     if motion.heading_rad is not None:

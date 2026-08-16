@@ -64,7 +64,7 @@ def validate_vehicle(
     acquisition_sec = stamp_seconds(message.acquisition_stamp)
     if (
         previous_acquisition_sec is not None
-        and acquisition_sec <= previous_acquisition_sec
+        and acquisition_sec < previous_acquisition_sec - 0.5
     ):
         return RejectReason.VEHICLE_ACQUISITION_REGRESSION
     return None

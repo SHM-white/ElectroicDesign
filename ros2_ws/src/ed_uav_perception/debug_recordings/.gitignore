@@ -1,0 +1,9 @@
+# Debug recordings
+*.avi
+*.mp4
+*.png
+*.jpg
+
+# Keep this file
+!.gitignore
+!README.md

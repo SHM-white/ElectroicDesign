@@ -16,6 +16,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MissionStatus.msg"
   "msg/PayloadContactState.msg"
   "msg/H7GpioCommand.msg"
+  "msg/PerceptionDiagnostics.msg"
+  "msg/FusionDiagnostics.msg"
   "action/FlightCommand.action"
   "action/ExecuteMission.action"
   "srv/StartMapSession.srv"

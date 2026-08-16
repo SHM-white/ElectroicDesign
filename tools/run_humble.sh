@@ -148,7 +148,7 @@ main() {
         "$image_name"
     )
     if [[ "${HUMBLE_NETWORK:-}" == "host" ]]; then
-        container_run_args+=(--network host)
+        container_run_args+=(--net host --ipc host)
     fi
 
     if ((interactive_mode)); then

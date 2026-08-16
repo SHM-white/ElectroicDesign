@@ -67,6 +67,12 @@ CAMERA_INFO_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.VOLATILE,
 )
+IMAGE_QOS = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+)
 
 # Camera mounting yaw offsets (rotation about optical Z axis).
 # Standard optical frame assumes image-top = forward (nose).
@@ -308,7 +314,7 @@ class TargetObservationNode(Node):
             Image,
             "/camera/narrow/image_raw",
             lambda msg: self._image_callback(msg, "narrow"),
-            qos_profile_sensor_data,
+            VEHICLE_QOS,
         )
         self.create_subscription(
             CameraInfo,
@@ -320,7 +326,7 @@ class TargetObservationNode(Node):
             Image,
             "/camera/wide/image_raw",
             lambda msg: self._image_callback(msg, "wide"),
-            qos_profile_sensor_data,
+            VEHICLE_QOS,
         )
         self.create_subscription(
             VehicleTelemetry,
@@ -331,10 +337,10 @@ class TargetObservationNode(Node):
 
         # ── Publishers ──────────────────────────────────────────────────
         self._publisher = self.create_publisher(
-            TargetObservation, "/d_task/target_observation", qos_profile_sensor_data
+            TargetObservation, "/d_task/target_observation", CAMERA_INFO_QOS
         )
         self._annotated_publisher = self.create_publisher(
-            Image, ANNOTATED_IMAGE_TOPIC, qos_profile_sensor_data
+            Image, ANNOTATED_IMAGE_TOPIC, CAMERA_INFO_QOS
         )
 
         self.get_logger().info(
@@ -370,9 +376,13 @@ class TargetObservationNode(Node):
             self._last_vehicle_acquisition_sec,
         )
         if reason is not None:
+            if self._vehicle is not None:
+                self.get_logger().warn(f"Vehicle telemetry rejected: {reason.value}")
             self._vehicle = None
             self._vehicle_reason = reason
             return
+        if self._vehicle is None:
+            self.get_logger().info("Vehicle telemetry accepted — now valid")
         self._vehicle = message
         self._vehicle_reason = RejectReason.STALE_VEHICLE
         self._vehicle_receipt_steady_sec = receipt
@@ -401,14 +411,21 @@ class TargetObservationNode(Node):
         cam.last_acquisition_sec = acquisition_sec
 
         if cam.info is None:
+            self.get_logger().warn(f"[{role}] No camera_info yet — rejecting frame")
             self._publish_early_rejection(RejectReason.UNCALIBRATED, message, role)
             return
         if self._vehicle is None:
+            self.get_logger().warn(f"[{role}] No valid vehicle telemetry (reason={self._vehicle_reason.value}) — rejecting frame")
             self._publish_early_rejection(self._vehicle_reason, message, role)
             return
 
         binding_reason = validate_camera_binding(cam.info, message)
         if binding_reason is not None:
+            self.get_logger().warn(
+                f"[{role}] Camera binding rejected: {binding_reason.value} "
+                f"(info={cam.info.width}x{cam.info.height} frame={cam.info.header.frame_id} "
+                f"image={message.width}x{message.height} frame={message.header.frame_id})"
+            )
             self._publish_early_rejection(binding_reason, message, role)
             return
 
@@ -417,6 +434,11 @@ class TargetObservationNode(Node):
         except CvBridgeError:
             self._publish_early_rejection(RejectReason.INVALID_INPUT, message, role)
             return
+
+        self.get_logger().info(
+            f"[{role}] Image decoded: {decoded.shape[1]}x{decoded.shape[0]} "
+            f"min={decoded.min()} max={decoded.max()} mean={decoded.mean():.0f}"
+        )
 
         # Build per-camera request
         cam.sequence += 1
@@ -460,6 +482,45 @@ class TargetObservationNode(Node):
         )
 
         result = observe_target(request)
+
+        if isinstance(result, AcceptedObservation):
+            self.get_logger().info(
+                f"[{role}] TAG DETECTED! quality={result.pose.quality:.3f} "
+                f"t=({result.pose.translation_m[0]:.2f},{result.pose.translation_m[1]:.2f},{result.pose.translation_m[2]:.2f})"
+            )
+        else:
+            # Save image and run direct detection for debugging
+            import cv2
+            gray = decoded if decoded.ndim == 2 else cv2.cvtColor(decoded, cv2.COLOR_BGR2GRAY)
+            
+            # Save raw image periodically
+            if cam.sequence % 30 == 1:
+                import os
+                save_dir = '/workspace/target_node_frames'
+                os.makedirs(save_dir, exist_ok=True)
+                cv2.imwrite(f'{save_dir}/{role}_{cam.sequence:04d}.png', decoded)
+                self.get_logger().info(f"[{role}] Saved frame {cam.sequence} to {save_dir}")
+            
+            # Direct ArUco test with exact same params as camera_debug
+            d = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
+            p = cv2.aruco.DetectorParameters_create()
+            p.adaptiveThreshWinSizeMin = 3
+            p.adaptiveThreshWinSizeMax = 201
+            p.adaptiveThreshWinSizeStep = 4
+            p.adaptiveThreshConstant = 3
+            p.minMarkerPerimeterRate = 0.03
+            p.maxMarkerPerimeterRate = 4.0
+            p.polygonalApproxAccuracyRate = 0.05
+            p.minCornerDistanceRate = 0.05
+            p.minDistanceToBorder = 0
+            p.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+            corners, ids, rej = cv2.aruco.detectMarkers(gray, d, parameters=p)
+            direct_found = ids is not None and len(ids) > 0
+            self.get_logger().info(
+                f"[{role}] Pipeline: {result.reject_reason.value} | Direct ArUco: "
+                f"{'FOUND id=' + str(ids.flatten()) if direct_found else f'NOT FOUND rej={len(rej)}'} | "
+                f"img={decoded.shape[1]}x{decoded.shape[0]} min={decoded.min()} max={decoded.max()} mean={decoded.mean():.0f}"
+            )
 
         # Update per-camera prior (in camera frame, for motion-prior gating)
         if isinstance(result, AcceptedObservation):

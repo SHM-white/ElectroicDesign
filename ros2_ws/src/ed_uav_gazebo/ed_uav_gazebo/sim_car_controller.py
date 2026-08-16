@@ -90,7 +90,7 @@ class SimCarController(Node):
         )
         message.route_stage = int(self._last_command.stage if self._started else VehicleTelemetry.ROUTE_START)
         message.lap_complete = bool(self._started and self._last_command.complete)
-        message.frame_id = "world"
+        message.frame_id = "vehicle_start"
         self._telemetry_pub.publish(message)
 
 

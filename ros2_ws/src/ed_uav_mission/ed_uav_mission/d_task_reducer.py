@@ -179,12 +179,14 @@ class DTaskRuntime:
         if now_s - target.observed_at_s > self.config.target_freshness_s:
             _log(f"target stale: age={now_s - target.observed_at_s:.1f}s > {self.config.target_freshness_s:.1f}s")
             return self._interrupt(now_s, DTaskFault.TARGET_STALE, "target observation stale")
+        if not target.valid:
+            # Invalid observation (tag not detected) is normal during search — ignore silently
+            return DTaskTransition(state=self.state)
         if (
-            not target.valid
-            or target.relative_error_m > self.config.maximum_relative_error_m
+            target.relative_error_m > self.config.maximum_relative_error_m
             or (self._last_target_sequence is not None and target.sequence <= self._last_target_sequence)
         ):
-            _log(f"target outlier: valid={target.valid} err={target.relative_error_m:.2f}m reason={target.rejection_reason}")
+            _log(f"target outlier: err={target.relative_error_m:.2f}m reason={target.rejection_reason}")
             return self._interrupt(now_s, DTaskFault.TARGET_OUTLIER, target.rejection_reason or "target outlier")
         self._last_target_sequence = target.sequence
         _log(f"target observed: phase={self.state.phase.value} err={target.relative_error_m:.2f}m")

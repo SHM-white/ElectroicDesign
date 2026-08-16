@@ -1,0 +1,13 @@
+# 单相机诊断信息
+std_msgs/Header header
+string camera_role
+float64 fps
+float64 latency_ms
+int32 frame_count
+int32 detection_count
+int32 rejection_count
+string last_reject_reason
+float64 quality
+float64 reprojection_rms
+float64[3] translation_m
+bool is_tracking

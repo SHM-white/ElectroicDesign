@@ -28,6 +28,10 @@ setup(
             "detector_node = ed_uav_perception.detector_node:main",
             "target_observation_node = ed_uav_perception.target_observation_node:main",
             "visual_servo_node = ed_uav_perception.visual_servo_node:main",
+            "narrow_detector = ed_uav_perception.narrow_detector_node:main_narrow",
+            "wide_detector = ed_uav_perception.wide_detector_node:main_wide",
+            "target_fusion = ed_uav_perception.target_fusion_node:main",
+            "perception_visualizer = ed_uav_perception.perception_visualizer_node:main",
         ],
     },
 )
