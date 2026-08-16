@@ -81,7 +81,7 @@ class SingleCameraDetectorNode(Node):
         )
         self.create_subscription(
             VehicleTelemetry,
-            '/d_task/vehicle/telemetry',
+            '/vehicle/telemetry',
             self._vehicle_callback,
             sensor_qos,
         )
@@ -156,6 +156,13 @@ class SingleCameraDetectorNode(Node):
         """图像回调"""
         start_time = time.monotonic()
         self.frame_count += 1
+
+        # 每100帧输出一次日志
+        if self.frame_count % 100 == 1:
+            self.get_logger().info(
+                f'{self.camera_role} image received: frame={self.frame_count}, '
+                f'size={msg.width}x{msg.height}, encoding={msg.encoding}'
+            )
 
         # 计算FPS
         current_time = time.monotonic()
@@ -280,6 +287,13 @@ class SingleCameraDetectorNode(Node):
         """处理检测失败"""
         self.rejection_count += 1
         self.last_reject_reason = result.reject_reason.value
+
+        # 每10次拒绝输出一次日志
+        if self.rejection_count % 10 == 1:
+            self.get_logger().info(
+                f'{self.camera_role} detection rejected: reason={result.reject_reason.value}, '
+                f'count={self.rejection_count}'
+            )
 
         # 发布拒绝结果
         rejection_msg = self._build_rejection_msg(result, msg)
@@ -439,6 +453,8 @@ class SingleCameraDetectorNode(Node):
 
     def _publish_rejection(self, reason: str, msg: Image) -> None:
         """发布早期拒绝"""
+        self.rejection_count += 1
+        
         rejection_msg = TargetObservation()
         rejection_msg.contract_version = TargetObservation.CONTRACT_VERSION
         rejection_msg.acquisition_stamp = msg.header.stamp
@@ -459,7 +475,7 @@ class SingleCameraDetectorNode(Node):
         diag.latency_ms = 0.0
         diag.frame_count = self.frame_count
         diag.detection_count = self.detection_count
-        diag.rejection_count = self.rejection_count + 1
+        diag.rejection_count = self.rejection_count
         diag.last_reject_reason = reason
         diag.quality = 0.0
         diag.is_tracking = False

@@ -193,8 +193,8 @@ class PerceptionVisualizerNode(Node):
         cv2.resizeWindow('Wide Camera', int(640 * scale), int(480 * scale))
         cv2.resizeWindow('Fusion Status', int(400 * scale), int(300 * scale))
 
-        # 定时器用于更新显示
-        self.create_timer(0.033, self._update_display)  # ~30fps
+        # 定时器用于更新显示（15fps以降低CPU负载）
+        self.create_timer(0.067, self._update_display)  # ~15fps
 
         self.get_logger().info(
             'Perception Visualizer started\n'
@@ -231,11 +231,19 @@ class PerceptionVisualizerNode(Node):
 
     def _update_display(self) -> None:
         """更新显示"""
+        # 显示尺寸限制（提高性能）
+        display_width = 640
+
         # 窄相机窗口
         if self.narrow_image is not None:
             overlay = self._add_camera_overlay(
                 self.narrow_image.copy(), self.narrow_diag, 'Narrow'
             )
+            # 缩放以提高显示性能
+            h, w = overlay.shape[:2]
+            if w > display_width:
+                scale = display_width / w
+                overlay = cv2.resize(overlay, (display_width, int(h * scale)))
             cv2.imshow('Narrow Camera', overlay)
 
         # 广角窗口
@@ -243,13 +251,18 @@ class PerceptionVisualizerNode(Node):
             overlay = self._add_camera_overlay(
                 self.wide_image.copy(), self.wide_diag, 'Wide'
             )
+            # 缩放以提高显示性能
+            h, w = overlay.shape[:2]
+            if w > display_width:
+                scale = display_width / w
+                overlay = cv2.resize(overlay, (display_width, int(h * scale)))
             cv2.imshow('Wide Camera', overlay)
 
         # 融合状态窗口
         status = self._create_fusion_status()
         cv2.imshow('Fusion Status', status)
 
-        # 录制
+        # 录制（使用原始分辨率）
         self.recorder.record_frames(self.narrow_image, self.wide_image)
 
         # 处理按键

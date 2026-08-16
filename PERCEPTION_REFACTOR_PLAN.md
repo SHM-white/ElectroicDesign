@@ -31,11 +31,11 @@
 ├─────────────────────────────────────────────────────────────────────────┤
 │  /camera/narrow/image_raw ──┐                                           │
 │  /camera/narrow/camera_info ┼─→ [narrow_detector_node]                  │
-│  /d_task/vehicle/telemetry ─┘         │                                 │
+│  /vehicle/telemetry ────────┘         │                                 │
 │                                       │                                 │
 │  /camera/wide/image_raw ────┐         │                                 │
 │  /camera/wide/camera_info ──┼─→ [wide_detector_node]                    │
-│  /d_task/vehicle/telemetry ─┘         │                                 │
+│  /vehicle/telemetry ────────┘         │                                 │
 └───────────────────────────────────────┼─────────────────────────────────┘
                                         ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -56,7 +56,7 @@
 ├─────────────────────────────────────────────────────────────────────────┤
 │  [target_fusion_node]                                                   │
 │  ├─ 订阅: /perception/{narrow,wide}/detection                          │
-│  ├─ 时间同步: ApproximateTimeSynchronizer                              │
+│  ├─ 时间同步: 定时器融合 (20Hz)                                        │
 │  ├─ 跳变过滤: 50cm阈值 + Kalman预测                                    │
 │  ├─ 发布:                                                              │
 │  │   /d_task/target_observation (决策用，BE)                           │
@@ -185,7 +185,7 @@ ros2_ws/src/ed_uav_gazebo/ed_uav_gazebo/camera_debug.py
 - 异步处理：标注图像异步发布
 
 ### 5.3 融合策略
-- 时间同步：ApproximateTimeSynchronizer，slop=0.1s
+- 时间同步：定时器融合 (20Hz)，而非 message_filters
 - 跳变过滤：50cm阈值，使用Kalman预测
 - 质量加权：根据检测质量加权融合
 - Kalman滤波：恒速模型，平滑输出
@@ -218,3 +218,85 @@ ros2_ws/src/ed_uav_gazebo/ed_uav_gazebo/camera_debug.py
 | 5 | 集成测试 | 1小时 |
 | 6 | 清理与优化 | 30分钟 |
 | **总计** | | **7小时** |
+
+---
+
+## 八、待解决问题
+
+### 问题 1: narrow_detector 可能崩溃
+**现象**: narrow_detector 在运行一段时间后崩溃（exit code 1）
+
+**可能原因**:
+1. 内存问题 - 处理大图像时内存不足
+2. OpenCV 问题 - 某些操作可能导致段错误
+3. 多线程问题 - `_executor.submit()` 可能导致竞态条件
+
+**调试建议**:
+```bash
+# 检查崩溃日志
+docker exec <container> cat /opt/ed-ros-home/log/python3_49_*.log
+
+# 检查进程状态
+docker exec <container> ps aux | grep narrow_detector
+```
+
+### 问题 2: WSL 和 Docker 之间的 DDS 发现
+**现象**: 使用 `--network-host` 后，容器外的 rqt 仍然看不到容器内的话题
+
+**原因**: WSL2 的网络隔离导致 DDS 多播发现不工作
+
+**临时解决方案**:
+```bash
+# 在容器内使用 ros2 命令行工具
+docker exec <container> /tmp/ros_topics.sh
+
+# 或者创建快捷脚本
+./tools/ros2_exec.sh "ros2 topic hz /camera/wide/image_raw"
+```
+
+**长期解决方案**:
+1. 配置 Fast DDS 使用单播发现
+2. 或者在容器内安装 rqt
+
+### 问题 3: 检测性能优化
+**当前状态**: 检测频率约 5-8 Hz
+
+**优化建议**:
+1. 降低图像处理分辨率（从 1280x960 降到 640x480）
+2. 使用 GPU 加速 ArUco 检测
+3. 优化多线程处理
+
+---
+
+## 九、当前性能指标
+
+| 指标 | 值 | 说明 |
+|------|-----|------|
+| 车辆遥测频率 | ~8 Hz | ✅ 正常 |
+| 窄相机 FPS | ~5-8 Hz | ⚠️ 可优化 |
+| 广角相机 FPS | ~3-5 Hz | ⚠️ 可优化 |
+| 显示帧率 | 15 fps | ✅ 流畅 |
+| 显示分辨率 | 640px | ✅ 清晰 |
+
+---
+
+## 十、下一步工作
+
+### 优先级 1：稳定性
+1. 调查并修复 `narrow_detector` 崩溃问题
+2. 添加更详细的错误处理和日志
+
+### 优先级 2：性能优化
+1. 降低图像处理分辨率
+2. 使用 GPU 加速 ArUco 检测
+3. 优化多线程处理
+
+### 优先级 3：调试工具
+1. 解决 WSL 和 Docker 之间的 DDS 发现问题
+2. 在容器内安装 rqt
+3. 添加更详细的性能监控
+
+### 优先级 4：功能完善
+1. 添加动态分辨率调整
+2. 添加检测结果可视化
+3. 添加录制和回放功能

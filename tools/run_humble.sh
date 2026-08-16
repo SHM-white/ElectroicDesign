@@ -138,18 +138,22 @@ main() {
         )
     fi
     ensure_image "$runtime" "$base_ref" "$fingerprint"
+    local -a network_run_args=()
+    if [[ "${HUMBLE_NETWORK:-}" == "host" ]]; then
+        # 必须放在 IMAGE 之前：docker 会把 IMAGE 之后的所有参数当作容器命令（CMD），
+        # --net/--ipc 若在末尾会被 /ros_entrypoint.sh 的 exec "$@" 当作 bash 选项而报错。
+        network_run_args=(--net host --ipc host)
+    fi
     container_run_args=(
         run --interactive --rm --init --platform linux/amd64
         --env ROS_HOME=/opt/ed-ros-home
         "${gui_run_args[@]}"
         "${v4l2_run_args[@]}"
+        "${network_run_args[@]}"
         --volume "$repo_root:/workspace"
         --workdir /workspace
         "$image_name"
     )
-    if [[ "${HUMBLE_NETWORK:-}" == "host" ]]; then
-        container_run_args+=(--net host --ipc host)
-    fi
 
     if ((interactive_mode)); then
         container_run_args=(run --name "$container_name" "${container_run_args[@]:1}")
